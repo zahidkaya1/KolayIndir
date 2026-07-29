@@ -541,4 +541,47 @@ def test_download_worker_progress_details_signal(tmp_path):
     assert received_details[0]["total_bytes"] == 1000000
 
 
+def test_option_cards_structure_and_clicking(tmp_path, monkeypatch):
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    _app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    assert win.playlist_card.objectName() == "playlistOptionCard"
+    assert win.auto_open_card.objectName() == "autoOpenOptionCard"
+
+    assert win.playlist_checkbox.objectName() == "playlistCheckBox"
+    assert win.auto_open_checkbox.objectName() == "autoOpenCheckBox"
+
+    assert bool(win.playlist_checkbox.text()) is True
+    assert bool(win.auto_open_checkbox.text()) is True
+
+    assert "playlistOptionCard" in APP_STYLE
+    assert "autoOpenOptionCard" in APP_STYLE
+    assert 'optionCard="true"' in APP_STYLE
+
+    assert win.playlist_checkbox.isChecked() is False
+    click_event = QMouseEvent(
+        QMouseEvent.Type.MouseButtonPress,
+        QPointF(5, 5),
+        QPointF(5, 5),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+    win.playlist_card.mousePressEvent(click_event)
+    assert win.playlist_checkbox.isChecked() is True
+
+    win.auto_open_checkbox.setChecked(True)
+    loaded = load_settings()
+    assert loaded.get("auto_open_folder") is True
+    assert "playlist" not in loaded
+
+
+
 

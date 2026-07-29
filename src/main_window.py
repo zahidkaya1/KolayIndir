@@ -61,6 +61,7 @@ from src.utils import (
     configure_combo_box,
     set_combo_value,
 )
+from src.widgets import OptionCard
 
 
 class MainWindow(QMainWindow):
@@ -207,19 +208,35 @@ class MainWindow(QMainWindow):
         configure_combo_box(self.browser_combo)
 
         self.playlist_checkbox = QCheckBox(
-            "Bağlantı oynatma listesiyse tamamını indir"
+            "Oynatma listesinin tamamını indir"
         )
+        self.playlist_checkbox.setObjectName("playlistCheckBox")
+        self.playlist_card = OptionCard(
+            self.playlist_checkbox,
+            object_name="playlistOptionCard",
+        )
+
         self.auto_open_checkbox = QCheckBox("İndirme tamamlandığında klasörü aç")
+        self.auto_open_checkbox.setObjectName("autoOpenCheckBox")
         self.auto_open_checkbox.toggled.connect(self._save_current_settings)
+        self.auto_open_card = OptionCard(
+            self.auto_open_checkbox,
+            object_name="autoOpenOptionCard",
+        )
 
         for column, text in enumerate(("İndirme türü", "Kalite", "Oturum kullanımı")):
             options_grid.addWidget(QLabel(text), 0, column)
         options_grid.addWidget(self.media_combo, 1, 0)
         options_grid.addWidget(self.quality_combo, 1, 1)
         options_grid.addWidget(self.browser_combo, 1, 2)
-        options_grid.addWidget(self.playlist_checkbox, 2, 0, 1, 2)
-        options_grid.addWidget(self.auto_open_checkbox, 2, 2, 1, 1)
         layout.addLayout(options_grid)
+
+        cards_box = QVBoxLayout()
+        cards_box.setSpacing(6)
+        cards_box.addWidget(self.playlist_card)
+        cards_box.addWidget(self.auto_open_card)
+        layout.addLayout(cards_box)
+
 
         layout.addWidget(QLabel("İndirme klasörü"))
         self.folder_input = QLineEdit()

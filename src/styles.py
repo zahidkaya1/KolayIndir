@@ -270,4 +270,47 @@ QScrollArea {
     border: none;
     background-color: transparent;
 }
+
+/* Option Card Ayar Kartı Stilleri */
+QFrame[optionCard="true"], QFrame#playlistOptionCard, QFrame#autoOpenOptionCard {
+    background-color: #ffffff;
+    border: 1px solid #d9e1ec;
+    border-radius: 8px;
+    min-height: 38px;
+}
+
+QFrame[optionCard="true"]:hover, QFrame#playlistOptionCard:hover, QFrame#autoOpenOptionCard:hover {
+    background-color: #f1f5f9;
+    border: 1px solid #b8c6d9;
+}
+
+QFrame[optionCard="true"][checked="true"], QFrame#playlistOptionCard[checked="true"], QFrame#autoOpenOptionCard[checked="true"] {
+    background-color: #eaf2ff;
+    border: 1px solid #2563eb;
+}
+
+QCheckBox#playlistCheckBox, QCheckBox#autoOpenCheckBox, QCheckBox.settingsOptionCheck {
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 14px;
+    spacing: 10px;
+}
+
+QCheckBox#playlistCheckBox::indicator, QCheckBox#autoOpenCheckBox::indicator, QCheckBox.settingsOptionCheck::indicator {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1.5px solid #94a3b8;
+    background-color: #ffffff;
+}
+
+QCheckBox#playlistCheckBox::indicator:hover, QCheckBox#autoOpenCheckBox::indicator:hover, QCheckBox.settingsOptionCheck::indicator:hover {
+    border-color: #2563eb;
+}
+
+QCheckBox#playlistCheckBox::indicator:checked, QCheckBox#autoOpenCheckBox::indicator:checked, QCheckBox.settingsOptionCheck::indicator:checked {
+    background-color: #2563eb;
+    border-color: #2563eb;
+}
 """
+
