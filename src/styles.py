@@ -32,7 +32,7 @@ QLabel#statusLabel {
     font-weight: 600;
 }
 
-QLineEdit, QComboBox, QTextEdit {
+QLineEdit, QTextEdit {
     background: #ffffff;
     color: #172033;
     border: 1px solid #cfd6e2;
@@ -40,9 +40,54 @@ QLineEdit, QComboBox, QTextEdit {
     padding: 9px;
 }
 
-QLineEdit:focus, QComboBox:focus, QTextEdit:focus {
+QLineEdit:focus, QTextEdit:focus {
     border: 1px solid #2563eb;
 }
+
+QComboBox, QComboBox#mediaTypeCombo, QComboBox#qualityCombo, QComboBox#browserCombo {
+    min-height: 38px;
+    padding: 0px 34px 0px 10px;
+    background-color: #ffffff;
+    color: #172033;
+    border: 1px solid #cfd6e2;
+    border-radius: 8px;
+    font-size: 14px;
+    selection-background-color: #e8f0fe;
+    selection-color: #174ea6;
+}
+
+QComboBox:focus, QComboBox#mediaTypeCombo:focus, QComboBox#qualityCombo:focus, QComboBox#browserCombo:focus {
+    border: 1px solid #2563eb;
+    color: #172033;
+}
+
+QComboBox:disabled, QComboBox#mediaTypeCombo:disabled, QComboBox#qualityCombo:disabled, QComboBox#browserCombo:disabled {
+    background-color: #f2f4f7;
+    color: #667085;
+    border-color: #d0d5dd;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 30px;
+    border-left: 1px solid #d0d5dd;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+QComboBox QAbstractItemView {
+    min-width: 180px;
+    background-color: #ffffff;
+    color: #172033;
+    selection-background-color: #e8f0fe;
+    selection-color: #174ea6;
+    border: 1px solid #d0d5dd;
+    outline: 0;
+    padding: 4px;
+}
+
+
 
 QPushButton {
     background: #eef2f7;

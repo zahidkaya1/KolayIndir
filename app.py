@@ -11,9 +11,11 @@ from src.styles import APP_STYLE
 
 def main() -> int:
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
     app.setApplicationName(APP_NAME)
     app.setStyleSheet(APP_STYLE)
     window = MainWindow()
+
     window.show()
     return app.exec()
 

@@ -9,7 +9,12 @@ from urllib.request import Request, urlopen
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from src.config import APP_NAME, APP_VERSION, GITHUB_OWNER, GITHUB_REPO
+from src.config import (
+    APP_VERSION,
+    GITHUB_OWNER,
+    GITHUB_REPO,
+    HTTP_USER_AGENT,
+)
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:
@@ -19,17 +24,21 @@ def _version_tuple(version: str) -> tuple[int, ...]:
 class UpdateWorker(QObject):
     update_available = Signal(str, str, str)
     up_to_date = Signal()
+    no_release_found = Signal()
     error = Signal(str)
     finished = Signal()
 
     @Slot()
     def run(self) -> None:
         endpoint = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
-        request = Request(endpoint, headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": f"{APP_NAME}/{APP_VERSION}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        })
+        request = Request(
+            endpoint,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": HTTP_USER_AGENT,
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
         try:
             with urlopen(request, timeout=10) as response:
                 payload = json.load(response)
@@ -44,7 +53,7 @@ class UpdateWorker(QObject):
                 self.up_to_date.emit()
         except HTTPError as exc:
             if exc.code == 404:
-                self.error.emit("Henüz GitHub Release bulunamadı veya depo adı güncel değil.")
+                self.no_release_found.emit()
             else:
                 self.error.emit(f"Güncelleme sorgusu başarısız: HTTP {exc.code}")
         except (URLError, TimeoutError):
@@ -53,3 +62,4 @@ class UpdateWorker(QObject):
             self.error.emit(f"Güncelleme bilgisi okunamadı: {exc}")
         finally:
             self.finished.emit()
+

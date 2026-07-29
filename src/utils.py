@@ -4,10 +4,76 @@ from __future__ import annotations
 
 import re
 
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QComboBox
+
 _ANSI_REGEX = re.compile(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]")
 
 
+from PySide6.QtWidgets import QSizePolicy
+
+_ANSI_REGEX = re.compile(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]")
+
+
+def configure_combo_box(combo: QComboBox) -> None:
+    """QComboBox ve açılır menüsünün QPalette renklerini ve yükseklik ayarlarını açık temaya sabitler."""
+    combo.setEditable(False)
+    combo.setMinimumHeight(40)
+    combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    palette = combo.palette()
+
+    for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
+        palette.setColor(group, QPalette.ColorRole.WindowText, QColor("#172033"))
+        palette.setColor(group, QPalette.ColorRole.Text, QColor("#172033"))
+        palette.setColor(group, QPalette.ColorRole.ButtonText, QColor("#172033"))
+        palette.setColor(group, QPalette.ColorRole.Base, QColor("#FFFFFF"))
+        palette.setColor(group, QPalette.ColorRole.Window, QColor("#FFFFFF"))
+        palette.setColor(group, QPalette.ColorRole.Button, QColor("#FFFFFF"))
+        palette.setColor(
+            group, QPalette.ColorRole.AlternateBase, QColor("#FFFFFF")
+        )
+        palette.setColor(group, QPalette.ColorRole.Highlight, QColor("#E8F0FE"))
+        palette.setColor(
+            group, QPalette.ColorRole.HighlightedText, QColor("#174EA6")
+        )
+
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.WindowText,
+        QColor("#667085"),
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor("#667085")
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.ButtonText,
+        QColor("#667085"),
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Disabled, QPalette.ColorRole.Base, QColor("#F2F4F7")
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Disabled, QPalette.ColorRole.Window, QColor("#F2F4F7")
+    )
+
+    combo.setPalette(palette)
+    view = combo.view()
+    if view:
+        view.setPalette(palette)
+        view.setMinimumWidth(max(combo.width(), 180))
+
+
+def set_combo_value(combo: QComboBox, value: str) -> None:
+    """QComboBox içinde verilen metni arar; bulunursa seçer, bulunamazsa index 0 seçer."""
+    index = combo.findText(value)
+    combo.setCurrentIndex(max(index, 0))
+
+
+
 def strip_ansi(text: str) -> str:
+
     """Metindeki ANSI escape / terminal renk kodlarını temizler."""
     if not text:
         return ""

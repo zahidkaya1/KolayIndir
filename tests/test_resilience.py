@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QComboBox
 
 from src.dependency_check import (
     check_environment,
@@ -15,7 +15,12 @@ from src.main_window import MainWindow
 from src.models import DownloadRequest
 from src.settings import load_settings, save_settings
 from src.styles import APP_STYLE
-from src.utils import clean_log_message, is_chrome_cookie_error, strip_ansi
+from src.utils import (
+    clean_log_message,
+    is_chrome_cookie_error,
+    set_combo_value,
+    strip_ansi,
+)
 
 
 def test_strip_ansi():
@@ -236,3 +241,99 @@ def test_main_window_object_names():
 
     assert win.folder_button.menu().objectName() == "folderMenu"
     assert win.update_button.objectName() == "updateButton"
+
+
+def test_http_user_agent_ascii_only():
+    from src.config import APP_NAME, HTTP_USER_AGENT
+
+    assert APP_NAME == "Kolayİndir"
+    assert "İ" not in HTTP_USER_AGENT
+    assert HTTP_USER_AGENT.isascii() is True
+
+
+@patch("src.updater.urlopen")
+def test_updater_release_not_found_404(mock_urlopen):
+    from urllib.error import HTTPError
+
+    from src.updater import UpdateWorker
+
+    mock_urlopen.side_effect = HTTPError("url", 404, "Not Found", {}, None)
+
+    worker = UpdateWorker()
+    no_release_signal_received = False
+
+    def handler():
+        nonlocal no_release_signal_received
+        no_release_signal_received = True
+
+    worker.no_release_found.connect(handler)
+    worker.run()
+
+    assert no_release_signal_received is True
+
+
+def test_combo_boxes_object_names_and_defaults(tmp_path, monkeypatch):
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    _app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    assert win.media_combo.objectName() == "mediaTypeCombo"
+    assert win.quality_combo.objectName() == "qualityCombo"
+    assert win.browser_combo.objectName() == "browserCombo"
+
+    assert win.media_combo.currentText() == "Video (MP4)"
+    assert win.quality_combo.currentText() == "En iyi kalite"
+    assert win.browser_combo.currentText() == "Oturum kullanma"
+
+
+def test_invalid_settings_media_and_quality_fallback(tmp_path, monkeypatch):
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    settings_file.write_text(
+        '{"media_type": "GeçersizTÜR", "quality": "GeçersizKalite"}',
+        encoding="utf-8",
+    )
+
+    loaded = load_settings()
+    assert loaded["media_type"] == "Video (MP4)"
+    assert loaded["quality"] == "En iyi kalite"
+
+
+def test_app_style_contains_combobox_selectors():
+    assert "QComboBox" in APP_STYLE
+    assert "QComboBox QAbstractItemView" in APP_STYLE
+    assert "selection-color" in APP_STYLE
+    assert "selection-background-color" in APP_STYLE
+    assert "min-height: 38px;" in APP_STYLE
+    assert "QLineEdit, QTextEdit" in APP_STYLE
+    assert "QLineEdit, QComboBox, QTextEdit" not in APP_STYLE
+
+
+def test_fusion_style_and_combo_box_heights(tmp_path, monkeypatch):
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    app = QApplication.instance() or QApplication([])
+    app.setStyle("Fusion")
+    assert app.style().objectName().lower() == "fusion"
+
+    win = MainWindow()
+    for combo in (win.media_combo, win.quality_combo, win.browser_combo):
+        assert combo.minimumHeight() >= 38
+        assert combo.currentIndex() >= 0
+        assert bool(combo.currentText()) is True
+
+
+def test_set_combo_value_fallback():
+    _app = QApplication.instance() or QApplication([])
+    combo = QComboBox()
+    combo.addItems(["A", "B", "C"])
+
+    set_combo_value(combo, "B")
+    assert combo.currentIndex() == 1
+
+    set_combo_value(combo, "GEÇERSİZ")
+    assert combo.currentIndex() == 0

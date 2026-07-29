@@ -44,7 +44,12 @@ from src.download_worker import DownloadWorker
 from src.models import DownloadRequest
 from src.settings import load_settings, save_settings
 from src.updater import UpdateWorker
-from src.utils import clean_log_message, is_chrome_cookie_error
+from src.utils import (
+    clean_log_message,
+    configure_combo_box,
+    is_chrome_cookie_error,
+    set_combo_value,
+)
 
 
 class MainWindow(QMainWindow):
@@ -98,21 +103,36 @@ class MainWindow(QMainWindow):
 
         options = QFrame()
         grid = QGridLayout(options)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
+
         self.media_combo = QComboBox()
+        self.media_combo.setObjectName("mediaTypeCombo")
         self.media_combo.addItems(["Video (MP4)", "Ses (MP3)"])
         self.media_combo.currentTextChanged.connect(self._on_media_type_changed)
+        configure_combo_box(self.media_combo)
+
         self.quality_combo = QComboBox()
+        self.quality_combo.setObjectName("qualityCombo")
         self.quality_combo.addItems(["En iyi kalite", "1080p", "720p", "480p"])
+        configure_combo_box(self.quality_combo)
+
         self.browser_combo = QComboBox()
+        self.browser_combo.setObjectName("browserCombo")
         self.browser_combo.addItem("Oturum kullanma", None)
         self.browser_combo.addItem("Chrome oturumu", "chrome")
         self.browser_combo.addItem("Edge oturumu", "edge")
         self.browser_combo.addItem("Firefox oturumu", "firefox")
+        configure_combo_box(self.browser_combo)
+
+
         self.playlist_checkbox = QCheckBox(
             "Bağlantı oynatma listesiyse tamamını indir"
         )
         self.auto_open_checkbox = QCheckBox("İndirme tamamlandığında klasörü aç")
         self.auto_open_checkbox.toggled.connect(self._save_current_settings)
+
 
         for column, text in enumerate(("İndirme türü", "Kalite", "Oturum kullanımı")):
             grid.addWidget(QLabel(text), 0, column)
@@ -254,11 +274,11 @@ class MainWindow(QMainWindow):
         if not Path(saved_dir).exists() or not Path(saved_dir).is_dir():
             saved_dir = str(Path.home() / "Downloads")
         self.folder_input.setText(saved_dir)
-        self.media_combo.setCurrentText(
-            self.settings.get("media_type", "Video (MP4)")
+        set_combo_value(
+            self.media_combo, self.settings.get("media_type", "Video (MP4)")
         )
-        self.quality_combo.setCurrentText(
-            self.settings.get("quality", "En iyi kalite")
+        set_combo_value(
+            self.quality_combo, self.settings.get("quality", "En iyi kalite")
         )
         self.playlist_checkbox.setChecked(False)
         self.auto_open_checkbox.setChecked(
@@ -266,6 +286,7 @@ class MainWindow(QMainWindow):
         )
         self.browser_combo.setCurrentIndex(0)
         self._on_media_type_changed(self.media_combo.currentText())
+
 
     def _save_current_settings(self) -> None:
         save_settings({
@@ -502,6 +523,7 @@ class MainWindow(QMainWindow):
         thread.started.connect(worker.run)
         worker.update_available.connect(self._update_available)
         worker.up_to_date.connect(self._update_up_to_date)
+        worker.no_release_found.connect(self._update_no_release_found)
         worker.error.connect(self._update_error)
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
@@ -523,6 +545,15 @@ class MainWindow(QMainWindow):
             "info",
             self,
         ).exec()
+
+    def _update_no_release_found(self) -> None:
+        AppMessageDialog(
+            "Henüz yayınlanmış sürüm yok",
+            "GitHub üzerinde henüz yayınlanmış bir Kolayİndir sürümü bulunmuyor.",
+            "info",
+            self,
+        ).exec()
+
 
     def _update_error(self, message: str) -> None:
         AppMessageDialog(

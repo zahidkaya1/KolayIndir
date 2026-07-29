@@ -39,10 +39,20 @@ def load_settings() -> dict[str, Any]:
     if not saved_dir or not Path(saved_dir).exists() or not Path(saved_dir).is_dir():
         data["output_dir"] = default_dir
 
+    VALID_MEDIA_TYPES = {"Video (MP4)", "Ses (MP3)"}
+    VALID_QUALITIES = {"En iyi kalite", "1080p", "720p", "480p"}
+
+    if data.get("media_type") not in VALID_MEDIA_TYPES:
+        data["media_type"] = "Video (MP4)"
+
+    if data.get("quality") not in VALID_QUALITIES:
+        data["quality"] = "En iyi kalite"
+
     if "auto_open_folder" not in data:
         data["auto_open_folder"] = False
 
     return data
+
 
 
 def save_settings(settings: dict[str, Any]) -> None:
