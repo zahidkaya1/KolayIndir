@@ -129,6 +129,12 @@ class MetadataWorker(QObject):
 
     @Slot()
     def run(self) -> None:
+        try:
+            self._do_run()
+        finally:
+            self.finished.emit()
+
+    def _do_run(self) -> None:
         story_notice, story_err = analyze_instagram_story_url(self.url)
         if story_err:
             self.failed.emit(story_err)
@@ -371,8 +377,6 @@ class MetadataWorker(QObject):
             err_raw = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", str(last_error) if last_error else "")
             err_msg = translate_social_error(err_raw, self.url)
             self.failed.emit(err_msg)
-
-        self.finished.emit()
 
     def _build_metadata(self, info: dict[str, Any]) -> MediaMetadata:
         platform_type = detect_platform_type(self.url)

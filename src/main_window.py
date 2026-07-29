@@ -97,6 +97,10 @@ class MainWindow(QMainWindow):
         self._preferred_profile: tuple[str, str] | None = None
         self._preferred_impersonation: str | None = None
         self._close_requested: bool = False
+        self._cancel_requested: bool = False
+        self._pending_close: bool = False
+        self._shutdown_in_progress: bool = False
+        self._force_close_timer: QTimer | None = None
 
         self._close_dialog_open: bool = False
         self._story_notice: str | None = None
@@ -588,7 +592,7 @@ class MainWindow(QMainWindow):
         self._metadata_worker = None
         self.analyze_button.setEnabled(True)
         self.analyze_button.setText("İncele")
-        if self._close_requested:
+        if self._close_requested or self._pending_close or self._shutdown_in_progress:
             self._try_finish_close()
 
 
@@ -829,10 +833,19 @@ class MainWindow(QMainWindow):
         thread.start()
 
     def cancel_download(self) -> None:
+        if self._cancel_requested:
+            return
+        self._cancel_requested = True
+        self.cancel_button.setEnabled(False)
+
         if self._download_worker is not None:
             self._append_log("İptal isteği gönderildi…")
+            self.status_label.setText("İndirme iptal ediliyor…")
             self._download_worker.cancel()
-            self.cancel_button.setEnabled(False)
+
+        if self._metadata_worker is not None:
+            self.status_label.setText("İnceleme iptal ediliyor…")
+            self._metadata_worker.cancel()
 
     def _on_progress_details(self, details: dict) -> None:
         phase = details.get("phase", "downloading")
@@ -970,8 +983,9 @@ class MainWindow(QMainWindow):
         self._download_thread = None
         self._download_worker = None
         self._set_ui_downloading(False)
+        self._cancel_requested = False
 
-        if self._close_requested:
+        if self._close_requested or self._pending_close or self._shutdown_in_progress:
             self._try_finish_close()
             return
 
@@ -1059,12 +1073,19 @@ class MainWindow(QMainWindow):
 
         self.url_input.setFocus()
 
+    def _force_quit_application(self) -> None:
+        self._save_current_settings()
+        QApplication.quit()
+
     def _try_finish_close(self) -> None:
         if (
-            self._close_requested
+            (self._close_requested or self._pending_close or self._shutdown_in_progress)
             and self._download_thread is None
             and self._metadata_thread is None
         ):
+            if self._force_close_timer is not None:
+                self._force_close_timer.stop()
+                self._force_close_timer = None
             self._save_current_settings()
             QApplication.quit()
 
@@ -1168,7 +1189,7 @@ class MainWindow(QMainWindow):
             event.accept()
             return
 
-        if self._close_dialog_open:
+        if self._shutdown_in_progress or self._pending_close or self._close_dialog_open:
             event.ignore()
             return
 
@@ -1191,12 +1212,16 @@ class MainWindow(QMainWindow):
             return
 
         self._close_requested = True
+        self._pending_close = True
+        self._shutdown_in_progress = True
         event.ignore()
 
-        if self._download_worker is not None:
-            self._download_worker.cancel()
-        if self._metadata_worker is not None:
-            self._metadata_worker.cancel()
+        if self._force_close_timer is None:
+            self._force_close_timer = QTimer(self)
+            self._force_close_timer.setSingleShot(True)
+            self._force_close_timer.timeout.connect(self._force_quit_application)
+            self._force_close_timer.start(5000)
 
+        self.cancel_download()
         self._try_finish_close()
 

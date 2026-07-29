@@ -6,6 +6,13 @@ from typing import Any
 import yt_dlp
 from PySide6.QtCore import QObject, Signal, Slot
 
+try:
+    from yt_dlp.utils import DownloadCancelled
+except ImportError:
+    class DownloadCancelled(Exception):  # type: ignore[no-redef]
+        pass
+
+
 from src.browser_sessions import (
     build_profile_attempt_order,
     classify_session_error,
@@ -86,15 +93,26 @@ class DownloadWorker(QObject):
         self.request = request
         self._cancel_requested = False
         self._last_filename = ""
+        self._active_process: subprocess.Popen | None = None
 
     @Slot()
     def cancel(self) -> None:
+        if self._cancel_requested:
+            return
         self._cancel_requested = True
         self.status.emit("İndirme iptal ediliyor…")
+        if self._active_process:
+            try:
+                self._active_process.terminate()
+                self._active_process.poll()
+                if self._active_process.returncode is None:
+                    self._active_process.kill()
+            except Exception:  # noqa: BLE001, S110
+                pass
 
     def _progress_hook(self, data: dict[str, Any]) -> None:
         if self._cancel_requested:
-            raise yt_dlp.utils.DownloadError("İndirme kullanıcı tarafından iptal edildi.")
+            raise DownloadCancelled("İndirme kullanıcı tarafından iptal edildi.")
         state = data.get("status")
         if state == "downloading":
             downloaded = data.get("downloaded_bytes") or 0
@@ -198,183 +216,205 @@ class DownloadWorker(QObject):
         last_error: Exception | str | None = None
         succeeded: bool = False
 
-        platform = detect_platform_type(self.request.url)
-        requested_browser = self.request.browser or "auto"
-        attempt_order = build_profile_attempt_order(platform, requested_browser)
-
-        if self.request.preferred_profile:
-            match_idx = next(
-                (
-                    i
-                    for i, (b, p, _) in enumerate(attempt_order)
-                    if (b, p) == self.request.preferred_profile
-                ),
-                None,
-            )
-            if match_idx is not None:
-                item = attempt_order.pop(match_idx)
-                if attempt_order and attempt_order[0][0] is None:
-                    attempt_order.insert(1, item)
-                else:
-                    attempt_order.insert(0, item)
-
-        # preferred_browser / preferred_profile / preferred_impersonation öncelikli deneme
-        if self.request.preferred_profile or self.request.preferred_browser or self.request.preferred_impersonation:
-            b_name_pref: str | None = None
-            p_name_pref: str | None = None
-            if self.request.preferred_profile:
-                b_name_pref, p_name_pref = self.request.preferred_profile
-            elif self.request.preferred_browser:
-                b_name_pref = self.request.preferred_browser
-                p_name_pref = None
-
-            b_label = "Edge" if b_name_pref == "edge" else (b_name_pref or "").capitalize()
-            pref_label = f"{b_label} (varsayılan profil)" if p_name_pref is None else f"{b_label} ({p_name_pref})"
-            pref_req = DownloadRequest(
-                url=self.request.url,
-                output_dir=self.request.output_dir,
-                media_type=self.request.media_type,
-                quality=self.request.quality,
-                playlist=self.request.playlist,
-                browser=b_name_pref,
-                preferred_browser=b_name_pref if not p_name_pref else None,
-                preferred_profile=(b_name_pref, p_name_pref) if (b_name_pref and p_name_pref) else None,
-                preferred_impersonation=self.request.preferred_impersonation,
-                successful_request_url=self.request.successful_request_url,
-            )
-            pref_options = build_ydl_options(pref_req)
-            pref_options["logger"] = _YtDlpLogger(self.log)
-            pref_options["progress_hooks"] = [self._progress_hook]
-            pref_options["postprocessor_hooks"] = [self._postprocessor_hook]
-
-            if platform in (
-                PlatformType.TIKTOK_VIDEO,
-                PlatformType.TIKTOK_SHORT_LINK,
-                PlatformType.TIKTOK_PROFILE,
-                PlatformType.TIKTOK_LIVE,
-                PlatformType.TIKTOK_SLIDESHOW,
-            ):
-                url_type = "kısa bağlantı" if ("vm.tiktok.com" in self.request.url or "vt.tiktok.com" in self.request.url) else "çözülmüş bağlantı"
-                imp_text = self.request.preferred_impersonation or "Yok"
-                sess_text = b_name_pref or "Oturumsuz"
-                self.log.emit(f"TikTok indirme başlatılıyor (URL Türü: {url_type} | Oturum: {sess_text} | Impersonation: {imp_text})…")
-
-            self.status.emit(f"{pref_label} oturumuyla indirme başlatılıyor…" if b_name_pref else "İndirme başlatılıyor…")
-            try:
-                with yt_dlp.YoutubeDL(pref_options) as downloader:
-                    result = downloader.extract_info(self.request.url, download=True)
-                if self._cancel_requested:
-                    self.cancelled.emit()
-                    return
-                self._handle_post_download_transcode(result)
-                if self._cancel_requested:
-                    self.cancelled.emit()
-                    return
-                title = ""
-                if isinstance(result, dict):
-                    title = str(result.get("title") or result.get("playlist_title") or result.get("id") or "")
-                self.succeeded.emit(title or self._last_filename or "İndirme tamamlandı.")
-                self.finished.emit()
-                return
-            except Exception as exc:  # noqa: BLE001
-                if self._cancel_requested:
-                    self.cancelled.emit()
-                    return
-                last_error = exc
-                err_clean = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", str(exc))
-                reason = classify_session_error(err_clean, self.request.url)
-                self.status.emit(f"{pref_label}: {reason} — fallback'e geçiliyor…")
-
-        for b_name, p_name, display_name in attempt_order:
+        try:
             if self._cancel_requested:
                 self.cancelled.emit()
                 return
 
-            req_copy = DownloadRequest(
-                url=self.request.url,
-                output_dir=self.request.output_dir,
-                media_type=self.request.media_type,
-                quality=self.request.quality,
-                playlist=self.request.playlist,
-                browser=b_name,
-                preferred_browser=None,
-                preferred_profile=(b_name, p_name) if (b_name and p_name) else None,
-                preferred_impersonation=self.request.preferred_impersonation,
-                successful_request_url=self.request.successful_request_url,
-                convert_hevc_to_h264=self.request.convert_hevc_to_h264,
-            )
+            platform = detect_platform_type(self.request.url)
+            requested_browser = self.request.browser or "auto"
+            attempt_order = build_profile_attempt_order(platform, requested_browser)
 
-            options = build_ydl_options(req_copy)
-            options["logger"] = _YtDlpLogger(self.log)
-            options["progress_hooks"] = [self._progress_hook]
-            options["postprocessor_hooks"] = [self._postprocessor_hook]
+            if self.request.preferred_profile:
+                match_idx = next(
+                    (
+                        i
+                        for i, (b, p, _) in enumerate(attempt_order)
+                        if (b, p) == self.request.preferred_profile
+                    ),
+                    None,
+                )
+                if match_idx is not None:
+                    item = attempt_order.pop(match_idx)
+                    if attempt_order and attempt_order[0][0] is None:
+                        attempt_order.insert(1, item)
+                    else:
+                        attempt_order.insert(0, item)
 
-            if b_name:
-                self.status.emit(f"{display_name} oturumuyla indirme başlatılıyor…")
-            elif platform in (
-                PlatformType.TIKTOK_VIDEO,
-                PlatformType.TIKTOK_SHORT_LINK,
-                PlatformType.TIKTOK_PROFILE,
-                PlatformType.TIKTOK_LIVE,
-                PlatformType.TIKTOK_SLIDESHOW,
-            ):
-                if "MP3" in self.request.media_type or "Ses" in self.request.media_type:
-                    self.status.emit("TikTok sesi indiriliyor…")
-                else:
-                    self.status.emit("TikTok videosu indiriliyor…")
-            else:
-                self.status.emit("İndirme başlatılıyor…")
+            # preferred_browser / preferred_profile / preferred_impersonation öncelikli deneme
+            if self.request.preferred_profile or self.request.preferred_browser or self.request.preferred_impersonation:
+                b_name_pref: str | None = None
+                p_name_pref: str | None = None
+                if self.request.preferred_profile:
+                    b_name_pref, p_name_pref = self.request.preferred_profile
+                elif self.request.preferred_browser:
+                    b_name_pref = self.request.preferred_browser
+                    p_name_pref = None
 
-            try:
-                with yt_dlp.YoutubeDL(options) as downloader:
-                    result = downloader.extract_info(self.request.url, download=True)
-                if self._cancel_requested:
-                    self.cancelled.emit()
-                    return
+                b_label = "Edge" if b_name_pref == "edge" else (b_name_pref or "").capitalize()
+                pref_label = f"{b_label} (varsayılan profil)" if p_name_pref is None else f"{b_label} ({p_name_pref})"
+                pref_req = DownloadRequest(
+                    url=self.request.url,
+                    output_dir=self.request.output_dir,
+                    media_type=self.request.media_type,
+                    quality=self.request.quality,
+                    playlist=self.request.playlist,
+                    browser=b_name_pref,
+                    preferred_browser=b_name_pref if not p_name_pref else None,
+                    preferred_profile=(b_name_pref, p_name_pref) if (b_name_pref and p_name_pref) else None,
+                    preferred_impersonation=self.request.preferred_impersonation,
+                    successful_request_url=self.request.successful_request_url,
+                )
+                pref_options = build_ydl_options(pref_req)
+                pref_options["logger"] = _YtDlpLogger(self.log)
+                pref_options["progress_hooks"] = [self._progress_hook]
+                pref_options["postprocessor_hooks"] = [self._postprocessor_hook]
 
-                self._handle_post_download_transcode(result)
-                if self._cancel_requested:
-                    self.cancelled.emit()
-                    return
-
-                title = ""
-                if isinstance(result, dict):
-                    title = str(result.get("title") or result.get("playlist_title") or result.get("id") or "")
-                self.succeeded.emit(title or self._last_filename or "İndirme tamamlandı.")
-                succeeded = True
-                break
-
-            except Exception as exc:  # noqa: BLE001
-                if self._cancel_requested:
-                    self.cancelled.emit()
-                    return
-                last_error = exc
-                err_clean = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", str(exc))
-                reason = classify_session_error(err_clean, self.request.url)
-                prefix = display_name if b_name else "Oturumsuz deneme"
-                self.status.emit(f"{prefix}: {reason}")
-
-                if requested_browser != "auto":
-                    break
-
-                if (
-                    is_authentication_error(err_clean)
-                    or is_browser_cookie_lock_error(err_clean)
-                    or is_chromium_encryption_error(err_clean)
-                    or "could not find firefox cookies database" in err_clean.lower()
-                    or "could not find" in err_clean.lower()
+                if platform in (
+                    PlatformType.TIKTOK_VIDEO,
+                    PlatformType.TIKTOK_SHORT_LINK,
+                    PlatformType.TIKTOK_PROFILE,
+                    PlatformType.TIKTOK_LIVE,
+                    PlatformType.TIKTOK_SLIDESHOW,
                 ):
-                    continue
+                    url_type = "kısa bağlantı" if ("vm.tiktok.com" in self.request.url or "vt.tiktok.com" in self.request.url) else "çözülmüş bağlantı"
+                    imp_text = self.request.preferred_impersonation or "Yok"
+                    sess_text = b_name_pref or "Oturumsuz"
+                    self.log.emit(f"TikTok indirme başlatılıyor (URL Türü: {url_type} | Oturum: {sess_text} | Impersonation: {imp_text})…")
+
+                self.status.emit(f"{pref_label} oturumuyla indirme başlatılıyor…" if b_name_pref else "İndirme başlatılıyor…")
+                try:
+                    with yt_dlp.YoutubeDL(pref_options) as downloader:
+                        result = downloader.extract_info(self.request.url, download=True)
+                    if self._cancel_requested:
+                        self.cancelled.emit()
+                        return
+                    self._handle_post_download_transcode(result)
+                    if self._cancel_requested:
+                        self.cancelled.emit()
+                        return
+                    title = ""
+                    if isinstance(result, dict):
+                        title = str(result.get("title") or result.get("playlist_title") or result.get("id") or "")
+                    self.succeeded.emit(title or self._last_filename or "İndirme tamamlandı.")
+                    succeeded = True
+                    return
+                except (DownloadCancelled, Exception) as exc:  # noqa: BLE001
+                    if self._cancel_requested or isinstance(exc, DownloadCancelled):
+                        self.cancelled.emit()
+                        return
+                    last_error = exc
+                    err_clean = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", str(exc))
+                    reason = classify_session_error(err_clean, self.request.url)
+                    self.status.emit(f"{pref_label}: {reason} — fallback'e geçiliyor…")
+
+            for b_name, p_name, display_name in attempt_order:
+                if self._cancel_requested:
+                    self.cancelled.emit()
+                    return
+
+                req_copy = DownloadRequest(
+                    url=self.request.url,
+                    output_dir=self.request.output_dir,
+                    media_type=self.request.media_type,
+                    quality=self.request.quality,
+                    playlist=self.request.playlist,
+                    browser=b_name,
+                    preferred_browser=None,
+                    preferred_profile=(b_name, p_name) if (b_name and p_name) else None,
+                    preferred_impersonation=self.request.preferred_impersonation,
+                    successful_request_url=self.request.successful_request_url,
+                    convert_hevc_to_h264=self.request.convert_hevc_to_h264,
+                )
+
+                options = build_ydl_options(req_copy)
+                options["logger"] = _YtDlpLogger(self.log)
+                options["progress_hooks"] = [self._progress_hook]
+                options["postprocessor_hooks"] = [self._postprocessor_hook]
+
+                if b_name:
+                    self.status.emit(f"{display_name} oturumuyla indirme başlatılıyor…")
+                elif platform in (
+                    PlatformType.TIKTOK_VIDEO,
+                    PlatformType.TIKTOK_SHORT_LINK,
+                    PlatformType.TIKTOK_PROFILE,
+                    PlatformType.TIKTOK_LIVE,
+                    PlatformType.TIKTOK_SLIDESHOW,
+                ):
+                    if "MP3" in self.request.media_type or "Ses" in self.request.media_type:
+                        self.status.emit("TikTok sesi indiriliyor…")
+                    else:
+                        self.status.emit("TikTok videosu indiriliyor…")
                 else:
+                    self.status.emit("İndirme başlatılıyor…")
+
+                try:
+                    with yt_dlp.YoutubeDL(options) as downloader:
+                        result = downloader.extract_info(self.request.url, download=True)
+                    if self._cancel_requested:
+                        self.cancelled.emit()
+                        return
+
+                    self._handle_post_download_transcode(result)
+                    if self._cancel_requested:
+                        self.cancelled.emit()
+                        return
+
+                    title = ""
+                    if isinstance(result, dict):
+                        title = str(result.get("title") or result.get("playlist_title") or result.get("id") or "")
+                    self.succeeded.emit(title or self._last_filename or "İndirme tamamlandı.")
+                    succeeded = True
                     break
 
-        if not succeeded and not self._cancel_requested:
-            err_msg = str(last_error) if last_error else "İndirme başarısız."
-            err_msg = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", err_msg)
-            translated = translate_social_error(err_msg, self.request.url)
-            self.failed.emit(clean_log_message(translated))
+                except (DownloadCancelled, Exception) as exc:  # noqa: BLE001
+                    if self._cancel_requested or isinstance(exc, DownloadCancelled):
+                        self.cancelled.emit()
+                        return
+                    last_error = exc
+                    err_clean = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", str(exc))
+                    reason = classify_session_error(err_clean, self.request.url)
+                    prefix = display_name if b_name else "Oturumsuz deneme"
+                    self.status.emit(f"{prefix}: {reason}")
 
-        self.finished.emit()
+                    if requested_browser != "auto":
+                        break
+
+                    if (
+                        is_authentication_error(err_clean)
+                        or is_browser_cookie_lock_error(err_clean)
+                        or is_chromium_encryption_error(err_clean)
+                        or "could not find firefox cookies database" in err_clean.lower()
+                        or "could not find" in err_clean.lower()
+                    ):
+                        continue
+                    else:
+                        break
+
+            if not succeeded:
+                if self._cancel_requested:
+                    self.cancelled.emit()
+                else:
+                    err_msg = str(last_error) if last_error else "İndirme başarısız."
+                    err_msg = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", err_msg)
+                    translated = translate_social_error(err_msg, self.request.url)
+                    self.failed.emit(clean_log_message(translated))
+        except (DownloadCancelled, Exception) as exc:  # noqa: BLE001
+            if self._cancel_requested or isinstance(exc, DownloadCancelled) or "iptal" in str(exc).lower():
+                self.cancelled.emit()
+            else:
+                err_msg = str(exc)
+                err_msg = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", err_msg)
+                translated = translate_social_error(err_msg, self.request.url)
+                self.failed.emit(clean_log_message(translated))
+        finally:
+            if self._active_process:
+                try:
+                    self._active_process.kill()
+                except Exception:  # noqa: BLE001, S110
+                    pass
+                self._active_process = None
+            self.finished.emit()
 
     def _handle_post_download_transcode(self, result: Any) -> None:
         if self._cancel_requested or self.request.media_type == "Ses (MP3)":
@@ -446,6 +486,7 @@ class DownloadWorker(QObject):
                     encoding="utf-8",
                     errors="replace",
                 )
+                self._active_process = process
                 time_pattern = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
 
                 while True:

@@ -789,6 +789,84 @@ def test_720p_source_limit_display(tmp_path, monkeypatch):
     assert "İndirilecek: 720p" in win.meta_badges_label.text()
 
 
+def test_download_worker_cancel_raises_download_cancelled(tmp_path):
+    from src.download_worker import DownloadCancelled, DownloadWorker
+
+    req = DownloadRequest(
+        url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        output_dir=tmp_path,
+        media_type="Video (MP4)",
+        quality="En iyi",
+        playlist=False,
+    )
+    worker = DownloadWorker(req)
+
+    # Test initial state
+    assert worker._cancel_requested is False
+    assert worker._active_process is None
+
+    # Call cancel
+    worker.cancel()
+    assert worker._cancel_requested is True
+
+    # Calling cancel again should be idempotent
+    worker.cancel()
+    assert worker._cancel_requested is True
+
+    # Progress hook should raise DownloadCancelled
+    import pytest
+    with pytest.raises(DownloadCancelled):
+        worker._progress_hook({"status": "downloading", "downloaded_bytes": 10, "total_bytes": 100})
+
+
+def test_cancel_download_idempotent(tmp_path, monkeypatch):
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    _app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    # Before start
+    assert win._cancel_requested is False
+
+    # Calling cancel when idle
+    win.cancel_download()
+    assert win._cancel_requested is True
+
+    # Repeat call
+    win.cancel_download()
+    assert win._cancel_requested is True
+
+
+def test_close_event_asynchronous_with_timer(tmp_path, monkeypatch):
+    from PySide6.QtGui import QCloseEvent
+
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    _app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    # Mock active thread
+    win._download_thread = "fake_thread"
+
+    # Mock user accepting dialog
+    with patch("src.main_window.AppMessageDialog") as mock_dlg_cls:
+        mock_dlg = mock_dlg_cls.return_value
+        mock_dlg.exec.return_value = 1  # Accepted
+        mock_dlg.clicked_button_id = "yes"
+
+        event = QCloseEvent()
+        win.closeEvent(event)
+
+        assert event.isAccepted() is False
+        assert win._pending_close is True
+        assert win._shutdown_in_progress is True
+        assert win._force_close_timer is not None
+        win._force_close_timer.stop()
+
+
+
 
 
 
