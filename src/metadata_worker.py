@@ -75,6 +75,12 @@ class MetadataWorker(QObject):
         self.requested_quality = requested_quality
         self.media_type = media_type
         self.browser = browser
+        self._cancel_requested = False
+
+    @Slot()
+    def cancel(self) -> None:
+        self._cancel_requested = True
+        self.status.emit("İnceleme iptal ediliyor…")
 
     @Slot()
     def run(self) -> None:
@@ -91,13 +97,18 @@ class MetadataWorker(QObject):
         try:
             with yt_dlp.YoutubeDL(opts) as downloader:
                 info = downloader.extract_info(self.url, download=False)
+
+            if self._cancel_requested:
+                return
+
             if not isinstance(info, dict):
                 raise TypeError("İçerik bilgisi okunamadı.")
 
             meta = self._build_metadata(info)
-            self.metadata_ready.emit(meta)
+            if not self._cancel_requested:
+                self.metadata_ready.emit(meta)
 
-            if meta.thumbnail_url:
+            if meta.thumbnail_url and not self._cancel_requested:
                 try:
                     request = Request(
                         meta.thumbnail_url,
@@ -105,18 +116,19 @@ class MetadataWorker(QObject):
                     )
                     with urlopen(request, timeout=6) as response:
                         thumb_bytes = response.read()
-                    if thumb_bytes:
+                    if thumb_bytes and not self._cancel_requested:
                         self.thumbnail_ready.emit(thumb_bytes)
                 except Exception:  # noqa: BLE001, S110
                     pass
 
-
         except Exception as exc:  # noqa: BLE001
-            err_msg = str(exc)
-            err_msg = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", err_msg)
-            self.failed.emit(err_msg if err_msg else "Bağlantı bilgisi alınamadı.")
+            if not self._cancel_requested:
+                err_msg = str(exc)
+                err_msg = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", err_msg)
+                self.failed.emit(err_msg if err_msg else "Bağlantı bilgisi alınamadı.")
         finally:
             self.finished.emit()
+
 
     def _build_metadata(self, info: dict[str, Any]) -> MediaMetadata:
         is_playlist = info.get("_type") == "playlist" or bool(info.get("entries"))

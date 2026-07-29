@@ -78,19 +78,29 @@ class MainWindow(QMainWindow):
         self._download_succeeded_path: str = ""
         self._log_history: list[str] = []
         self._current_metadata: MediaMetadata | None = None
+        self._close_requested: bool = False
+        self._close_dialog_open: bool = False
         self.settings = load_settings()
 
+        flags = (
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
+        self.setWindowFlags(flags)
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.setFixedSize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
-        self.setWindowFlags(
-            self.windowFlags() & ~Qt.WindowType.WindowMaximizeButtonHint
-        )
         self.setAcceptDrops(True)
+
+
 
         self._center_on_screen()
         self._build_ui()
         self._restore_settings()
         QTimer.singleShot(250, self._show_dependency_status)
+
 
     def _center_on_screen(self) -> None:
         screen = QApplication.primaryScreen()
@@ -415,6 +425,9 @@ class MainWindow(QMainWindow):
         self._metadata_worker = None
         self.analyze_button.setEnabled(True)
         self.analyze_button.setText("İncele")
+        if self._close_requested:
+            self._try_finish_close()
+
 
     def _on_quality_changed(self) -> None:
         self._save_current_settings()
@@ -682,11 +695,14 @@ class MainWindow(QMainWindow):
     def _on_download_failed(self, error_msg: str) -> None:
         self.status_label.setText("İndirme başarısız.")
         self.stats_label.setText("")
+        self._set_ui_downloading(False)
         self._append_log(error_msg if error_msg.startswith("Hata:") else f"Hata: {error_msg}")
 
     def _on_download_cancelled(self) -> None:
+        self.progress_bar.setValue(0)
         self.status_label.setText("İndirme iptal edildi.")
         self.stats_label.setText("")
+        self._set_ui_downloading(False)
         self._append_log("İndirme kullanıcı tarafından iptal edildi.")
 
     def _on_download_thread_finished(self) -> None:
@@ -695,6 +711,10 @@ class MainWindow(QMainWindow):
         self._download_thread = None
         self._download_worker = None
         self._set_ui_downloading(False)
+
+        if self._close_requested:
+            self._try_finish_close()
+            return
 
         if succeeded_result:
             self.progress_bar.setValue(100)
@@ -708,19 +728,57 @@ class MainWindow(QMainWindow):
             self.stats_label.setText(f"Dosya: {Path(succeeded_result).name}{size_info}")
             self._append_log("İndirme başarıyla tamamlandı.")
 
-            dlg = DownloadCompletedDialog(
-                result_summary=succeeded_result,
-                filepath=filepath,
-                parent=self,
-            )
-            dlg.exec()
-            if dlg.action_choice == "open_folder":
-                self._open_current_folder()
-            elif dlg.action_choice == "open_file" and filepath and Path(filepath).exists():
-                QDesktopServices.openUrl(QUrl.fromLocalFile(filepath))
-
             if self.auto_open_checkbox.isChecked():
                 self._open_current_folder()
+                self._reset_after_successful_download()
+            else:
+                dlg = DownloadCompletedDialog(
+                    result_summary=succeeded_result,
+                    filepath=filepath,
+                    parent=self,
+                )
+                dlg.exec()
+                if dlg.action_choice == "open_folder":
+                    self._open_current_folder()
+                elif dlg.action_choice == "open_file" and filepath and Path(filepath).exists():
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(filepath))
+                self._reset_after_successful_download()
+
+    def _reset_after_successful_download(self) -> None:
+        self.url_input.clear()
+        self.preview_frame.hide()
+        self.thumbnail_label.clear()
+        self.thumbnail_label.setText("Önizleme")
+        self.meta_title_label.setText("")
+        self.meta_uploader_label.setText("")
+        self.meta_badges_label.setText("")
+        self._current_metadata = None
+
+        self.progress_bar.setValue(0)
+        self.status_label.setText("Hazır")
+        self.stats_label.setText("")
+
+        self.cancel_button.setEnabled(False)
+        self.download_button.setEnabled(True)
+        self.analyze_button.setEnabled(True)
+
+        self.playlist_checkbox.setChecked(False)
+        self.browser_combo.setCurrentIndex(0)
+
+        self._download_succeeded_result = None
+        self._download_succeeded_path = ""
+        self._last_log_message = None
+
+        self.url_input.setFocus()
+
+    def _try_finish_close(self) -> None:
+        if (
+            self._close_requested
+            and self._download_thread is None
+            and self._metadata_thread is None
+        ):
+            self._save_current_settings()
+            QApplication.quit()
 
     def _set_ui_downloading(self, active: bool) -> None:
         self.download_button.setEnabled(not active)
@@ -817,23 +875,40 @@ class MainWindow(QMainWindow):
             event.acceptProposedAction()
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self._metadata_thread is not None:
-            self._metadata_thread.quit()
-            self._metadata_thread.wait(1000)
-        if self._download_thread is not None:
-            dlg = AppMessageDialog(
-                "İndirme Sürüyor",
-                "İndirme devam ediyor. Uygulama kapatılsın mı?",
-                "question",
-                self,
-                [("yes", "Evet", True), ("no", "İptal", False)],
-            )
-            if dlg.exec() != QDialog.DialogCode.Accepted or dlg.clicked_button_id != "yes":
-                event.ignore()
-                return
-            if self._download_worker is not None:
-                self._download_worker.cancel()
-            self._download_thread.quit()
-            self._download_thread.wait(2000)
-        self._save_current_settings()
-        event.accept()
+        if self._download_thread is None and self._metadata_thread is None:
+            self._save_current_settings()
+            event.accept()
+            return
+
+        if self._close_dialog_open:
+            event.ignore()
+            return
+
+        self._close_dialog_open = True
+        dlg = AppMessageDialog(
+            "İndirme devam ediyor",
+            "Devam eden indirme veya işlem iptal edilip uygulama kapatılsın mı?",
+            "question",
+            self,
+            [
+                ("yes", "İndirmeyi iptal et ve kapat", True),
+                ("no", "Vazgeç", False),
+            ],
+        )
+        result = dlg.exec()
+        self._close_dialog_open = False
+
+        if result != QDialog.DialogCode.Accepted or dlg.clicked_button_id != "yes":
+            event.ignore()
+            return
+
+        self._close_requested = True
+        event.ignore()
+
+        if self._download_worker is not None:
+            self._download_worker.cancel()
+        if self._metadata_worker is not None:
+            self._metadata_worker.cancel()
+
+        self._try_finish_close()
+

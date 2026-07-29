@@ -351,17 +351,24 @@ def test_fixed_window_structure_and_dimensions(tmp_path, monkeypatch):
     _app = QApplication.instance() or QApplication([])
     win = MainWindow()
 
+    flags = win.windowFlags()
+    assert bool(flags & Qt.WindowType.WindowCloseButtonHint) is True
+    assert bool(flags & Qt.WindowType.WindowMinimizeButtonHint) is True
+    assert bool(flags & Qt.WindowType.WindowTitleHint) is True
+    assert bool(flags & Qt.WindowType.WindowSystemMenuHint) is True
+    assert bool(flags & Qt.WindowType.FramelessWindowHint) is False
+    assert bool(flags & Qt.WindowType.WindowMaximizeButtonHint) is False
     assert win.width() == 700
     assert win.height() == 650
     assert win.minimumWidth() == 700
     assert win.maximumWidth() == 700
     assert win.minimumHeight() == 650
     assert win.maximumHeight() == 650
-    assert bool(win.windowFlags() & Qt.WindowType.WindowMaximizeButtonHint) is False
     assert hasattr(win, "scroll_area") is False
     assert hasattr(win, "_apply_responsive_layout") is False
     assert hasattr(win, "_is_compact_layout") is False
     assert hasattr(win, "tech_details_button") is True
+
 
 
 
@@ -581,6 +588,120 @@ def test_option_cards_structure_and_clicking(tmp_path, monkeypatch):
     loaded = load_settings()
     assert loaded.get("auto_open_folder") is True
     assert "playlist" not in loaded
+
+
+def test_close_event_when_idle(tmp_path, monkeypatch):
+    from PySide6.QtGui import QCloseEvent
+
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    _app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    event = QCloseEvent()
+    win.closeEvent(event)
+    assert event.isAccepted() is True
+
+
+@patch.object(AppMessageDialog, "exec")
+def test_close_event_when_active_and_canceled(mock_dialog_exec, tmp_path, monkeypatch):
+    from PySide6.QtCore import QThread
+    from PySide6.QtGui import QCloseEvent
+
+    from src.dialogs import AppMessageDialog
+    from src.download_worker import DownloadWorker
+    from src.models import DownloadRequest
+
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    _app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    req = DownloadRequest(
+        url="https://example.com/watch?v=123",
+        output_dir=tmp_path,
+        media_type="Video (MP4)",
+        quality="1080p’ye kadar",
+        playlist=False,
+    )
+    win._download_worker = DownloadWorker(req)
+    win._download_thread = QThread()
+
+    def mock_exec_no(*args, **kwargs):
+        for widget in win.findChildren(AppMessageDialog):
+            widget.clicked_button_id = "no"
+        return 0
+
+    def mock_exec_yes(*args, **kwargs):
+        for widget in win.findChildren(AppMessageDialog):
+            widget.clicked_button_id = "yes"
+        return 1
+
+
+    mock_dialog_exec.side_effect = mock_exec_no
+    event = QCloseEvent()
+    win.closeEvent(event)
+    assert event.isAccepted() is False
+    assert win._close_requested is False
+
+    mock_dialog_exec.side_effect = mock_exec_yes
+    event2 = QCloseEvent()
+    win.closeEvent(event2)
+    assert event2.isAccepted() is False
+    assert win._close_requested is True
+
+
+
+def test_reset_after_successful_download(tmp_path, monkeypatch):
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    _app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    win.url_input.setText("https://www.youtube.com/watch?v=123")
+    win.preview_frame.show()
+    win.progress_bar.setValue(80)
+    win.status_label.setText("İndiriliyor")
+    win.stats_label.setText("10 MB / 20 MB")
+    win.playlist_checkbox.setChecked(True)
+    win.browser_combo.setCurrentIndex(1)
+    folder_before = win.folder_input.text()
+
+    win._reset_after_successful_download()
+
+    assert win.url_input.text() == ""
+    assert win.preview_frame.isHidden() is True
+    assert win.progress_bar.value() == 0
+    assert win.status_label.text() == "Hazır"
+    assert win.stats_label.text() == ""
+    assert win.playlist_checkbox.isChecked() is False
+    assert win.browser_combo.currentIndex() == 0
+    assert win.folder_input.text() == folder_before
+    assert win.media_combo.currentText() == "Video (MP4)"
+
+
+def test_error_preserves_url_and_preview(tmp_path, monkeypatch):
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    _app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    win.url_input.setText("https://www.youtube.com/watch?v=123")
+    win.preview_frame.show()
+
+    win._on_download_failed("HTTP 404")
+
+    assert win.url_input.text() == "https://www.youtube.com/watch?v=123"
+    assert win.preview_frame.isHidden() is False
+    assert "İndirme başarısız" in win.status_label.text()
+    assert win.download_button.isEnabled() is True
+    assert win.cancel_button.isEnabled() is False
+
+
 
 
 
