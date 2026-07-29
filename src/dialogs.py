@@ -23,7 +23,8 @@ class DownloadCompletedDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("downloadCompletedDialog")
         self.setWindowTitle("İndirme tamamlandı")
-        self.setMinimumWidth(440)
+        self.setMinimumWidth(380)
+        self.setMaximumWidth(560)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
@@ -71,8 +72,9 @@ class UpdateAvailableDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("updateDialog")
         self.setWindowTitle("Yeni Sürüm Bulundu")
-        self.setMinimumWidth(480)
-        self.setMaximumHeight(520)
+        self.setMinimumWidth(400)
+        self.setMaximumWidth(600)
+        self.setMaximumHeight(560)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
@@ -91,7 +93,7 @@ class UpdateAvailableDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setMinimumHeight(120)
-        scroll.setMaximumHeight(200)
+        scroll.setMaximumHeight(220)
 
         notes_content = QLabel(notes if notes.strip() else "Yeni sürüm notu bulunmuyor.")
         notes_content.setObjectName("updateDialogMessage")
@@ -137,7 +139,8 @@ class AppMessageDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("appMessageDialog")
         self.setWindowTitle(title)
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(380)
+        self.setMaximumWidth(560)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
@@ -180,3 +183,4 @@ class AppMessageDialog(QDialog):
     def _on_button_click(self, btn_id: str) -> None:
         self.clicked_button_id = btn_id
         self.accept()
+

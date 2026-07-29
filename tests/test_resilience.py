@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QComboBox
 
 from src.dependency_check import (
@@ -9,7 +10,11 @@ from src.dependency_check import (
     dependency_warnings,
     get_environment_log_lines,
 )
-from src.dialogs import DownloadCompletedDialog, UpdateAvailableDialog
+from src.dialogs import (
+    AppMessageDialog,
+    DownloadCompletedDialog,
+    UpdateAvailableDialog,
+)
 from src.download_options import build_ydl_options
 from src.main_window import MainWindow
 from src.models import DownloadRequest
@@ -337,3 +342,85 @@ def test_set_combo_value_fallback():
 
     set_combo_value(combo, "GEÇERSİZ")
     assert combo.currentIndex() == 0
+
+
+def test_fixed_window_structure_and_dimensions(tmp_path, monkeypatch):
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    _app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    assert win.width() == 700
+    assert win.height() == 650
+    assert win.minimumWidth() == 700
+    assert win.maximumWidth() == 700
+    assert win.minimumHeight() == 650
+    assert win.maximumHeight() == 650
+    assert bool(win.windowFlags() & Qt.WindowType.WindowMaximizeButtonHint) is False
+    assert hasattr(win, "scroll_area") is False
+    assert hasattr(win, "_apply_responsive_layout") is False
+    assert hasattr(win, "_is_compact_layout") is False
+    assert win.log_box.height() == 115 or win.log_box.maximumHeight() == 115
+
+
+def test_dialogs_max_width_constraints():
+    _app = QApplication.instance() or QApplication([])
+    dlg1 = DownloadCompletedDialog("Summary")
+    dlg2 = UpdateAvailableDialog("v1.0.0", "Notes")
+    dlg3 = AppMessageDialog("Title", "Message")
+
+    assert dlg1.maximumWidth() <= 600
+    assert dlg2.maximumWidth() <= 600
+    assert dlg3.maximumWidth() <= 600
+
+
+@patch("src.main_window.check_environment")
+def test_download_worker_log_signal_and_main_window_connections(
+    mock_check_env, tmp_path, monkeypatch
+):
+    from src.download_worker import DownloadWorker
+    from src.models import DownloadRequest
+
+    mock_check_env.return_value = {
+        "ffmpeg": True,
+        "ffprobe": True,
+        "deno": True,
+        "yt_dlp": True,
+    }
+
+    req = DownloadRequest(
+        url="https://example.com/watch?v=123",
+        output_dir=tmp_path,
+        media_type="Video (MP4)",
+        quality="1080p",
+        playlist=False,
+        browser=None,
+    )
+    worker = DownloadWorker(req)
+
+    assert hasattr(worker, "log") is True
+    assert hasattr(worker, "log_message") is False
+    assert hasattr(worker, "succeeded") is True
+    assert hasattr(worker, "failed") is True
+    assert hasattr(worker, "cancelled") is True
+    assert hasattr(worker, "status") is True
+    assert hasattr(worker, "progress") is True
+
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    _app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+    win.url_input.setText("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    win.folder_input.setText(str(tmp_path))
+
+    with patch.object(DownloadWorker, "run"):
+        win.start_download()
+        assert win._download_worker is not None
+        assert hasattr(win._download_worker, "log") is True
+        if win._download_thread:
+            win._download_thread.quit()
+            win._download_thread.wait(1000)
+
+

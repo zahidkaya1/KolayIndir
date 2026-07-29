@@ -8,14 +8,9 @@ QWidget {
 }
 
 QMainWindow {
-    background: #f4f6fa;
+    background: #f7f8fa;
 }
 
-QFrame#contentCard {
-    background: #ffffff;
-    border: 1px solid #dce2ec;
-    border-radius: 14px;
-}
 
 QLabel#titleLabel {
     font-size: 28px;
