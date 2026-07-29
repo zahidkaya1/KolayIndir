@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -15,6 +16,11 @@ class PlatformType(Enum):
     INSTAGRAM_POST = "instagram_post"
     INSTAGRAM_STORY = "instagram_story"
     INSTAGRAM_HIGHLIGHT = "instagram_highlight"
+    TIKTOK_VIDEO = "tiktok_video"
+    TIKTOK_SHORT_LINK = "tiktok_short_link"
+    TIKTOK_PROFILE = "tiktok_profile"
+    TIKTOK_LIVE = "tiktok_live"
+    TIKTOK_SLIDESHOW = "tiktok_slideshow"
     UNKNOWN = "unknown"
 
 
@@ -43,6 +49,19 @@ def detect_platform_type(url: str) -> PlatformType:
             return PlatformType.INSTAGRAM_POST
         return PlatformType.INSTAGRAM_POST
 
+    if "tiktok.com" in raw:
+        if "vm.tiktok.com" in raw or "vt.tiktok.com" in raw:
+            return PlatformType.TIKTOK_SHORT_LINK
+        if "/live" in raw or "live.tiktok.com" in raw:
+            return PlatformType.TIKTOK_LIVE
+        if "/photo/" in raw:
+            return PlatformType.TIKTOK_SLIDESHOW
+        if "/video/" in raw:
+            return PlatformType.TIKTOK_VIDEO
+        if re.search(r"tiktok\.com/@[^/]+/?(?:\?.*)?$", raw):
+            return PlatformType.TIKTOK_PROFILE
+        return PlatformType.TIKTOK_VIDEO
+
     return PlatformType.UNKNOWN
 
 
@@ -55,15 +74,57 @@ def get_platform_badge_text(platform: PlatformType) -> str:
         PlatformType.INSTAGRAM_POST: "Instagram Gönderisi",
         PlatformType.INSTAGRAM_STORY: "Instagram Hikâyesi",
         PlatformType.INSTAGRAM_HIGHLIGHT: "Instagram Öne Çıkan",
+        PlatformType.TIKTOK_VIDEO: "TikTok",
+        PlatformType.TIKTOK_SHORT_LINK: "TikTok",
+        PlatformType.TIKTOK_PROFILE: "TikTok",
+        PlatformType.TIKTOK_LIVE: "TikTok",
+        PlatformType.TIKTOK_SLIDESHOW: "TikTok Slaytı",
         PlatformType.UNKNOWN: "Diğer",
     }
     return badge_map.get(platform, "Diğer")
+
+
+def is_rehydration_error(error_msg: str) -> bool:
+    """TikTok extractor'ının universal data for rehydration hatası verip vermediğini denetler."""
+    if not error_msg:
+        return False
+    msg_lower = error_msg.lower()
+    return "universal data for rehydration" in msg_lower or "unable to extract universal data" in msg_lower
 
 
 def translate_social_error(exc_or_msg: Exception | str, url: str) -> str:
     msg = str(exc_or_msg)
     msg_lower = msg.lower()
     platform = detect_platform_type(url)
+
+    if platform in (
+        PlatformType.TIKTOK_VIDEO,
+        PlatformType.TIKTOK_SHORT_LINK,
+        PlatformType.TIKTOK_PROFILE,
+        PlatformType.TIKTOK_LIVE,
+        PlatformType.TIKTOK_SLIDESHOW,
+    ) or "tiktok" in url.lower():
+        if is_rehydration_error(msg_lower):
+            return (
+                "TikTok bağlantısı çözüldü ancak bu videonun verileri şu anda yt-dlp tarafından okunamadı. "
+                "Bu sorun bazı TikTok videolarında oluşabilir. Başka bir video deneyin veya yt-dlp güncellemesini kontrol edin."
+            )
+        if any(term in msg_lower for term in ("impersonation", "impersonate", "curl_cffi")):
+            return "TikTok bağlantısını çözmek için gereken tarayıcı taklidi bileşeni bulunamadı."
+        if "unable to extract webpage video data" in msg_lower or "unable to extract video data" in msg_lower:
+            return "TikTok video bilgileri şu anda alınamadı. TikTok geçici olarak değişmiş olabilir; yt-dlp güncellemesini kontrol edin."
+        if "429" in msg_lower or "too many requests" in msg_lower:
+            return "TikTok geçici olarak çok fazla istek algıladı. Bir süre bekleyip yeniden deneyin."
+        if "ip" in msg_lower and any(term in msg_lower for term in ("block", "banned", "deny", "denied")):
+            return "TikTok bu bağlantıya mevcut internet bağlantınızdan erişimi engelledi. Daha sonra yeniden deneyin."
+        if any(term in msg_lower for term in ("private", "protected")):
+            return "Bu TikTok videosu özel bir hesaba ait. İçeriğe erişebilen bir tarayıcı oturumu gerekiyor."
+        if any(term in msg_lower for term in ("login required", "sign in required", "log in", "cookies required", "authentication required")):
+            return "TikTok bu içerik için giriş yapılmış bir oturum istiyor."
+        if any(term in msg_lower for term in ("not found", "deleted", "404", "video unavailable", "does not exist")):
+            return "TikTok videosu bulunamadı, silinmiş veya artık erişilemiyor olabilir."
+        if any(term in msg_lower for term in ("short link", "could not resolve")):
+            return "TikTok kısa bağlantısı çözümlenemedi. Bağlantıyı TikTok uygulamasından yeniden kopyalayın."
 
     if platform == PlatformType.TWITTER_POST:
         if any(term in msg_lower for term in ("protected", "private account", "not authorized", "this tweet is from a protected account")):
@@ -91,7 +152,6 @@ def translate_social_error(exc_or_msg: Exception | str, url: str) -> str:
         if "twitter" in url.lower() or "x.com" in url.lower():
             return "Bu X gönderisinde indirilebilir video bulunamadı."
 
-
     return msg
 
 
@@ -105,6 +165,9 @@ class DownloadRequest:
     browser: str | None = None
     preferred_browser: str | None = None
     preferred_profile: tuple[str, str] | None = None
+    preferred_impersonation: str | None = None
+    successful_request_url: str | None = None
+    convert_hevc_to_h264: bool = True
 
 
 @dataclass
@@ -130,9 +193,13 @@ class MediaMetadata:
     platform_type: PlatformType = PlatformType.UNKNOWN
     session_browser: str | None = None
     session_profile: tuple[str, str] | None = None
-
-
-
+    is_slideshow: bool = False
+    view_count: int | None = None
+    like_count: int | None = None
+    track_name: str = ""
+    preferred_impersonation: str | None = None
+    successful_request_url: str | None = None
+    successful_attempt_type: str | None = None
 
 
 def format_bytes(size: float | None) -> str:
@@ -153,7 +220,6 @@ def format_bytes(size: float | None) -> str:
 
 
 def format_duration(seconds: float | None) -> str:
-
     """Saniyeyi MM:SS veya HH:MM:SS biçimine dönüştürür."""
     if seconds is None or seconds < 0:
         return ""
@@ -164,4 +230,3 @@ def format_duration(seconds: float | None) -> str:
     if hours > 0:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
     return f"{minutes:02d}:{secs:02d}"
-

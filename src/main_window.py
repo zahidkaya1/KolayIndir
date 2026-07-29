@@ -66,12 +66,14 @@ from src.models import (
     detect_platform_type,
     format_bytes,
     get_platform_badge_text,
+    is_rehydration_error,
 )
 from src.settings import load_settings, save_settings
 from src.updater import UpdateWorker
 from src.utils import (
     clean_log_message,
     configure_combo_box,
+    probe_media_codecs,
     set_combo_value,
 )
 from src.widgets import OptionCard
@@ -93,6 +95,7 @@ class MainWindow(QMainWindow):
         self._current_metadata: MediaMetadata | None = None
         self._preferred_browser: str | None = None
         self._preferred_profile: tuple[str, str] | None = None
+        self._preferred_impersonation: str | None = None
         self._close_requested: bool = False
 
         self._close_dialog_open: bool = False
@@ -387,9 +390,19 @@ class MainWindow(QMainWindow):
             ).exec()
             return
 
+        platform = detect_platform_type(url)
         self.analyze_button.setEnabled(False)
         self.analyze_button.setText("İnceleniyor…")
-        self.status_label.setText("İçerik bilgileri alınıyor…")
+        if platform in (
+            PlatformType.TIKTOK_VIDEO,
+            PlatformType.TIKTOK_SHORT_LINK,
+            PlatformType.TIKTOK_PROFILE,
+            PlatformType.TIKTOK_LIVE,
+            PlatformType.TIKTOK_SLIDESHOW,
+        ):
+            self.status_label.setText("TikTok bağlantısı inceleniyor…")
+        else:
+            self.status_label.setText("İçerik bilgileri alınıyor…")
 
         thread = QThread(self)
         worker = MetadataWorker(
@@ -407,6 +420,7 @@ class MainWindow(QMainWindow):
         worker.thumbnail_ready.connect(self._on_thumbnail_ready)
         worker.story_notice_ready.connect(self._on_story_notice)
         worker.status.connect(self.status_label.setText)
+        worker.log.connect(self._append_log)
         worker.failed.connect(self._on_metadata_failed)
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
@@ -421,16 +435,32 @@ class MainWindow(QMainWindow):
         self._current_metadata = meta
         self._preferred_browser = meta.session_browser
         self._preferred_profile = meta.session_profile
+        self._preferred_impersonation = meta.preferred_impersonation
         self.preview_frame.show()
+
+        if meta.platform_type in (
+            PlatformType.TIKTOK_VIDEO,
+            PlatformType.TIKTOK_SHORT_LINK,
+            PlatformType.TIKTOK_PROFILE,
+            PlatformType.TIKTOK_LIVE,
+            PlatformType.TIKTOK_SLIDESHOW,
+        ):
+            self.status_label.setText("TikTok video bilgileri alındı.")
+        else:
+            self.status_label.setText("İçerik bilgileri alındı.")
 
         badge_text = get_platform_badge_text(meta.platform_type)
         self.platform_badge_label.setText(badge_text)
 
-        self.meta_title_label.setText(meta.title)
+        title_text = meta.title.strip()
+        if len(title_text) > 130:
+            title_text = title_text[:127] + "…"
+        self.meta_title_label.setText(title_text)
 
         uploader_text = meta.uploader if meta.uploader else meta.source_name
         duration = f" • Süre: {meta.duration_text}" if meta.duration_text else ""
-        self.meta_uploader_label.setText(f"{uploader_text}{duration}")
+        track_info = f" • Müzik: {meta.track_name}" if meta.track_name else ""
+        self.meta_uploader_label.setText(f"{uploader_text}{duration}{track_info}")
 
         if meta.is_playlist:
             p_count = meta.playlist_count if meta.playlist_count else "Bilinmiyor"
@@ -458,6 +488,15 @@ class MainWindow(QMainWindow):
             ext = meta.selected_extension.upper()
             size_str = format_bytes(meta.estimated_size_bytes)
             base_text = f"Kaynak: {max_q} • İndirilecek: {sel_q} • {ext} • Tahmini: {size_str}"
+            if meta.view_count or meta.like_count:
+                extra_parts = []
+                if meta.view_count:
+                    formatted_views = f"{meta.view_count:,}".replace(",", ".")
+                    extra_parts.append(f"İzlenme: {formatted_views}")
+                if meta.like_count:
+                    formatted_likes = f"{meta.like_count:,}".replace(",", ".")
+                    extra_parts.append(f"Beğeni: {formatted_likes}")
+                base_text += " • " + " • ".join(extra_parts)
             self.meta_badges_label.setText(base_text)
             self.meta_badges_label.setStyleSheet("color: #2563eb; font-size: 13px; font-weight: 600;")
 
@@ -495,6 +534,33 @@ class MainWindow(QMainWindow):
     def _on_metadata_failed(self, error: str) -> None:
         self.status_label.setText("İçerik önizleme bilgisi alınamadı.")
         self._append_log(f"İnceleme Uyarısı: {error}")
+
+        if is_rehydration_error(error):
+            dlg = AppMessageDialog(
+                "TikTok video bilgileri alınamadı",
+                "Bağlantı geçerli ve TikTok videosuna yönlendirildi ancak video verileri şu anda çözümlenemedi.",
+                "error",
+                self,
+                [
+                    ("retry", "Yeniden Dene", True),
+                    ("check_update", "Güncellemeyi Kontrol Et", False),
+                    ("close", "Kapat", False),
+                ],
+            )
+            dlg.exec()
+            if dlg.clicked_button_id == "retry":
+                self.analyze_url()
+            elif dlg.clicked_button_id == "check_update":
+                self._check_for_updates(user_initiated=True)
+            return
+
+        AppMessageDialog(
+            "İnceleme Başarısız",
+            error if error else "İçerik önizleme bilgisi alınamadı.",
+            "error",
+            self,
+        ).exec()
+
         if is_authentication_error(error) or is_chromium_encryption_error(error) or "oturum" in error.lower():
             url = self.url_input.text().strip()
             platform = detect_platform_type(url)
@@ -713,8 +779,14 @@ class MainWindow(QMainWindow):
             if dlg.exec() != QDialog.DialogCode.Accepted or dlg.clicked_button_id == "yes":
                 return
 
+        download_url = url
+        if self._current_metadata and self._current_metadata.successful_request_url:
+            download_url = self._current_metadata.successful_request_url
+        elif self._current_metadata and self._current_metadata.webpage_url and detect_platform_type(self._current_metadata.webpage_url) != PlatformType.UNKNOWN:
+            download_url = self._current_metadata.webpage_url
+
         request = DownloadRequest(
-            url=url,
+            url=download_url,
             output_dir=output_dir,
             media_type=self.media_combo.currentText(),
             quality=self.quality_combo.currentText(),
@@ -722,6 +794,9 @@ class MainWindow(QMainWindow):
             browser=self.browser_combo.currentData(),
             preferred_browser=self._preferred_browser,
             preferred_profile=self._preferred_profile,
+            preferred_impersonation=self._preferred_impersonation,
+            successful_request_url=download_url,
+            convert_hevc_to_h264=self.settings.get("convert_hevc_to_h264", True),
         )
 
         self._set_ui_downloading(True)
@@ -766,10 +841,21 @@ class MainWindow(QMainWindow):
         speed = details.get("speed", "—")
         eta = details.get("eta", "—")
 
+        is_tiktok = (
+            self._current_metadata is not None
+            and self._current_metadata.platform_type in (
+                PlatformType.TIKTOK_VIDEO,
+                PlatformType.TIKTOK_SHORT_LINK,
+                PlatformType.TIKTOK_PROFILE,
+                PlatformType.TIKTOK_LIVE,
+                PlatformType.TIKTOK_SLIDESHOW,
+            )
+        )
+
         phase_texts = {
-            "downloading": "İndiriliyor",
-            "video_downloading": "Video indiriliyor",
-            "audio_downloading": "Ses indiriliyor",
+            "downloading": "TikTok videosu indiriliyor" if is_tiktok else "İndiriliyor",
+            "video_downloading": "TikTok videosu indiriliyor" if is_tiktok else "Video indiriliyor",
+            "audio_downloading": "TikTok sesi indiriliyor" if is_tiktok else "Ses indiriliyor",
             "merging_video_audio": "Video ve ses birleştiriliyor",
             "preparing_mp3": "MP3 dosyası hazırlanıyor",
             "finished": "Dosya hazırlanıyor",
@@ -797,6 +883,25 @@ class MainWindow(QMainWindow):
         self._set_ui_downloading(False)
         self._append_log(error_msg if error_msg.startswith("Hata:") else f"Hata: {error_msg}")
 
+        if is_rehydration_error(error_msg):
+            dlg = AppMessageDialog(
+                "TikTok video bilgileri alınamadı",
+                "Bağlantı geçerli ve TikTok videosuna yönlendirildi ancak video verileri şu anda çözümlenemedi.",
+                "error",
+                self,
+                [
+                    ("retry", "Yeniden Dene", True),
+                    ("check_update", "Güncellemeyi Kontrol Et", False),
+                    ("close", "Kapat", False),
+                ],
+            )
+            dlg.exec()
+            if dlg.clicked_button_id == "retry":
+                self.start_download()
+            elif dlg.clicked_button_id == "check_update":
+                self._check_for_updates(user_initiated=True)
+            return
+
         if is_authentication_error(error_msg) or is_chromium_encryption_error(error_msg) or "oturum" in error_msg.lower():
             url = self.url_input.text().strip()
             platform = detect_platform_type(url)
@@ -809,13 +914,19 @@ class MainWindow(QMainWindow):
             elif dlg.clicked_button_id == "install_firefox":
                 self._prompt_install_firefox()
             elif dlg.clicked_button_id == "settings":
-                adv = AdvancedSessionDialog(current_mode=self.browser_combo.currentData(), parent=self)
+                adv = AdvancedSessionDialog(
+                    current_mode=self.browser_combo.currentData(),
+                    convert_hevc=self.settings.get("convert_hevc_to_h264", True),
+                    parent=self,
+                )
                 if adv.exec() == QDialog.DialogCode.Accepted:
                     new_mode = adv.selected_mode()
                     for i in range(self.browser_combo.count()):
                         if self.browser_combo.itemData(i) == new_mode:
                             self.browser_combo.setCurrentIndex(i)
                             break
+                    self.settings["convert_hevc_to_h264"] = adv.is_convert_hevc_enabled()
+                    save_settings(self.settings)
 
     def _prompt_install_firefox(self) -> None:
         """Kullanıcı onayından sonra Windows Terminal'de Firefox kurulum komutunu başlatır."""
@@ -866,11 +977,30 @@ class MainWindow(QMainWindow):
 
         if succeeded_result:
             self.progress_bar.setValue(100)
-            self.status_label.setText("İndirme tamamlandı.")
+            if self._current_metadata and self._current_metadata.platform_type in (
+                PlatformType.TIKTOK_VIDEO,
+                PlatformType.TIKTOK_SHORT_LINK,
+                PlatformType.TIKTOK_PROFILE,
+                PlatformType.TIKTOK_LIVE,
+                PlatformType.TIKTOK_SLIDESHOW,
+            ):
+                self.status_label.setText("TikTok indirmesi tamamlandı.")
+            else:
+                self.status_label.setText("İndirme tamamlandı.")
 
             real_size = ""
+            v_codec = ""
+            a_codec = ""
+            res_text = ""
             if filepath and Path(filepath).exists():
-                real_size = format_bytes(Path(filepath).stat().st_size)
+                fp = Path(filepath)
+                real_size = format_bytes(fp.stat().st_size)
+                probe = probe_media_codecs(fp)
+                v_codec = probe.get("video_codec", "")
+                a_codec = probe.get("audio_codec", "")
+                h = probe.get("height", 0)
+                if h > 0:
+                    res_text = f"{h}p"
 
             size_info = f" • Boyut: {real_size}" if real_size else ""
             self.stats_label.setText(f"Dosya: {Path(succeeded_result).name}{size_info}")
@@ -883,6 +1013,10 @@ class MainWindow(QMainWindow):
                 dlg = DownloadCompletedDialog(
                     result_summary=succeeded_result,
                     filepath=filepath,
+                    video_codec=v_codec,
+                    audio_codec=a_codec,
+                    resolution=res_text,
+                    filesize_text=real_size,
                     parent=self,
                 )
                 dlg.exec()
@@ -901,6 +1035,9 @@ class MainWindow(QMainWindow):
         self.meta_uploader_label.setText("")
         self.meta_badges_label.setText("")
         self._current_metadata = None
+        self._preferred_browser = None
+        self._preferred_profile = None
+        self._preferred_impersonation = None
 
         self.progress_bar.setValue(0)
         self.status_label.setText("Hazır")

@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from src.browser_sessions import (
     analyze_instagram_story_url,
+    analyze_tiktok_url,
     build_profile_attempt_order,
     classify_session_error,
     is_authentication_error,
@@ -24,8 +25,10 @@ from src.models import (
     PlatformType,
     detect_platform_type,
     format_duration,
+    is_rehydration_error,
     translate_social_error,
 )
+from src.utils import clean_log_message, clean_tiktok_url
 
 
 def _parse_max_height(formats: list[dict[str, Any]]) -> int | None:
@@ -70,11 +73,34 @@ def _calculate_estimated_size(info: dict[str, Any]) -> int | None:
     return None
 
 
+def resolve_tiktok_short_link(url: str) -> tuple[str, str | None]:
+    """Kısa TikTok URL'sini (vm.tiktok.com / vt.tiktok.com) HTTP yönlendirmesiyle çözer."""
+    if "vm.tiktok.com" not in url.lower() and "vt.tiktok.com" not in url.lower():
+        return clean_tiktok_url(url), None
+    try:
+        req = Request(url, headers={"User-Agent": HTTP_USER_AGENT})
+        with urlopen(req, timeout=8) as res:
+            final_url = res.geturl()
+            return clean_tiktok_url(final_url), None
+    except Exception as exc:  # noqa: BLE001
+        return url, str(exc)
+
+
+def _make_impersonate_target(target_name: str) -> Any:
+    """yt_dlp impersonate target nesnesi oluşturur."""
+    try:
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+        return ImpersonateTarget.from_str(target_name.lower())
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class MetadataWorker(QObject):
     metadata_ready = Signal(object)
     thumbnail_ready = Signal(bytes)
-    story_notice_ready = Signal(str)  # hikaye URL bilgi notu
+    story_notice_ready = Signal(str)  # hikaye/tiktok URL bilgi notu
     status = Signal(str)
+    log = Signal(str)
     failed = Signal(str)
     finished = Signal()
 
@@ -112,7 +138,131 @@ class MetadataWorker(QObject):
             self.story_notice_ready.emit(story_notice)
             self.status.emit(story_notice)
 
+        tiktok_notice, tiktok_err = analyze_tiktok_url(self.url)
+        if tiktok_err:
+            self.failed.emit(tiktok_err)
+            self.finished.emit()
+            return
+        if tiktok_notice:
+            self.story_notice_ready.emit(tiktok_notice)
+            self.status.emit(tiktok_notice)
+
         platform = detect_platform_type(self.url)
+        is_tiktok = platform in (
+            PlatformType.TIKTOK_VIDEO,
+            PlatformType.TIKTOK_SHORT_LINK,
+            PlatformType.TIKTOK_PROFILE,
+            PlatformType.TIKTOK_LIVE,
+            PlatformType.TIKTOK_SLIDESHOW,
+        ) or "tiktok" in self.url.lower()
+
+        is_short_link = "vm.tiktok.com" in self.url.lower() or "vt.tiktok.com" in self.url.lower()
+
+        if is_tiktok:
+            real_target_url = clean_tiktok_url(self.url)
+            if is_short_link:
+                self.log.emit("TikTok kısa bağlantısı algılandı")
+                self.log.emit("Yönlendirme başladı…")
+                self.status.emit("TikTok kısa bağlantısı çözümleniyor…")
+                resolved_url, _ = resolve_tiktok_short_link(self.url)
+                if resolved_url and resolved_url != self.url and ("tiktok.com" in resolved_url or "/video/" in resolved_url):
+                    self.log.emit("TikTok yönlendirmesi başarılı.")
+                    self.log.emit(f"Gerçek video bağlantısı bulundu: {clean_tiktok_url(resolved_url)}")
+                    real_target_url = resolved_url
+
+            candidates: list[tuple[str, str | None, str | None, Any, str]] = []
+            candidates.append((self.url, None, None, None, "Oturumsuz (Orijinal URL)"))
+
+            if real_target_url != self.url:
+                candidates.append((real_target_url, None, None, None, "Oturumsuz (Gerçek URL)"))
+
+            imp_chrome = _make_impersonate_target("chrome")
+            if imp_chrome:
+                candidates.append((real_target_url, None, None, imp_chrome, "Chrome Impersonation"))
+                candidates.append((real_target_url, "firefox", None, imp_chrome, "Firefox Oturumu + Chrome Impersonation"))
+
+            last_error: Exception | str | None = None
+            succeeded = False
+
+            for target_url, b_name, p_name, imp_target, label in candidates:
+                if self._cancel_requested:
+                    return
+
+                self.status.emit(f"TikTok sayfası inceleniyor ({label})…")
+                opts: dict[str, Any] = {
+                    "skip_download": True,
+                    "quiet": True,
+                    "no_warnings": False,
+                }
+                if b_name and p_name:
+                    opts["cookiesfrombrowser"] = (b_name, p_name)
+                elif b_name:
+                    opts["cookiesfrombrowser"] = (b_name,)
+
+                if imp_target is not None:
+                    opts["impersonate"] = imp_target
+
+                try:
+                    with yt_dlp.YoutubeDL(opts) as downloader:
+                        info = downloader.extract_info(target_url, download=False)
+
+                    if self._cancel_requested:
+                        return
+
+                    if not isinstance(info, dict):
+                        raise TypeError("İçerik bilgisi okunamadı.")
+
+                    self.log.emit("TikTok video verisi alındı")
+                    meta = self._build_metadata(info)
+                    meta.webpage_url = real_target_url
+                    meta.session_browser = b_name
+                    meta.session_profile = (b_name, p_name) if (b_name and p_name) else None
+                    meta.preferred_impersonation = "chrome" if imp_target is not None else None
+                    meta.successful_request_url = target_url
+                    meta.successful_attempt_type = label
+
+                    if not self._cancel_requested:
+                        self.metadata_ready.emit(meta)
+
+                    if meta.thumbnail_url and not self._cancel_requested:
+                        try:
+                            request = Request(
+                                meta.thumbnail_url,
+                                headers={"User-Agent": HTTP_USER_AGENT},
+                            )
+                            with urlopen(request, timeout=6) as response:
+                                thumb_bytes = response.read()
+                            if thumb_bytes and not self._cancel_requested:
+                                self.thumbnail_ready.emit(thumb_bytes)
+                        except Exception:  # noqa: BLE001, S110
+                            pass
+
+                    succeeded = True
+                    break
+
+                except Exception as exc:  # noqa: BLE001
+                    if self._cancel_requested:
+                        return
+                    last_error = exc
+                    err_clean = clean_log_message(str(exc))
+
+                    if is_rehydration_error(err_clean):
+                        self.log.emit("TikTok extractor video verisini çıkaramadı: universal data for rehydration bulunamadı.")
+                        continue
+                    elif is_authentication_error(err_clean):
+                        continue
+                    else:
+                        break
+
+            if not succeeded and not self._cancel_requested:
+                self.log.emit("TikTok video verisi çıkarılamadı")
+                err_clean = clean_log_message(str(last_error) if last_error else "")
+                err_msg = translate_social_error(err_clean, self.url)
+                self.failed.emit(err_msg)
+
+            self.finished.emit()
+            return
+
         attempt_order = build_profile_attempt_order(platform, self.browser)
 
         if self.preferred_profile:
@@ -131,7 +281,7 @@ class MetadataWorker(QObject):
                 else:
                     attempt_order.insert(0, item)
 
-        last_error: Exception | str | None = None
+        last_error = None
         succeeded = False
 
         for b_name, p_name, display_name in attempt_order:
@@ -143,12 +293,13 @@ class MetadataWorker(QObject):
             else:
                 self.status.emit(f"{display_name} oturumu deneniyor…")
 
-            opts: dict[str, Any] = {
+            opts = {
                 "extract_flat": "in_playlist",
                 "skip_download": True,
                 "quiet": True,
                 "no_warnings": False,
             }
+
             if b_name and p_name:
                 opts["cookiesfrombrowser"] = (b_name, p_name)
             elif b_name:
@@ -217,9 +368,8 @@ class MetadataWorker(QObject):
                     break
 
         if not succeeded and not self._cancel_requested:
-            err_msg = str(last_error) if last_error else "Bağlantı bilgisi alınamadı."
-            err_msg = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", err_msg)
-            err_msg = translate_social_error(err_msg, self.url)
+            err_raw = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", str(last_error) if last_error else "")
+            err_msg = translate_social_error(err_raw, self.url)
             self.failed.emit(err_msg)
 
         self.finished.emit()
@@ -230,6 +380,10 @@ class MetadataWorker(QObject):
         entries = list(raw_entries) if raw_entries else []
         is_playlist = info.get("_type") == "playlist" or bool(entries)
         playlist_count = len(entries) if is_playlist else None
+
+        webpage_url = str(info.get("webpage_url") or info.get("original_url") or self.url).strip()
+        if platform_type == PlatformType.TIKTOK_SHORT_LINK and ("/video/" in webpage_url or "tiktok.com" in webpage_url):
+            platform_type = PlatformType.TIKTOK_VIDEO
 
         # Instagram story için özel ID arama
         target_entry: dict[str, Any] | None = None
@@ -247,6 +401,7 @@ class MetadataWorker(QObject):
         title = str(
             (target_entry.get("title") if target_entry else None)
             or info.get("title")
+            or info.get("description")
             or info.get("playlist_title")
             or info.get("id")
             or "İçerik"
@@ -256,6 +411,7 @@ class MetadataWorker(QObject):
             or info.get("uploader")
             or info.get("channel")
             or info.get("uploader_id")
+            or info.get("creator")
             or ""
         ).strip()
         source_name = str(info.get("extractor_key") or info.get("extractor") or "").strip()
@@ -273,13 +429,40 @@ class MetadataWorker(QObject):
                     thumbnail_url = str(e["thumbnail"]).strip()
                     break
 
-        webpage_url = str(info.get("webpage_url") or self.url).strip()
         media_id = str((target_entry.get("id") if target_entry else None) or info.get("id") or "").strip()
 
         formats = (target_entry.get("formats") if target_entry else None) or info.get("formats") or []
         max_height = _parse_max_height(formats)
 
-        if max_height is None and not is_playlist:
+        is_tiktok = platform_type in (
+            PlatformType.TIKTOK_VIDEO,
+            PlatformType.TIKTOK_SHORT_LINK,
+            PlatformType.TIKTOK_PROFILE,
+            PlatformType.TIKTOK_LIVE,
+            PlatformType.TIKTOK_SLIDESHOW,
+        ) or "tiktok" in self.url.lower()
+
+        # Slideshow / photo post tespiti
+        is_slideshow = (
+            info.get("_type") == "slideshow"
+            or platform_type == PlatformType.TIKTOK_SLIDESHOW
+            or (
+                is_tiktok
+                and formats
+                and not any(
+                    isinstance(f, dict) and f.get("vcodec") not in (None, "none")
+                    for f in formats
+                )
+            )
+        )
+
+        if is_tiktok and is_slideshow:
+            if "MP3" not in self.media_type and "Ses" not in self.media_type:
+                raise ValueError("Bu TikTok gönderisi fotoğraf veya slayt içeriği. Görselleri indirme desteği henüz eklenmedi.")
+            else:
+                self.story_notice_ready.emit("Bu slayt gönderisinin yalnızca ses parçası indirilecek.")
+
+        if max_height is None and not is_playlist and not is_slideshow:
             if platform_type in (PlatformType.INSTAGRAM_POST, PlatformType.INSTAGRAM_REEL):
                 raise ValueError("Bu gönderide indirilebilir video bulunamadı. Fotoğraf indirme desteği henüz eklenmedi.")
             if platform_type == PlatformType.TWITTER_POST:
@@ -304,6 +487,10 @@ class MetadataWorker(QObject):
         acodec = str(info.get("acodec") or "").strip()
         est_size = _calculate_estimated_size(info)
 
+        track_name = str(info.get("track") or info.get("track_name") or info.get("music") or "").strip()
+        view_count = info.get("view_count") if isinstance(info.get("view_count"), int) else None
+        like_count = info.get("like_count") if isinstance(info.get("like_count"), int) else None
+
         return MediaMetadata(
             title=title,
             uploader=uploader,
@@ -324,4 +511,8 @@ class MetadataWorker(QObject):
             playlist_count=playlist_count,
             is_playlist=is_playlist,
             platform_type=platform_type,
+            is_slideshow=is_slideshow,
+            view_count=view_count,
+            like_count=like_count,
+            track_name=track_name,
         )

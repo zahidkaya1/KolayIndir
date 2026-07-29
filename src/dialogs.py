@@ -4,6 +4,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -30,13 +31,17 @@ class DownloadCompletedDialog(QDialog):
         self,
         result_summary: str = "",
         filepath: str = "",
+        video_codec: str = "",
+        audio_codec: str = "",
+        resolution: str = "",
+        filesize_text: str = "",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("downloadCompletedDialog")
         self.setWindowTitle("İndirme tamamlandı")
-        self.setMinimumWidth(400)
-        self.setMaximumWidth(580)
+        self.setMinimumWidth(420)
+        self.setMaximumWidth(600)
         self.setWindowFlags(
             self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
         )
@@ -50,11 +55,34 @@ class DownloadCompletedDialog(QDialog):
         self.title_label = QLabel("İçerik başarıyla indirildi.")
         self.title_label.setObjectName("dialogTitleLabel")
 
-        msg_text = "İndirme klasörünü açmak ister misiniz?"
+        msg_parts = []
         if result_summary:
-            msg_text = f"Tamamlanan: {result_summary}\n\n{msg_text}"
+            msg_parts.append(f"Tamamlanan: {result_summary}")
 
-        self.message_label = QLabel(msg_text)
+        info_parts = []
+        if video_codec:
+            if "264" in video_codec or "avc" in video_codec.lower():
+                c_display = "H.264 (AVC)"
+            elif "hevc" in video_codec.lower() or "265" in video_codec or "bytevc" in video_codec.lower():
+                c_display = "HEVC (H.265)"
+            else:
+                c_display = video_codec.upper()
+            info_parts.append(f"• Video Codec: {c_display}")
+        if audio_codec:
+            info_parts.append(f"• Ses Codec: {audio_codec.upper()}")
+        if resolution:
+            info_parts.append(f"• Çözünürlük: {resolution}")
+        if filesize_text:
+            info_parts.append(f"• Boyut: {filesize_text}")
+        if self.filepath:
+            info_parts.append(f"• Dosya: {Path(self.filepath).name}")
+
+        if info_parts:
+            msg_parts.append("\n".join(info_parts))
+
+        msg_parts.append("İndirme klasörünü açmak ister misiniz?")
+
+        self.message_label = QLabel("\n\n".join(msg_parts))
         self.message_label.setObjectName("dialogMessageLabel")
         self.message_label.setWordWrap(True)
 
@@ -408,24 +436,25 @@ class SessionFailedDialog(QDialog):
 
 
 class AdvancedSessionDialog(QDialog):
-    """Gelişmiş oturum tercihlerini ayarlamak için küçük diyalog penceresi."""
+    """Gelişmiş oturum tercihlerini ve format tercihlerini ayarlamak için diyalog penceresi."""
 
     def __init__(
         self,
         current_mode: str = "auto",
+        convert_hevc: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("advancedSessionDialog")
-        self.setWindowTitle("Gelişmiş Oturum Ayarları")
-        self.setMinimumWidth(380)
+        self.setWindowTitle("Gelişmiş Ayarlar")
+        self.setMinimumWidth(400)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 18)
         layout.setSpacing(12)
 
-        title = QLabel("Gelişmiş Oturum Ayarları")
+        title = QLabel("Gelişmiş Oturum ve Format Ayarları")
         title.setObjectName("dialogTitleLabel")
 
         desc = QLabel("Özel bir tarayıcı oturumu seçin veya otomatik oturum yönetimini kullanın:")
@@ -453,6 +482,14 @@ class AdvancedSessionDialog(QDialog):
                 break
         self.combo.setCurrentIndex(found_idx)
 
+        self.convert_hevc_check = QCheckBox("Windows uyumlu MP4 oluştur")
+        self.convert_hevc_check.setChecked(convert_hevc)
+        self.convert_hevc_check.setStyleSheet("color: #172033; font-size: 13px; font-weight: 600;")
+
+        hevc_desc = QLabel("HEVC/H.265 videoları gerekirse H.264'e dönüştürür. Dönüştürme işlemi ek süre alabilir.")
+        hevc_desc.setStyleSheet("color: #64748b; font-size: 12px;")
+        hevc_desc.setWordWrap(True)
+
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         btn_row.addStretch(1)
@@ -472,9 +509,15 @@ class AdvancedSessionDialog(QDialog):
         layout.addWidget(desc)
         layout.addWidget(self.combo)
         layout.addSpacing(6)
+        layout.addWidget(self.convert_hevc_check)
+        layout.addWidget(hevc_desc)
+        layout.addSpacing(8)
         layout.addLayout(btn_row)
 
     def selected_mode(self) -> str | None:
         return self.combo.currentData()
+
+    def is_convert_hevc_enabled(self) -> bool:
+        return self.convert_hevc_check.isChecked()
 
 

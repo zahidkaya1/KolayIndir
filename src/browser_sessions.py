@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import configparser
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.models import PlatformType
+from src.models import PlatformType, is_rehydration_error
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +212,11 @@ def build_profile_attempt_order(
         PlatformType.INSTAGRAM_POST,
         PlatformType.INSTAGRAM_STORY,
         PlatformType.INSTAGRAM_HIGHLIGHT,
+        PlatformType.TIKTOK_VIDEO,
+        PlatformType.TIKTOK_SHORT_LINK,
+        PlatformType.TIKTOK_PROFILE,
+        PlatformType.TIKTOK_LIVE,
+        PlatformType.TIKTOK_SLIDESHOW,
     ) or platform_type == PlatformType.TWITTER_POST:
         browser_priority = ["firefox", "edge", "chrome", "brave"]
     elif platform_type in (PlatformType.YOUTUBE_VIDEO, PlatformType.YOUTUBE_PLAYLIST):
@@ -276,6 +282,8 @@ def is_authentication_error(message: str) -> bool:
     if not message:
         return False
     msg_lower = str(message).lower()
+    if is_rehydration_error(message):
+        return False
     auth_terms = (
         "login required",
         "log in",
@@ -292,6 +300,7 @@ def is_authentication_error(message: str) -> bool:
         "oturum gerekiyor",
         "oturum isteyebilir",
         "private account",
+        "private post",
         "this post only contains photos",
         "you need to log in to access this content",
     )
@@ -311,6 +320,9 @@ SESSION_STATUS_LABELS = {
 def classify_session_error(message: str, url: str) -> str:
     msg_lower = str(message).lower()
 
+    if is_rehydration_error(message):
+        return "TikTok video verisi çıkarılamadı (rehydration)"
+
     if is_chromium_encryption_error(message):
         return SESSION_STATUS_LABELS["encrypted_cookies"]
 
@@ -321,6 +333,8 @@ def classify_session_error(message: str, url: str) -> str:
         return SESSION_STATUS_LABELS["story_inaccessible"]
 
     if any(t in msg_lower for t in ("rate limit", "429", "too many requests")):
+        if "tiktok" in url.lower():
+            return "TikTok oran sınırlaması"
         return "Instagram oran sınırlaması"
 
     if any(t in msg_lower for t in ("file not found", "no such file", "could not find", "cannot read")):
@@ -331,6 +345,8 @@ def classify_session_error(message: str, url: str) -> str:
             return SESSION_STATUS_LABELS["no_instagram_session"]
         if "twitter" in url.lower() or "x.com" in url.lower():
             return "X oturumu bulunamadı"
+        if "tiktok" in url.lower():
+            return "TikTok oturumu bulunamadı"
         return "Tarayıcı oturumu bulunamadı"
 
     return "Bilinmeyen çıkarıcı hatası"
@@ -364,5 +380,29 @@ def analyze_instagram_story_url(url: str) -> tuple[str | None, str | None]:
             )
         if len(parts) >= 2:
             return "Belirli bir hikâye bağlantısı algılandı.", None
+
+    return None, None
+
+
+def analyze_tiktok_url(url: str) -> tuple[str | None, str | None]:
+    """
+    TikTok URL'lerini analiz eder.
+    Returns: (notice_text, error_text)
+    """
+    raw = url.strip().lower()
+    if "tiktok.com" not in raw:
+        return None, None
+
+    if "vm.tiktok.com" in raw or "vt.tiktok.com" in raw:
+        return "TikTok kısa bağlantısı çözümleniyor…", None
+
+    if "/live" in raw or "live.tiktok.com" in raw:
+        return None, "TikTok canlı yayın indirme desteği henüz eklenmedi."
+
+    if re.search(r"tiktok\.com/@[^/]+/?(?:\?.*)?$", raw):
+        return (
+            None,
+            "TikTok profil bağlantısı algılandı. Toplu profil indirme desteği henüz etkin değil. Tek bir videonun paylaşım bağlantısını kullanın.",
+        )
 
     return None, None

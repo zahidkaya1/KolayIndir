@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 import re
+import subprocess
+from pathlib import Path
 from typing import Any
 
 import yt_dlp
@@ -14,8 +14,17 @@ from src.browser_sessions import (
     is_chromium_encryption_error,
 )
 from src.download_options import build_ydl_options
-from src.models import DownloadRequest, detect_platform_type, translate_social_error
-from src.utils import clean_log_message
+from src.models import (
+    DownloadRequest,
+    PlatformType,
+    detect_platform_type,
+    translate_social_error,
+)
+from src.utils import (
+    clean_log_message,
+    is_hevc_codec,
+    probe_media_codecs,
+)
 
 
 def _human_speed(value: float | None) -> str:
@@ -209,13 +218,13 @@ class DownloadWorker(QObject):
                 else:
                     attempt_order.insert(0, item)
 
-        # preferred_browser / preferred_profile öncelikli deneme
-        if self.request.preferred_profile or self.request.preferred_browser:
-            b_name_pref: str | None
-            p_name_pref: str | None
+        # preferred_browser / preferred_profile / preferred_impersonation öncelikli deneme
+        if self.request.preferred_profile or self.request.preferred_browser or self.request.preferred_impersonation:
+            b_name_pref: str | None = None
+            p_name_pref: str | None = None
             if self.request.preferred_profile:
                 b_name_pref, p_name_pref = self.request.preferred_profile
-            else:
+            elif self.request.preferred_browser:
                 b_name_pref = self.request.preferred_browser
                 p_name_pref = None
 
@@ -230,15 +239,34 @@ class DownloadWorker(QObject):
                 browser=b_name_pref,
                 preferred_browser=b_name_pref if not p_name_pref else None,
                 preferred_profile=(b_name_pref, p_name_pref) if (b_name_pref and p_name_pref) else None,
+                preferred_impersonation=self.request.preferred_impersonation,
+                successful_request_url=self.request.successful_request_url,
             )
             pref_options = build_ydl_options(pref_req)
             pref_options["logger"] = _YtDlpLogger(self.log)
             pref_options["progress_hooks"] = [self._progress_hook]
             pref_options["postprocessor_hooks"] = [self._postprocessor_hook]
-            self.status.emit(f"{pref_label} oturumuyla indirme başlatılıyor…")
+
+            if platform in (
+                PlatformType.TIKTOK_VIDEO,
+                PlatformType.TIKTOK_SHORT_LINK,
+                PlatformType.TIKTOK_PROFILE,
+                PlatformType.TIKTOK_LIVE,
+                PlatformType.TIKTOK_SLIDESHOW,
+            ):
+                url_type = "kısa bağlantı" if ("vm.tiktok.com" in self.request.url or "vt.tiktok.com" in self.request.url) else "çözülmüş bağlantı"
+                imp_text = self.request.preferred_impersonation or "Yok"
+                sess_text = b_name_pref or "Oturumsuz"
+                self.log.emit(f"TikTok indirme başlatılıyor (URL Türü: {url_type} | Oturum: {sess_text} | Impersonation: {imp_text})…")
+
+            self.status.emit(f"{pref_label} oturumuyla indirme başlatılıyor…" if b_name_pref else "İndirme başlatılıyor…")
             try:
                 with yt_dlp.YoutubeDL(pref_options) as downloader:
                     result = downloader.extract_info(self.request.url, download=True)
+                if self._cancel_requested:
+                    self.cancelled.emit()
+                    return
+                self._handle_post_download_transcode(result)
                 if self._cancel_requested:
                     self.cancelled.emit()
                     return
@@ -271,6 +299,9 @@ class DownloadWorker(QObject):
                 browser=b_name,
                 preferred_browser=None,
                 preferred_profile=(b_name, p_name) if (b_name and p_name) else None,
+                preferred_impersonation=self.request.preferred_impersonation,
+                successful_request_url=self.request.successful_request_url,
+                convert_hevc_to_h264=self.request.convert_hevc_to_h264,
             )
 
             options = build_ydl_options(req_copy)
@@ -280,12 +311,28 @@ class DownloadWorker(QObject):
 
             if b_name:
                 self.status.emit(f"{display_name} oturumuyla indirme başlatılıyor…")
+            elif platform in (
+                PlatformType.TIKTOK_VIDEO,
+                PlatformType.TIKTOK_SHORT_LINK,
+                PlatformType.TIKTOK_PROFILE,
+                PlatformType.TIKTOK_LIVE,
+                PlatformType.TIKTOK_SLIDESHOW,
+            ):
+                if "MP3" in self.request.media_type or "Ses" in self.request.media_type:
+                    self.status.emit("TikTok sesi indiriliyor…")
+                else:
+                    self.status.emit("TikTok videosu indiriliyor…")
             else:
                 self.status.emit("İndirme başlatılıyor…")
 
             try:
                 with yt_dlp.YoutubeDL(options) as downloader:
                     result = downloader.extract_info(self.request.url, download=True)
+                if self._cancel_requested:
+                    self.cancelled.emit()
+                    return
+
+                self._handle_post_download_transcode(result)
                 if self._cancel_requested:
                     self.cancelled.emit()
                     return
@@ -328,3 +375,117 @@ class DownloadWorker(QObject):
             self.failed.emit(clean_log_message(translated))
 
         self.finished.emit()
+
+    def _handle_post_download_transcode(self, result: Any) -> None:
+        if self._cancel_requested or self.request.media_type == "Ses (MP3)":
+            return
+
+        target_file: Path | None = None
+        if self._last_filename and Path(self._last_filename).exists():
+            target_file = Path(self._last_filename)
+        elif isinstance(result, dict):
+            fn = result.get("_filename") or result.get("filepath")
+            if fn and Path(fn).exists():
+                target_file = Path(fn)
+
+        if not target_file:
+            files = [f for f in self.request.output_dir.glob("*") if f.is_file() and not f.name.endswith(".part") and not f.name.endswith(".temp")]
+            if files:
+                target_file = max(files, key=lambda f: f.stat().st_mtime)
+
+        if not target_file or not target_file.exists():
+            return
+
+        self.status.emit("Video codec'i kontrol ediliyor…")
+        probe = probe_media_codecs(target_file)
+        v_codec = probe.get("video_codec", "")
+
+        if is_hevc_codec(v_codec) and self.request.convert_hevc_to_h264:
+            self.log.emit("İndirilen video HEVC/H.265 biçiminde. Windows uyumlu H.264 MP4'e dönüştürülüyor…")
+            self.status.emit("Video Windows uyumlu H.264 biçimine dönüştürülüyor…")
+
+            temp_hevc = target_file.with_name(target_file.stem + ".hevc_temp" + target_file.suffix)
+            try:
+                if temp_hevc.exists():
+                    temp_hevc.unlink()
+                target_file.rename(temp_hevc)
+            except OSError as exc:
+                self.log.emit(f"Geçici dosya oluşturulamadı: {exc}")
+                return
+
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(temp_hevc),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "20",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-movflags",
+                "+faststart",
+                str(target_file),
+            ]
+
+            duration = float(probe.get("duration") or 0.0)
+            process = None
+            try:
+                process = subprocess.Popen(
+                    cmd,
+                    stderr=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                time_pattern = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+
+                while True:
+                    if self._cancel_requested:
+                        if process:
+                            process.kill()
+                        if temp_hevc.exists():
+                            temp_hevc.unlink()
+                        if target_file.exists():
+                            target_file.unlink()
+                        return
+
+                    line = process.stderr.readline() if process.stderr else ""
+                    if not line and process.poll() is not None:
+                        break
+
+                    if line:
+                        m = time_pattern.search(line)
+                        if m and duration > 0:
+                            h, m_m, s = float(m.group(1)), float(m.group(2)), float(m.group(3))
+                            curr_sec = h * 3600 + m_m * 60 + s
+                            pct = min(99, max(0, int((curr_sec / duration) * 100)))
+                            self.status.emit(f"Video Windows uyumlu H.264 biçimine dönüştürülüyor… (%{pct})")
+
+                process.wait()
+
+                if process.returncode == 0 and target_file.exists() and target_file.stat().st_size > 0:
+                    if temp_hevc.exists():
+                        temp_hevc.unlink()
+                    self.status.emit("Video ve ses hazırlanıyor…")
+                    self.log.emit("H.264 MP4 dönüştürmesi tamamlandı.")
+                else:
+                    if temp_hevc.exists() and not target_file.exists():
+                        temp_hevc.rename(target_file)
+                    self.log.emit("Video indirildi ancak Windows uyumlu H.264 biçimine dönüştürülemedi.")
+                    self.status.emit("H.264 dönüştürmesi tamamlanamadı (orijinal dosya korundu).")
+            except Exception as exc:  # noqa: BLE001
+                if process:
+                    process.kill()
+                if temp_hevc.exists() and not target_file.exists():
+                    temp_hevc.rename(target_file)
+                self.log.emit(f"Dönüştürme hatası: {exc}")
+                self.status.emit("H.264 dönüştürmesi başarısız (orijinal dosya korundu).")

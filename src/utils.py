@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
+from typing import Any
 
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QComboBox
-
-_ANSI_REGEX = re.compile(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]")
-
-
-from PySide6.QtWidgets import QSizePolicy
+from PySide6.QtWidgets import QComboBox, QSizePolicy
 
 _ANSI_REGEX = re.compile(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]")
 
@@ -107,3 +104,122 @@ def is_chrome_cookie_error(text: str) -> bool:
         return False
     cleaned = strip_ansi(text).lower()
     return "could not copy chrome cookie database" in cleaned
+
+
+def clean_tiktok_url(url: str) -> str:
+    """Teknik log için URL'deki hassas query parametrelerini, token'ları ve cookie'leri temizler."""
+    if not url:
+        return ""
+    base = url.split("?")[0].split("#")[0].strip()
+    return base
+
+
+HEVC_CODECS = {"hevc", "h265", "hev1", "hvc1", "bytevc1"}
+H264_CODECS = {"h264", "avc1", "avc"}
+
+
+def is_hevc_codec(codec_name: str) -> bool:
+    """Video codec adının HEVC/H.265 olup olmadığını denetler."""
+    if not codec_name:
+        return False
+    c = str(codec_name).strip().lower()
+    return any(h in c for h in HEVC_CODECS)
+
+
+def is_h264_codec(codec_name: str) -> bool:
+    """Video codec adının H.264/AVC olup olmadığını denetler."""
+    if not codec_name:
+        return False
+    c = str(codec_name).strip().lower()
+    return any(h in c for h in H264_CODECS)
+
+
+def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
+    """ffprobe kullanarak medya dosyasının video/ses codec, çözünürlük, fps ve süre bilgilerini sorgular."""
+    import json
+    import subprocess
+
+    path = Path(file_path)
+    if not path.exists():
+        return {
+            "video_codec": "unknown",
+            "audio_codec": "unknown",
+            "width": 0,
+            "height": 0,
+            "fps": 0.0,
+            "duration": 0.0,
+        }
+
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-show_streams",
+        "-show_format",
+        str(path),
+    ]
+
+    try:
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if res.returncode != 0 or not res.stdout:
+            return {
+                "video_codec": "unknown",
+                "audio_codec": "unknown",
+                "width": 0,
+                "height": 0,
+                "fps": 0.0,
+                "duration": 0.0,
+            }
+
+        data = json.loads(res.stdout)
+        video_codec = "none"
+        audio_codec = "none"
+        width = 0
+        height = 0
+        fps = 0.0
+
+        for stream in data.get("streams", []):
+            codec_type = stream.get("codec_type")
+            if codec_type == "video" and video_codec == "none":
+                video_codec = str(stream.get("codec_name") or "unknown").lower()
+                width = int(stream.get("width") or 0)
+                height = int(stream.get("height") or 0)
+                r_fps = str(stream.get("r_frame_rate") or "0/1")
+                if "/" in r_fps:
+                    parts = r_fps.split("/")
+                    if float(parts[1]) > 0:
+                        fps = float(parts[0]) / float(parts[1])
+                elif r_fps:
+                    fps = float(r_fps)
+            elif codec_type == "audio" and audio_codec == "none":
+                audio_codec = str(stream.get("codec_name") or "unknown").lower()
+
+        fmt_info = data.get("format", {})
+        duration = float(fmt_info.get("duration") or 0.0)
+
+        return {
+            "video_codec": video_codec,
+            "audio_codec": audio_codec,
+            "width": width,
+            "height": height,
+            "fps": round(fps, 2),
+            "duration": round(duration, 2),
+        }
+    except Exception:  # noqa: BLE001
+        return {
+            "video_codec": "unknown",
+            "audio_codec": "unknown",
+            "width": 0,
+            "height": 0,
+            "fps": 0.0,
+            "duration": 0.0,
+        }

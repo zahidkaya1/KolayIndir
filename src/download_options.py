@@ -21,8 +21,18 @@ QUALITY_HEIGHTS: dict[str, int | None] = {
 def _video_format(quality: str) -> str:
     height = QUALITY_HEIGHTS.get(quality)
     if height is None:
-        return "bv*+ba/b"
-    return f"bv*[height<={height}]+ba/b[height<={height}]"
+        return (
+            "bv*[vcodec^=avc1]+ba/bv*[vcodec^=h264]+ba/"
+            "b[vcodec^=avc1]/b[vcodec^=h264]/"
+            "bv*+ba/b"
+        )
+    return (
+        f"bv*[vcodec^=avc1][height<={height}]+ba/"
+        f"bv*[vcodec^=h264][height<={height}]+ba/"
+        f"b[vcodec^=avc1][height<={height}]/"
+        f"b[vcodec^=h264][height<={height}]/"
+        f"bv*[height<={height}]+ba/b[height<={height}]/b"
+    )
 
 
 def _make_cookies_from_browser(
@@ -42,6 +52,35 @@ def _make_cookies_from_browser(
     return (browser_name,)
 
 
+def _make_impersonate_target(target_name: str) -> Any:
+    """yt_dlp impersonate target nesnesi oluşturur."""
+    try:
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+        return ImpersonateTarget.from_str(target_name.lower())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def build_tiktok_attempt_options(
+    browser: str | None = None,
+    profile: tuple[str, str] | None = None,
+    impersonation: str | None = None,
+) -> dict[str, Any]:
+    """TikTok deneme seçeneği üreten ortak yardımcı fonksiyon."""
+    opts: dict[str, Any] = {}
+    if profile:
+        opts["cookiesfrombrowser"] = profile
+    elif browser:
+        opts["cookiesfrombrowser"] = (browser,)
+
+    if impersonation:
+        imp_target = _make_impersonate_target(impersonation)
+        if imp_target is not None:
+            opts["impersonate"] = imp_target
+
+    return opts
+
+
 def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
     request.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -50,8 +89,17 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
         PlatformType.INSTAGRAM_STORY,
         PlatformType.INSTAGRAM_HIGHLIGHT,
     )
+    is_tiktok = platform in (
+        PlatformType.TIKTOK_VIDEO,
+        PlatformType.TIKTOK_SHORT_LINK,
+        PlatformType.TIKTOK_PROFILE,
+        PlatformType.TIKTOK_LIVE,
+        PlatformType.TIKTOK_SLIDESHOW,
+    )
 
-    if request.playlist:
+    if is_tiktok:
+        template = "TikTok - %(uploader,uploader_id,channel|TikTok_Kullanicisi)s - %(title,id)s [%(id)s].%(ext)s"
+    elif request.playlist:
         if is_instagram_story:
             template = "%(uploader,uploader_id,playlist_title,playlist|Instagram_Hikayeleri)s/%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s"
         else:
@@ -106,5 +154,10 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
 
     if cookies_tuple is not None:
         options["cookiesfrombrowser"] = cookies_tuple
+
+    if request.preferred_impersonation:
+        imp_target = _make_impersonate_target(request.preferred_impersonation)
+        if imp_target is not None:
+            options["impersonate"] = imp_target
 
     return options

@@ -66,6 +66,9 @@ def load_settings() -> dict[str, Any]:
     if "auto_open_folder" not in data:
         data["auto_open_folder"] = False
 
+    if "convert_hevc_to_h264" not in data:
+        data["convert_hevc_to_h264"] = True
+
     return data
 
 
