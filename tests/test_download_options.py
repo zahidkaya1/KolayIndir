@@ -33,8 +33,9 @@ def test_audio_options_include_mp3_postprocessor(tmp_path):
 
 def test_playlist_template(tmp_path):
     options = build_ydl_options(create_request(output_dir=tmp_path, playlist=True))
-    assert "%(playlist_title,playlist)s" in options["outtmpl"]
+    assert "%(playlist_title,playlist" in options["outtmpl"]
     assert options["noplaylist"] is False
+
 
 
 def test_browser_cookie_option(tmp_path):

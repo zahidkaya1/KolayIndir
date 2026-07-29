@@ -34,6 +34,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.browser_sessions import (
+    is_authentication_error,
+    is_chromium_encryption_error,
+)
 from src.config import (
     APP_NAME,
     APP_VERSION,
@@ -46,14 +50,23 @@ from src.dependency_check import (
     get_environment_log_lines,
 )
 from src.dialogs import (
+    AdvancedSessionDialog,
     AppMessageDialog,
     DownloadCompletedDialog,
     LogDialog,
+    SessionFailedDialog,
     UpdateAvailableDialog,
 )
 from src.download_worker import DownloadWorker
 from src.metadata_worker import MetadataWorker
-from src.models import DownloadRequest, MediaMetadata, format_bytes
+from src.models import (
+    DownloadRequest,
+    MediaMetadata,
+    PlatformType,
+    detect_platform_type,
+    format_bytes,
+    get_platform_badge_text,
+)
 from src.settings import load_settings, save_settings
 from src.updater import UpdateWorker
 from src.utils import (
@@ -78,9 +91,14 @@ class MainWindow(QMainWindow):
         self._download_succeeded_path: str = ""
         self._log_history: list[str] = []
         self._current_metadata: MediaMetadata | None = None
+        self._preferred_browser: str | None = None
+        self._preferred_profile: tuple[str, str] | None = None
         self._close_requested: bool = False
+
         self._close_dialog_open: bool = False
+        self._story_notice: str | None = None
         self.settings = load_settings()
+
 
         flags = (
             Qt.WindowType.Window
@@ -169,6 +187,15 @@ class MainWindow(QMainWindow):
 
         meta_info_box = QVBoxLayout()
         meta_info_box.setSpacing(3)
+
+        self.platform_badge_label = QLabel("YouTube")
+        self.platform_badge_label.setObjectName("platformBadgeLabel")
+        self.platform_badge_label.setStyleSheet(
+            "color: #1d4ed8; font-size: 11px; font-weight: 700; "
+            "background-color: #eff6ff; border: 1px solid #bfdbfe; "
+            "border-radius: 4px; padding: 1px 6px; max-width: 160px;"
+        )
+
         self.meta_title_label = QLabel("İçerik başlığı yükleniyor…")
         self.meta_title_label.setStyleSheet("font-weight: 700; color: #0f172a;")
         self.meta_title_label.setWordWrap(True)
@@ -179,9 +206,11 @@ class MainWindow(QMainWindow):
         self.meta_badges_label = QLabel("Kaynak: — • İndirilecek: — • Tahmini: —")
         self.meta_badges_label.setStyleSheet("color: #2563eb; font-size: 13px; font-weight: 600;")
 
+        meta_info_box.addWidget(self.platform_badge_label)
         meta_info_box.addWidget(self.meta_title_label)
         meta_info_box.addWidget(self.meta_uploader_label)
         meta_info_box.addWidget(self.meta_badges_label)
+
         preview_layout.addLayout(meta_info_box, 1)
         layout.addWidget(self.preview_frame)
 
@@ -211,11 +240,14 @@ class MainWindow(QMainWindow):
 
         self.browser_combo = QComboBox()
         self.browser_combo.setObjectName("browserCombo")
+        self.browser_combo.addItem("Otomatik oturum", "auto")
         self.browser_combo.addItem("Oturum kullanma", None)
-        self.browser_combo.addItem("Chrome oturumu", "chrome")
-        self.browser_combo.addItem("Edge oturumu", "edge")
         self.browser_combo.addItem("Firefox oturumu", "firefox")
+        self.browser_combo.addItem("Edge oturumu", "edge")
+        self.browser_combo.addItem("Chrome oturumu", "chrome")
+        self.browser_combo.addItem("Brave oturumu", "brave")
         configure_combo_box(self.browser_combo)
+
 
         self.playlist_checkbox = QCheckBox(
             "Oynatma listesinin tamamını indir"
@@ -339,6 +371,7 @@ class MainWindow(QMainWindow):
         if self._current_metadata is not None:
             self._current_metadata = None
             self.preview_frame.hide()
+        self._story_notice = None
 
     def analyze_url(self) -> None:
         if self._metadata_thread is not None:
@@ -364,12 +397,15 @@ class MainWindow(QMainWindow):
             requested_quality=self.quality_combo.currentText(),
             media_type=self.media_combo.currentText(),
             browser=self.browser_combo.currentData(),
+            preferred_browser=self._preferred_browser,
+            preferred_profile=self._preferred_profile,
         )
         worker.moveToThread(thread)
 
         thread.started.connect(worker.run)
         worker.metadata_ready.connect(self._on_metadata_ready)
         worker.thumbnail_ready.connect(self._on_thumbnail_ready)
+        worker.story_notice_ready.connect(self._on_story_notice)
         worker.status.connect(self.status_label.setText)
         worker.failed.connect(self._on_metadata_failed)
         worker.finished.connect(thread.quit)
@@ -383,7 +419,13 @@ class MainWindow(QMainWindow):
 
     def _on_metadata_ready(self, meta: MediaMetadata) -> None:
         self._current_metadata = meta
+        self._preferred_browser = meta.session_browser
+        self._preferred_profile = meta.session_profile
         self.preview_frame.show()
+
+        badge_text = get_platform_badge_text(meta.platform_type)
+        self.platform_badge_label.setText(badge_text)
+
         self.meta_title_label.setText(meta.title)
 
         uploader_text = meta.uploader if meta.uploader else meta.source_name
@@ -393,17 +435,51 @@ class MainWindow(QMainWindow):
         if meta.is_playlist:
             p_count = meta.playlist_count if meta.playlist_count else "Bilinmiyor"
             size_str = format_bytes(meta.estimated_size_bytes)
-            self.meta_badges_label.setText(
-                f"Oynatma Listesi ({p_count} İçerik) • Tahmini: {size_str}"
-            )
+            if (
+                meta.platform_type in (
+                    PlatformType.INSTAGRAM_POST,
+                    PlatformType.INSTAGRAM_REEL,
+                    PlatformType.TWITTER_POST,
+                )
+                and meta.playlist_count
+                and meta.playlist_count > 1
+            ):
+                self.meta_badges_label.setText(
+                    f"Bu gönderide {meta.playlist_count} indirilebilir video var."
+                )
+                self.playlist_checkbox.setChecked(True)
+            else:
+                self.meta_badges_label.setText(
+                    f"Oynatma Listesi ({p_count} İçerik) • Tahmini: {size_str}"
+                )
         else:
             max_q = f"{meta.maximum_available_height}p" if meta.maximum_available_height else "Bilinmiyor"
             sel_q = meta.selected_resolution
             ext = meta.selected_extension.upper()
             size_str = format_bytes(meta.estimated_size_bytes)
-            self.meta_badges_label.setText(
-                f"Kaynak: {max_q} • İndirilecek: {sel_q} • {ext} • Tahmini: {size_str}"
+            base_text = f"Kaynak: {max_q} • İndirilecek: {sel_q} • {ext} • Tahmini: {size_str}"
+            self.meta_badges_label.setText(base_text)
+            self.meta_badges_label.setStyleSheet("color: #2563eb; font-size: 13px; font-weight: 600;")
+
+        # Hikâye URL bilgi notunu badges alanında göster
+        if self._story_notice:
+            self.meta_badges_label.setText(f"ℹ️ {self._story_notice}")
+            self.meta_badges_label.setStyleSheet(
+                "color: #92400e; font-size: 12px; font-weight: 600;"
             )
+
+
+    def _on_story_notice(self, notice: str) -> None:
+        """Hikâye URL bilgi notunu saklar; meta_badges_label'a ekler."""
+        self._story_notice = notice
+        # Önizleme zaten görünüyorsa hemen badges label'a yaz
+        if self.preview_frame.isVisible():
+            current = self.meta_badges_label.text()
+            if notice not in current:
+                self.meta_badges_label.setText(f"ℹ️ {notice}")
+                self.meta_badges_label.setStyleSheet(
+                    "color: #92400e; font-size: 12px; font-weight: 600;"
+                )
 
     def _on_thumbnail_ready(self, data: bytes) -> None:
         pixmap = QPixmap()
@@ -419,6 +495,27 @@ class MainWindow(QMainWindow):
     def _on_metadata_failed(self, error: str) -> None:
         self.status_label.setText("İçerik önizleme bilgisi alınamadı.")
         self._append_log(f"İnceleme Uyarısı: {error}")
+        if is_authentication_error(error) or is_chromium_encryption_error(error) or "oturum" in error.lower():
+            url = self.url_input.text().strip()
+            platform = detect_platform_type(url)
+            dlg = SessionFailedDialog(platform_name=platform.value, failure_reason=error, parent=self)
+            dlg.exec()
+            if dlg.clicked_button_id == "retry":
+                self._preferred_profile = None
+                self._preferred_browser = None
+                self.analyze_url()
+            elif dlg.clicked_button_id == "install_firefox":
+                self._prompt_install_firefox()
+            elif dlg.clicked_button_id == "settings":
+                adv = AdvancedSessionDialog(current_mode=self.browser_combo.currentData(), parent=self)
+                if adv.exec() == QDialog.DialogCode.Accepted:
+                    new_mode = adv.selected_mode()
+                    for i in range(self.browser_combo.count()):
+                        if self.browser_combo.itemData(i) == new_mode:
+                            self.browser_combo.setCurrentIndex(i)
+                            break
+
+
 
     def _on_metadata_finished(self) -> None:
         self._metadata_thread = None
@@ -623,6 +720,8 @@ class MainWindow(QMainWindow):
             quality=self.quality_combo.currentText(),
             playlist=self.playlist_checkbox.isChecked(),
             browser=self.browser_combo.currentData(),
+            preferred_browser=self._preferred_browser,
+            preferred_profile=self._preferred_profile,
         )
 
         self._set_ui_downloading(True)
@@ -698,6 +797,55 @@ class MainWindow(QMainWindow):
         self._set_ui_downloading(False)
         self._append_log(error_msg if error_msg.startswith("Hata:") else f"Hata: {error_msg}")
 
+        if is_authentication_error(error_msg) or is_chromium_encryption_error(error_msg) or "oturum" in error_msg.lower():
+            url = self.url_input.text().strip()
+            platform = detect_platform_type(url)
+            dlg = SessionFailedDialog(platform_name=platform.value, failure_reason=error_msg, parent=self)
+            dlg.exec()
+            if dlg.clicked_button_id == "retry":
+                self._preferred_profile = None
+                self._preferred_browser = None
+                self.start_download()
+            elif dlg.clicked_button_id == "install_firefox":
+                self._prompt_install_firefox()
+            elif dlg.clicked_button_id == "settings":
+                adv = AdvancedSessionDialog(current_mode=self.browser_combo.currentData(), parent=self)
+                if adv.exec() == QDialog.DialogCode.Accepted:
+                    new_mode = adv.selected_mode()
+                    for i in range(self.browser_combo.count()):
+                        if self.browser_combo.itemData(i) == new_mode:
+                            self.browser_combo.setCurrentIndex(i)
+                            break
+
+    def _prompt_install_firefox(self) -> None:
+        """Kullanıcı onayından sonra Windows Terminal'de Firefox kurulum komutunu başlatır."""
+        import subprocess
+
+        WINGET_CMD = "winget install -e --id Mozilla.Firefox"
+        dlg = AppMessageDialog(
+            "Firefox Kurulumu",
+            f"Aşağıdaki komut Windows Terminal'de çalıştırılacak:\n\n{WINGET_CMD}\n\n"
+            "Devam etmek istiyor musunuz?",
+            "question",
+            self,
+            [("yes", "Evet, Kur", True), ("no", "İptal", False)],
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.clicked_button_id == "yes":
+            try:
+                subprocess.Popen(
+                    ["cmd", "/c", "start", "cmd", "/k", WINGET_CMD],
+                    shell=False,
+                )
+                self._append_log(f"Firefox kurulum komutu başlatıldı: {WINGET_CMD}")
+            except Exception as exc:  # noqa: BLE001
+                AppMessageDialog(
+                    "Komut Çalıştırılamadı",
+                    f"Komut başlatılamadı:\n{exc}\n\nLütfen aşağıdaki komutu kendiniz çalıştırın:\n{WINGET_CMD}",
+                    "error",
+                    self,
+                ).exec()
+
+
     def _on_download_cancelled(self) -> None:
         self.progress_bar.setValue(0)
         self.status_label.setText("İndirme iptal edildi.")
@@ -764,6 +912,9 @@ class MainWindow(QMainWindow):
 
         self.playlist_checkbox.setChecked(False)
         self.browser_combo.setCurrentIndex(0)
+        self._preferred_browser = None
+        self._preferred_profile = None
+
 
         self._download_succeeded_result = None
         self._download_succeeded_path = ""

@@ -159,7 +159,8 @@ def test_single_video_vs_playlist_output_template(tmp_path):
         browser=None,
     )
     playlist_opts = build_ydl_options(playlist_req)
-    assert "%(playlist_title,playlist)s" in playlist_opts["outtmpl"]
+    assert "%(playlist_title,playlist" in playlist_opts["outtmpl"]
+
 
 
 def test_download_request_retry_without_browser(tmp_path):
@@ -290,7 +291,8 @@ def test_combo_boxes_object_names_and_defaults(tmp_path, monkeypatch):
 
     assert win.media_combo.currentText() == "Video (MP4)"
     assert win.quality_combo.currentText() == "En iyi kullanılabilir kalite"
-    assert win.browser_combo.currentText() == "Oturum kullanma"
+    assert win.browser_combo.currentText() == "Otomatik oturum"
+
 
 
 def test_invalid_settings_media_and_quality_fallback(tmp_path, monkeypatch):
@@ -700,6 +702,92 @@ def test_error_preserves_url_and_preview(tmp_path, monkeypatch):
     assert "İndirme başarısız" in win.status_label.text()
     assert win.download_button.isEnabled() is True
     assert win.cancel_button.isEnabled() is False
+
+
+def test_platform_type_detection():
+    from src.models import PlatformType, detect_platform_type, get_platform_badge_text
+
+    assert detect_platform_type("https://twitter.com/user/status/123") == PlatformType.TWITTER_POST
+    assert detect_platform_type("https://x.com/user/status/456") == PlatformType.TWITTER_POST
+    assert detect_platform_type("https://www.instagram.com/reel/C123456/") == PlatformType.INSTAGRAM_REEL
+    assert detect_platform_type("https://www.instagram.com/p/B98765/") == PlatformType.INSTAGRAM_POST
+    assert detect_platform_type("https://www.instagram.com/stories/username/123456/") == PlatformType.INSTAGRAM_STORY
+    assert detect_platform_type("https://www.instagram.com/stories/highlights/987654/") == PlatformType.INSTAGRAM_HIGHLIGHT
+    assert detect_platform_type("https://www.youtube.com/watch?v=abc") == PlatformType.YOUTUBE_VIDEO
+
+    assert get_platform_badge_text(PlatformType.TWITTER_POST) == "X / Twitter"
+    assert get_platform_badge_text(PlatformType.INSTAGRAM_REEL) == "Instagram Reel"
+    assert get_platform_badge_text(PlatformType.INSTAGRAM_POST) == "Instagram Gönderisi"
+    assert get_platform_badge_text(PlatformType.INSTAGRAM_STORY) == "Instagram Hikâyesi"
+    assert get_platform_badge_text(PlatformType.INSTAGRAM_HIGHLIGHT) == "Instagram Öne Çıkan"
+
+
+def test_translate_social_error():
+    from src.models import translate_social_error
+
+    err1 = translate_social_error("This tweet is from a protected account.", "https://x.com/user/status/123")
+    assert "korumalı bir hesaba ait" in err1
+
+    err2 = translate_social_error("Did not find any video stream", "https://x.com/user/status/456")
+    assert "indirilebilir video bulunamadı" in err2
+
+    err3 = translate_social_error("Instagram error: Please log in to view this story", "https://www.instagram.com/stories/user/123")
+    assert "Instagram oturumu gerekiyor" in err3
+
+    err4 = translate_social_error("This post only contains photos", "https://www.instagram.com/p/123")
+    assert "Fotoğraf indirme desteği henüz eklenmedi" in err4
+
+    err5 = translate_social_error("Login required to view this reel", "https://www.instagram.com/reel/123")
+    assert "Firefox oturumunu seçip yeniden deneyin" in err5
+
+
+def test_multi_media_auto_check_playlist(tmp_path, monkeypatch):
+    from src.models import MediaMetadata, PlatformType
+
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    _app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    meta = MediaMetadata(
+        title="Carousel Post",
+        uploader="insta_user",
+        is_playlist=True,
+        playlist_count=3,
+        platform_type=PlatformType.INSTAGRAM_POST,
+    )
+    win._on_metadata_ready(meta)
+
+    assert win.platform_badge_label.text() == "Instagram Gönderisi"
+    assert win.playlist_checkbox.isChecked() is True
+    assert "3 indirilebilir video var" in win.meta_badges_label.text()
+
+
+def test_720p_source_limit_display(tmp_path, monkeypatch):
+    from src.models import MediaMetadata, PlatformType
+
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    _app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    meta = MediaMetadata(
+        title="Sample Video",
+        uploader="x_user",
+        maximum_available_height=720,
+        selected_height=720,
+        selected_resolution="720p",
+        selected_extension="mp4",
+        platform_type=PlatformType.TWITTER_POST,
+    )
+    win._on_metadata_ready(meta)
+
+    assert win.platform_badge_label.text() == "X / Twitter"
+    assert "Kaynak: 720p" in win.meta_badges_label.text()
+    assert "İndirilecek: 720p" in win.meta_badges_label.text()
+
 
 
 

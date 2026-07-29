@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -14,6 +15,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.browser_sessions import (
+    is_chromium_encryption_error,
+    is_firefox_has_instagram_session,
+    is_firefox_installed,
+)
 from src.config import APP_VERSION
 
 
@@ -258,4 +264,217 @@ class AppMessageDialog(QDialog):
     def _on_button_click(self, btn_id: str) -> None:
         self.clicked_button_id = btn_id
         self.accept()
+
+
+class SessionFailedDialog(QDialog):
+    """Tüm oturum denemeleri başarısız olduğunda gösterilen özel diyalog penceresi."""
+
+    def __init__(
+        self,
+        platform_name: str = "instagram",
+        failure_reason: str = "",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("sessionFailedDialog")
+        self.setWindowTitle("Oturum alınamadı")
+        self.setMinimumWidth(460)
+        self.setMaximumWidth(600)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        title = QLabel("Oturum alınamadı")
+        title.setObjectName("dialogTitleLabel")
+
+        reason_lower = failure_reason.lower()
+        platform_lower = platform_name.lower()
+        is_instagram = "instagram" in platform_lower
+        is_twitter = "twitter" in platform_lower or "x" in platform_lower
+        is_youtube = "youtube" in platform_lower
+
+        # --- Durum tespiti ---
+        has_encryption_err = is_chromium_encryption_error(failure_reason)
+        has_lock_err = "kilit" in reason_lower or "lock" in reason_lower
+        has_expired = (
+            "süresi dolmuş" in reason_lower
+            or "expired" in reason_lower
+            or "404" in reason_lower
+            or "erişilemiyor" in reason_lower
+            or "story_inaccessible" in reason_lower
+        )
+        ff_installed = is_firefox_installed()
+        ff_has_session = is_firefox_has_instagram_session() if ff_installed else False
+
+        # --- Ana mesaj ---
+        if has_encryption_err and is_instagram:
+            main_text = (
+                "Edge veya Chrome oturumu bulundu ancak Windows çerez koruması nedeniyle okunamadı. "
+                "Instagram hikâyeleri için Firefox kullanılması önerilir."
+            )
+        elif has_lock_err:
+            main_text = (
+                "Tarayıcı çerez veritabanı kilitli. "
+                "Tarayıcıyı tamamen kapatıp yeniden deneyin."
+            )
+        elif has_expired:
+            main_text = "Bu hikâye sona ermiş, silinmiş veya hesabınız tarafından görüntülenemiyor olabilir."
+        elif is_instagram:
+            if ff_installed and not ff_has_session:
+                main_text = (
+                    "Firefox bulundu ancak Instagram hesabının açık olduğu bir oturum bulunamadı. "
+                    "Firefox'ta Instagram'a giriş yapıp tarayıcıyı tamamen kapatarak yeniden deneyin."
+                )
+            elif not ff_installed:
+                main_text = (
+                    "Bu içerik için Instagram oturumu gerekiyor ancak kullanılabilir bir oturum bulunamadı."
+                )
+            else:
+                main_text = (
+                    "Instagram hesabının açık olduğu bir tarayıcı oturumu bulunamadı. "
+                    "Tarayıcıda Instagram'a giriş yapıp tarayıcıyı tamamen kapatarak yeniden deneyin."
+                )
+        elif is_twitter:
+            main_text = "İçeriği görebildiğiniz hesabın açık olduğu tarayıcıyı kapatıp yeniden deneyin."
+        elif is_youtube:
+            main_text = "Video yaş kısıtlamalı veya oturum doğrulaması gerektiriyor olabilir."
+        else:
+            main_text = "Lütfen tarayıcınızda hesabınızın açık olduğundan ve oturumun aktif olduğundan emin olun."
+
+        msg = QLabel(main_text)
+        msg.setObjectName("dialogMessageLabel")
+        msg.setWordWrap(True)
+
+        # --- Firefox ipucu kutusu (yalnız Instagram + Firefox yok) ---
+        ff_hint_widget: QFrame | None = None
+        if is_instagram and not ff_installed and not has_expired and not has_lock_err:
+            ff_hint_widget = QFrame()
+            ff_hint_widget.setObjectName("ffHintFrame")
+            ff_hint_widget.setStyleSheet(
+                "QFrame#ffHintFrame { background: #eff6ff; border: 1px solid #bfdbfe; "
+                "border-radius: 6px; padding: 8px; }"
+            )
+            ff_layout = QVBoxLayout(ff_hint_widget)
+            ff_layout.setContentsMargins(10, 8, 10, 8)
+            ff_layout.setSpacing(4)
+            ff_hint_lbl = QLabel(
+                "Firefox'u bir kez kurup Instagram hesabınıza giriş yaptıktan sonra "
+                "Kolayİndir oturumu otomatik kullanacaktır."
+            )
+            ff_hint_lbl.setStyleSheet("color: #1e40af; font-size: 12px;")
+            ff_hint_lbl.setWordWrap(True)
+            ff_layout.addWidget(ff_hint_lbl)
+
+        # --- Düğmeler ---
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addStretch(1)
+
+        self.clicked_button_id: str = "close"
+
+        close_btn = QPushButton("Kapat")
+        close_btn.setObjectName("dialogSecondaryButton")
+        close_btn.clicked.connect(lambda: self._set_choice("close"))
+        btn_row.addWidget(close_btn)
+
+        retry_btn = QPushButton("Yeniden Dene")
+        retry_btn.setObjectName("dialogSecondaryButton")
+        retry_btn.clicked.connect(lambda: self._set_choice("retry"))
+        btn_row.addWidget(retry_btn)
+
+        # Firefox kurulum düğmesi: Instagram + (encryption hatası VEYA Firefox yok)
+        show_ff_btn = is_instagram and (has_encryption_err or not ff_installed)
+        if show_ff_btn:
+            ff_btn = QPushButton("Firefox Kurulumunu Aç")
+            ff_btn.setObjectName("dialogPrimaryButton")
+            ff_btn.clicked.connect(lambda: self._set_choice("install_firefox"))
+            btn_row.addWidget(ff_btn)
+        else:
+            # Başka durumlarda Yeniden Dene birincil
+            retry_btn.setObjectName("dialogPrimaryButton")
+
+        layout.addWidget(title)
+        layout.addWidget(msg)
+        if ff_hint_widget is not None:
+            layout.addWidget(ff_hint_widget)
+        layout.addSpacing(8)
+        layout.addLayout(btn_row)
+
+    def _set_choice(self, choice: str) -> None:
+        self.clicked_button_id = choice
+        self.accept()
+
+
+class AdvancedSessionDialog(QDialog):
+    """Gelişmiş oturum tercihlerini ayarlamak için küçük diyalog penceresi."""
+
+    def __init__(
+        self,
+        current_mode: str = "auto",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("advancedSessionDialog")
+        self.setWindowTitle("Gelişmiş Oturum Ayarları")
+        self.setMinimumWidth(380)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("Gelişmiş Oturum Ayarları")
+        title.setObjectName("dialogTitleLabel")
+
+        desc = QLabel("Özel bir tarayıcı oturumu seçin veya otomatik oturum yönetimini kullanın:")
+        desc.setObjectName("dialogMessageLabel")
+        desc.setWordWrap(True)
+
+        from PySide6.QtWidgets import QComboBox
+
+        from src.utils import configure_combo_box
+
+        self.combo = QComboBox()
+        self.combo.addItem("Otomatik oturum (Önerilen)", "auto")
+        self.combo.addItem("Oturum kullanma", None)
+        self.combo.addItem("Firefox oturumu", "firefox")
+        self.combo.addItem("Edge oturumu", "edge")
+        self.combo.addItem("Chrome oturumu", "chrome")
+        self.combo.addItem("Brave oturumu", "brave")
+        configure_combo_box(self.combo)
+
+        # Set current selection
+        found_idx = 0
+        for i in range(self.combo.count()):
+            if self.combo.itemData(i) == current_mode:
+                found_idx = i
+                break
+        self.combo.setCurrentIndex(found_idx)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addStretch(1)
+
+        save_btn = QPushButton("Kaydet")
+        save_btn.setObjectName("dialogPrimaryButton")
+        save_btn.clicked.connect(self.accept)
+
+        cancel_btn = QPushButton("İptal")
+        cancel_btn.setObjectName("dialogSecondaryButton")
+        cancel_btn.clicked.connect(self.reject)
+
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(save_btn)
+
+        layout.addWidget(title)
+        layout.addWidget(desc)
+        layout.addWidget(self.combo)
+        layout.addSpacing(6)
+        layout.addLayout(btn_row)
+
+    def selected_mode(self) -> str | None:
+        return self.combo.currentData()
+
 

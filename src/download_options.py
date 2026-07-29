@@ -4,19 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.models import DownloadRequest
+from src.models import DownloadRequest, PlatformType, detect_platform_type
 
 QUALITY_HEIGHTS: dict[str, int | None] = {
     "En iyi kullanılabilir kalite": None,
     "En iyi kalite": None,
-    "1080p’ye kadar": 1080,
+    "1080p'ye kadar": 1080,
     "1080p": 1080,
-    "720p’ye kadar": 720,
+    "720p'ye kadar": 720,
     "720p": 720,
-    "480p’ye kadar": 480,
+    "480p'ye kadar": 480,
     "480p": 480,
 }
-
 
 
 def _video_format(quality: str) -> str:
@@ -26,14 +25,39 @@ def _video_format(quality: str) -> str:
     return f"bv*[height<={height}]+ba/b[height<={height}]"
 
 
+def _make_cookies_from_browser(
+    browser_name: str | None,
+    profile_name: str | None,
+) -> tuple | None:
+    """
+    yt-dlp cookiesfrombrowser tuple'ını üretir.
+    Tuple biçimi: (browser_name, profile, keyring, container)
+    profile=None → yt-dlp kendi en son Firefox profilini seçer;
+    CLI --cookies-from-browser firefox ile aynı davranış.
+    """
+    if not browser_name or browser_name in ("auto", "none", "disabled", "off"):
+        return None
+    if profile_name:
+        return (browser_name, profile_name, None, None)
+    return (browser_name,)
+
+
 def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
     request.output_dir.mkdir(parents=True, exist_ok=True)
+
+    platform = detect_platform_type(request.url)
+    is_instagram_story = platform in (
+        PlatformType.INSTAGRAM_STORY,
+        PlatformType.INSTAGRAM_HIGHLIGHT,
+    )
+
     if request.playlist:
-        template = "%(playlist_title,playlist)s/%(playlist_index)03d - %(title)s [%(id)s].%(ext)s"
+        if is_instagram_story:
+            template = "%(uploader,uploader_id,playlist_title,playlist|Instagram_Hikayeleri)s/%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s"
+        else:
+            template = "%(playlist_title,playlist,title,id)s/%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s"
     else:
         template = "%(title)s [%(id)s].%(ext)s"
-
-
 
     options: dict[str, Any] = {
         "outtmpl": str(request.output_dir / template),
@@ -48,6 +72,9 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
         "quiet": True,
         "no_warnings": False,
     }
+
+    if not request.playlist:
+        options["playlist_items"] = "1"
 
     if request.media_type == "Ses (MP3)":
         options.update({
@@ -64,6 +91,20 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
             "merge_output_format": "mp4",
         })
 
-    if request.browser:
-        options["cookiesfrombrowser"] = (request.browser,)
+    # --- Çerez / oturum seçenekleri ---
+    cookies_tuple: tuple | None = None
+
+    if request.preferred_profile:
+        b_name, p_name = request.preferred_profile
+        cookies_tuple = _make_cookies_from_browser(b_name, p_name)
+    elif request.preferred_browser:
+        cookies_tuple = _make_cookies_from_browser(request.preferred_browser, None)
+    elif isinstance(request.browser, tuple):
+        cookies_tuple = request.browser
+    elif request.browser and request.browser not in ("auto", "none", "disabled", "off"):
+        cookies_tuple = _make_cookies_from_browser(request.browser, None)
+
+    if cookies_tuple is not None:
+        options["cookiesfrombrowser"] = cookies_tuple
+
     return options
