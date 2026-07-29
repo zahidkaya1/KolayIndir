@@ -7,11 +7,16 @@ from typing import Any
 from src.models import DownloadRequest
 
 QUALITY_HEIGHTS: dict[str, int | None] = {
+    "En iyi kullanılabilir kalite": None,
     "En iyi kalite": None,
+    "1080p’ye kadar": 1080,
     "1080p": 1080,
+    "720p’ye kadar": 720,
     "720p": 720,
+    "480p’ye kadar": 480,
     "480p": 480,
 }
+
 
 
 def _video_format(quality: str) -> str:

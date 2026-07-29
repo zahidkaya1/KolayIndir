@@ -11,6 +11,13 @@ QMainWindow {
     background: #f7f8fa;
 }
 
+QFrame#previewFrame {
+    background: #f1f4f9;
+    border: 1px solid #dce2ec;
+    border-radius: 8px;
+}
+
+
 
 QLabel#titleLabel {
     font-size: 28px;

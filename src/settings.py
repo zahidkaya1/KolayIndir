@@ -39,19 +39,35 @@ def load_settings() -> dict[str, Any]:
     if not saved_dir or not Path(saved_dir).exists() or not Path(saved_dir).is_dir():
         data["output_dir"] = default_dir
 
+    QUALITY_MIGRATION = {
+        "En iyi kalite": "En iyi kullanılabilir kalite",
+        "1080p": "1080p’ye kadar",
+        "720p": "720p’ye kadar",
+        "480p": "480p’ye kadar",
+    }
     VALID_MEDIA_TYPES = {"Video (MP4)", "Ses (MP3)"}
-    VALID_QUALITIES = {"En iyi kalite", "1080p", "720p", "480p"}
+    VALID_QUALITIES = {
+        "En iyi kullanılabilir kalite",
+        "1080p’ye kadar",
+        "720p’ye kadar",
+        "480p’ye kadar",
+    }
+
+    raw_quality = data.get("quality")
+    if raw_quality in QUALITY_MIGRATION:
+        data["quality"] = QUALITY_MIGRATION[raw_quality]
 
     if data.get("media_type") not in VALID_MEDIA_TYPES:
         data["media_type"] = "Video (MP4)"
 
     if data.get("quality") not in VALID_QUALITIES:
-        data["quality"] = "En iyi kalite"
+        data["quality"] = "En iyi kullanılabilir kalite"
 
     if "auto_open_folder" not in data:
         data["auto_open_folder"] = False
 
     return data
+
 
 
 

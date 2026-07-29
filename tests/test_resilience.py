@@ -289,7 +289,7 @@ def test_combo_boxes_object_names_and_defaults(tmp_path, monkeypatch):
     assert win.browser_combo.objectName() == "browserCombo"
 
     assert win.media_combo.currentText() == "Video (MP4)"
-    assert win.quality_combo.currentText() == "En iyi kalite"
+    assert win.quality_combo.currentText() == "En iyi kullanılabilir kalite"
     assert win.browser_combo.currentText() == "Oturum kullanma"
 
 
@@ -304,7 +304,7 @@ def test_invalid_settings_media_and_quality_fallback(tmp_path, monkeypatch):
 
     loaded = load_settings()
     assert loaded["media_type"] == "Video (MP4)"
-    assert loaded["quality"] == "En iyi kalite"
+    assert loaded["quality"] == "En iyi kullanılabilir kalite"
 
 
 def test_app_style_contains_combobox_selectors():
@@ -361,7 +361,8 @@ def test_fixed_window_structure_and_dimensions(tmp_path, monkeypatch):
     assert hasattr(win, "scroll_area") is False
     assert hasattr(win, "_apply_responsive_layout") is False
     assert hasattr(win, "_is_compact_layout") is False
-    assert win.log_box.height() == 115 or win.log_box.maximumHeight() == 115
+    assert hasattr(win, "tech_details_button") is True
+
 
 
 def test_dialogs_max_width_constraints():
@@ -422,5 +423,122 @@ def test_download_worker_log_signal_and_main_window_connections(
         if win._download_thread:
             win._download_thread.quit()
             win._download_thread.wait(1000)
+
+
+def test_format_bytes_and_duration():
+    from src.models import format_bytes, format_duration
+
+    assert format_bytes(None) == "Hesaplanamadı"
+    assert format_bytes(0) == "Hesaplanamadı"
+    assert format_bytes(512 * 1024) == "512 KB"
+    assert format_bytes(18.4 * 1024 * 1024) == "18,4 MB"
+    assert format_bytes(1.25 * 1024 * 1024 * 1024) == "1,25 GB"
+
+    assert format_duration(None) == ""
+    assert format_duration(45) == "00:45"
+    assert format_duration(163) == "02:43"
+    assert format_duration(3665) == "01:01:05"
+
+
+def test_parse_max_height_and_estimated_size():
+    from src.metadata_worker import _calculate_estimated_size, _parse_max_height
+
+    formats = [
+        {"vcodec": "none", "height": 720},
+        {"vcodec": "avc1.4d401f", "height": 480},
+        {"vcodec": "vp9", "height": 360},
+    ]
+    assert _parse_max_height(formats) == 480
+
+    info_direct = {"filesize": 18400000}
+    assert _calculate_estimated_size(info_direct) == 18400000
+
+    info_req_formats = {
+        "requested_formats": [
+            {"filesize": 15000000},
+            {"filesize": 3400000},
+        ]
+    }
+    assert _calculate_estimated_size(info_req_formats) == 18400000
+
+    info_none = {}
+    assert _calculate_estimated_size(info_none) is None
+
+
+def test_metadata_worker_quality_selection_logic():
+    from src.metadata_worker import MetadataWorker
+
+    mw = MetadataWorker("https://example.com/watch?v=123", "1080p’ye kadar")
+    raw_info = {
+        "title": "Örnek Video",
+        "uploader": "Test Kanalı",
+        "extractor": "youtube",
+        "duration": 120,
+        "formats": [
+            {"vcodec": "avc1.4d401f", "height": 480},
+            {"vcodec": "avc1.4d4015", "height": 360},
+        ],
+    }
+    meta = mw._build_metadata(raw_info)
+    assert meta.maximum_available_height == 480
+    assert meta.selected_height == 480
+    assert meta.selected_resolution == "480p"
+
+
+def test_quality_settings_migration(tmp_path, monkeypatch):
+    settings_file = tmp_path / "settings.json"
+    monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+
+    settings_file.write_text(
+        '{"quality": "1080p", "media_type": "Video (MP4)"}',
+        encoding="utf-8",
+    )
+
+    loaded = load_settings()
+    assert loaded["quality"] == "1080p’ye kadar"
+
+
+def test_metadata_worker_signals():
+    from src.metadata_worker import MetadataWorker
+
+    mw = MetadataWorker("https://example.com")
+    assert hasattr(mw, "metadata_ready") is True
+    assert hasattr(mw, "thumbnail_ready") is True
+    assert hasattr(mw, "status") is True
+    assert hasattr(mw, "failed") is True
+    assert hasattr(mw, "finished") is True
+
+
+def test_download_worker_progress_details_signal(tmp_path):
+    from src.download_worker import DownloadWorker
+    from src.models import DownloadRequest
+
+    req = DownloadRequest(
+        url="https://example.com/watch?v=123",
+        output_dir=tmp_path,
+        media_type="Video (MP4)",
+        quality="1080p’ye kadar",
+        playlist=False,
+    )
+    worker = DownloadWorker(req)
+    assert hasattr(worker, "progress_details") is True
+
+    received_details = []
+    worker.progress_details.connect(lambda d: received_details.append(d))
+
+    worker._progress_hook({
+        "status": "downloading",
+        "downloaded_bytes": 500000,
+        "total_bytes": 1000000,
+        "speed": 100000,
+        "eta": 5,
+        "filename": "video.mp4",
+    })
+
+    assert len(received_details) == 1
+    assert received_details[0]["percent"] == 50
+    assert received_details[0]["downloaded_bytes"] == 500000
+    assert received_details[0]["total_bytes"] == 1000000
+
 
 

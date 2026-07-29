@@ -1,6 +1,6 @@
 """Kolayİndir özel açık temalı diyalog pencere bileşenleri."""
 
-from __future__ import annotations
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -19,13 +20,22 @@ from src.config import APP_VERSION
 class DownloadCompletedDialog(QDialog):
     """İndirme tamamlandığında gösterilen açık temalı özel onay penceresi."""
 
-    def __init__(self, result_summary: str = "", parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        result_summary: str = "",
+        filepath: str = "",
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("downloadCompletedDialog")
         self.setWindowTitle("İndirme tamamlandı")
-        self.setMinimumWidth(380)
-        self.setMaximumWidth(560)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self.setMinimumWidth(400)
+        self.setMaximumWidth(580)
+        self.setWindowFlags(
+            self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
+        )
+        self.filepath = filepath
+        self.action_choice = "cancel"
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
@@ -43,24 +53,89 @@ class DownloadCompletedDialog(QDialog):
         self.message_label.setWordWrap(True)
 
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
+        btn_row.setSpacing(8)
         btn_row.addStretch(1)
-
-        self.primary_button = QPushButton("Klasörü Aç")
-        self.primary_button.setObjectName("dialogPrimaryButton")
-        self.primary_button.clicked.connect(self.accept)
 
         self.secondary_button = QPushButton("Kapat")
         self.secondary_button.setObjectName("dialogSecondaryButton")
         self.secondary_button.clicked.connect(self.reject)
-
         btn_row.addWidget(self.secondary_button)
+
+        if self.filepath and Path(self.filepath).exists():
+            self.open_file_button = QPushButton("Dosyayı Aç")
+            self.open_file_button.setObjectName("dialogSecondaryButton")
+            self.open_file_button.clicked.connect(self._on_open_file)
+            btn_row.addWidget(self.open_file_button)
+
+        self.primary_button = QPushButton("Klasörü Aç")
+        self.primary_button.setObjectName("dialogPrimaryButton")
+        self.primary_button.clicked.connect(self._on_open_folder)
         btn_row.addWidget(self.primary_button)
 
         layout.addWidget(self.title_label)
         layout.addWidget(self.message_label)
         layout.addSpacing(8)
         layout.addLayout(btn_row)
+
+    def _on_open_folder(self) -> None:
+        self.action_choice = "open_folder"
+        self.accept()
+
+    def _on_open_file(self) -> None:
+        self.action_choice = "open_file"
+        self.accept()
+
+
+class LogDialog(QDialog):
+    """Teknik ayrıntıları ve yt-dlp loglarını gösteren özel diyalog penceresi."""
+
+    def __init__(self, log_text: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("logDialog")
+        self.setWindowTitle("Teknik Ayrıntılar")
+        self.setMinimumWidth(480)
+        self.setMaximumWidth(600)
+        self.setMinimumHeight(320)
+        self.setWindowFlags(
+            self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
+
+        title = QLabel("Teknik İndirme Günlüğü")
+        title.setObjectName("dialogTitleLabel")
+
+        self.text_edit = QTextEdit()
+        self.text_edit.setReadOnly(True)
+        self.text_edit.setPlainText(
+            log_text if log_text.strip() else "Henüz teknik kayıt bulunmuyor."
+        )
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        btn_row.addStretch(1)
+
+        copy_btn = QPushButton("Metni Kopyala")
+        copy_btn.setObjectName("dialogSecondaryButton")
+        copy_btn.clicked.connect(self._copy_text)
+
+        close_btn = QPushButton("Kapat")
+        close_btn.setObjectName("dialogPrimaryButton")
+        close_btn.clicked.connect(self.accept)
+
+        btn_row.addWidget(copy_btn)
+        btn_row.addWidget(close_btn)
+
+        layout.addWidget(title)
+        layout.addWidget(self.text_edit, 1)
+        layout.addLayout(btn_row)
+
+    def _copy_text(self) -> None:
+        from PySide6.QtWidgets import QApplication
+        QApplication.clipboard().setText(self.text_edit.toPlainText())
+
 
 
 class UpdateAvailableDialog(QDialog):

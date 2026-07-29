@@ -66,6 +66,7 @@ class DownloadWorker(QObject):
     failed = Signal(str)
     cancelled = Signal()
     finished = Signal()
+    progress_details = Signal(dict)
 
     def __init__(self, request: DownloadRequest) -> None:
         super().__init__()
@@ -87,28 +88,98 @@ class DownloadWorker(QObject):
             total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
             percentage = int(downloaded * 100 / total) if total else 0
             self.progress.emit(max(0, min(percentage, 100)))
+
             eta = data.get("eta")
             eta_text = f"{eta} sn" if isinstance(eta, int) else "—"
+            speed_str = _human_speed(data.get("speed"))
             self.status.emit(
-                f"İndiriliyor: %{percentage} • Hız: {_human_speed(data.get('speed'))} • Kalan: {eta_text}"
+                f"İndiriliyor: %{percentage} • Hız: {speed_str} • Kalan: {eta_text}"
             )
-            if data.get("filename"):
-                self._last_filename = str(data["filename"])
+
+            filename = str(data.get("filename") or "")
+            if filename:
+                self._last_filename = filename
+
+            vcodec = str(data.get("info_dict", {}).get("vcodec", "") if isinstance(data.get("info_dict"), dict) else "")
+            acodec = str(data.get("info_dict", {}).get("acodec", "") if isinstance(data.get("info_dict"), dict) else "")
+            if "MP3" in self.request.media_type or "Ses" in self.request.media_type:
+                phase = "audio_downloading"
+            elif vcodec != "none" and acodec == "none":
+                phase = "video_downloading"
+            elif vcodec == "none" and acodec != "none":
+                phase = "audio_downloading"
+            else:
+                phase = "downloading"
+
+            self.progress_details.emit({
+                "phase": phase,
+                "percent": max(0, min(percentage, 100)),
+                "downloaded_bytes": downloaded,
+                "total_bytes": total,
+                "speed": speed_str,
+                "eta": eta_text,
+                "filename": filename or self._last_filename,
+                "format_id": str(data.get("format_id") or ""),
+                "fragment_index": data.get("fragment_index"),
+                "fragment_count": data.get("fragment_count"),
+            })
+
         elif state == "finished":
-            if data.get("filename"):
-                self._last_filename = str(data["filename"])
+            filename = str(data.get("filename") or "")
+            if filename:
+                self._last_filename = filename
             self.progress.emit(100)
             self.status.emit("İndirme tamamlandı, dosya hazırlanıyor…")
+            self.progress_details.emit({
+                "phase": "finished",
+                "percent": 100,
+                "downloaded_bytes": data.get("downloaded_bytes") or 0,
+                "total_bytes": data.get("total_bytes") or 0,
+                "speed": "—",
+                "eta": "0 sn",
+                "filename": self._last_filename,
+                "format_id": str(data.get("format_id") or ""),
+                "fragment_index": None,
+                "fragment_count": None,
+            })
 
     def _postprocessor_hook(self, data: dict[str, Any]) -> None:
         if self._cancel_requested:
             raise yt_dlp.utils.DownloadError("İndirme kullanıcı tarafından iptal edildi.")
-        if data.get("status") == "started":
-            self.status.emit("Ses/video dönüştürülüyor veya birleştiriliyor…")
-        elif data.get("status") == "finished":
-            info = data.get("info_dict") or {}
-            if info.get("filepath"):
-                self._last_filename = str(info["filepath"])
+        postprocessor_key = str(data.get("postprocessor") or "")
+        status = str(data.get("status") or "")
+
+        if "FFmpegExtractAudio" in postprocessor_key:
+            phase = "preparing_mp3"
+            msg = "MP3 dosyası hazırlanıyor…"
+        elif "Merger" in postprocessor_key or "FFmpegMerger" in postprocessor_key:
+            phase = "merging_video_audio"
+            msg = "Video ve ses birleştiriliyor…"
+        elif status == "started":
+            phase = "converting"
+            msg = "Ses/video dönüştürülüyor veya birleştiriliyor…"
+        else:
+            phase = "preparing_file"
+            msg = "Dosya hazırlanıyor…"
+
+        self.status.emit(msg)
+        info = data.get("info_dict") or {}
+        if isinstance(info, dict) and info.get("filepath"):
+            self._last_filename = str(info["filepath"])
+
+        self.progress_details.emit({
+            "phase": phase,
+            "percent": 100,
+            "downloaded_bytes": 0,
+            "total_bytes": 0,
+            "speed": "—",
+            "eta": "—",
+            "filename": self._last_filename,
+            "format_id": "",
+            "fragment_index": None,
+            "fragment_count": None,
+        })
+
 
     @Slot()
     def run(self) -> None:
