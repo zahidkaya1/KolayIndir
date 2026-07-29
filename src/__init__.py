@@ -1,0 +1,1 @@
+"""Kolayİndir kaynak paketi."""
