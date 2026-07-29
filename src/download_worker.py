@@ -9,9 +9,10 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from src.download_options import build_ydl_options
 from src.models import DownloadRequest
+from src.utils import clean_log_message
 
 
-def _human_speed(value: float | int | None) -> str:
+def _human_speed(value: float | None) -> str:
     if not value:
         return "—"
     units = ("B/sn", "KB/sn", "MB/sn", "GB/sn")
@@ -31,16 +32,30 @@ class _YtDlpLogger:
 
     def debug(self, message: str) -> None:
         if not message.startswith("[debug]"):
-            self.signal.emit(message)
+            clean = clean_log_message(message)
+            if clean:
+                self.signal.emit(clean)
 
     def info(self, message: str) -> None:
-        self.signal.emit(message)
+        clean = clean_log_message(message)
+        if clean:
+            self.signal.emit(clean)
 
     def warning(self, message: str) -> None:
-        self.signal.emit(f"Uyarı: {message}")
+        clean = clean_log_message(message)
+        if clean:
+            if not clean.startswith(("Uyarı:", "Hata:")):
+                clean = f"Uyarı: {clean}"
+            self.signal.emit(clean)
 
     def error(self, message: str) -> None:
-        self.signal.emit(f"Hata: {message}")
+        clean = clean_log_message(message)
+        if clean:
+            if not clean.startswith(("Hata:", "Uyarı:")):
+                clean = f"Hata: {clean}"
+            self.signal.emit(clean)
+
+
 
 
 class DownloadWorker(QObject):
@@ -116,11 +131,12 @@ class DownloadWorker(QObject):
             if self._cancel_requested:
                 self.cancelled.emit()
             else:
-                self.failed.emit(str(exc))
-        except Exception as exc:
+                self.failed.emit(clean_log_message(str(exc)))
+        except Exception as exc:  # noqa: BLE001
             if self._cancel_requested:
                 self.cancelled.emit()
             else:
-                self.failed.emit(f"Beklenmeyen hata: {exc}")
+                self.failed.emit(clean_log_message(f"Beklenmeyen hata: {exc}"))
         finally:
             self.finished.emit()
+

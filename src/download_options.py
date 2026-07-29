@@ -28,6 +28,8 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
     else:
         template = "%(title)s [%(id)s].%(ext)s"
 
+
+
     options: dict[str, Any] = {
         "outtmpl": str(request.output_dir / template),
         "noplaylist": not request.playlist,

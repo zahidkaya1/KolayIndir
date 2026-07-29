@@ -21,18 +21,39 @@ SETTINGS_FILE = _settings_dir() / "settings.json"
 
 
 def load_settings() -> dict[str, Any]:
+    default_dir = str(Path.home() / "Downloads")
     if not SETTINGS_FILE.exists():
-        return {}
+        return {"output_dir": default_dir, "auto_open_folder": False}
     try:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+        return {"output_dir": default_dir, "auto_open_folder": False}
+
+    if not isinstance(data, dict):
+        return {"output_dir": default_dir, "auto_open_folder": False}
+
+    data.pop("browser", None)
+    data.pop("playlist", None)
+
+    saved_dir = data.get("output_dir")
+    if not saved_dir or not Path(saved_dir).exists() or not Path(saved_dir).is_dir():
+        data["output_dir"] = default_dir
+
+    if "auto_open_folder" not in data:
+        data["auto_open_folder"] = False
+
+    return data
 
 
 def save_settings(settings: dict[str, Any]) -> None:
+    excluded_keys = {"browser", "playlist"}
+    sanitized = {
+        key: value for key, value in settings.items() if key not in excluded_keys
+    }
     temporary = SETTINGS_FILE.with_suffix(".tmp")
     temporary.write_text(
-        json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(sanitized, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     temporary.replace(SETTINGS_FILE)
+
+
