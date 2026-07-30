@@ -345,11 +345,6 @@ class TestHistoryMultipleDownloadsSameMediaId:
         self.tmp_path = tmp_path
         self.history_file = tmp_path / "history.json"
         monkeypatch.setattr("src.history.HISTORY_FILE", self.history_file)
-        import importlib
-
-        import src.history as mod
-        importlib.reload(mod)
-        monkeypatch.setattr("src.history.HISTORY_FILE", self.history_file)
 
     def _make_record(self, path_str: str, media_id: str = "ABCDEF",
                      media_type: str = "Video (MP4)", quality: str = "720p'ye kadar",
@@ -562,9 +557,37 @@ class TestHistoryMultipleDownloadsSameMediaId:
         assert stale_count == 0
 
     # ------------------------------------------------------------------
-    # 11. Uygulama başlangıcındaki doğrulama UI’ı kilitlemez ve log yazar
+    # 11. Uygulama başlangıcındaki doğrulama wiring ve qt_integration
     # ------------------------------------------------------------------
-    def test_startup_history_validation_non_blocking(self, qapp):
+    def test_startup_history_validation_wiring(self, qapp, monkeypatch):
+        from unittest.mock import MagicMock, patch
+
+        from src.main_window import MainWindow
+
+        orig_fn = MainWindow._start_history_validation
+        monkeypatch.setattr(MainWindow, "_start_history_validation", lambda self: None)
+        window = MainWindow()
+
+        try:
+            mock_thread = MagicMock()
+            mock_worker = MagicMock()
+
+            with patch("src.main_window.QThread", return_value=mock_thread), patch(
+                "src.main_window.HistoryValidationWorker", return_value=mock_worker
+            ):
+                orig_fn(window)
+                assert mock_thread.start.called is True
+                assert getattr(window, "_history_validation_started", False) is True
+
+                # Second call should be idempotent
+                orig_fn(window)
+                assert mock_thread.start.call_count == 1
+        finally:
+            window._stop_all_threads()
+            window.close()
+
+    @pytest.mark.qt_integration
+    def test_startup_history_validation_real_thread(self, qapp, monkeypatch):
         import time
         from unittest.mock import patch
 
@@ -587,44 +610,48 @@ class TestHistoryMultipleDownloadsSameMediaId:
 
         window = MainWindow()
 
-        with patch("src.history.validate_record", side_effect=_validate):
-            window._start_history_validation()
-            start = time.time()
-            while window._history_thread is not None and time.time() - start < 5:
-                qapp.processEvents()
-                time.sleep(0.01)
+        try:
+            with patch("src.history.validate_record", side_effect=_validate):
+                window._start_history_validation()
+                start = time.time()
+                while window._history_thread is not None and time.time() - start < 3:
+                    qapp.processEvents()
+                    time.sleep(0.01)
 
-        logs = window._log_history
-        assert "İndirme geçmişi doğrulanıyor." in logs
-        assert "2 kayıt kontrol edildi." in logs
-        assert "1 eksik kayıt stale olarak işaretlendi." in logs
-        if window._history_thread is not None:
-            window._history_thread.quit()
-            window._history_thread.wait(5000)
-        window.close()
+            logs = window._log_history
+            assert "İndirme geçmişi doğrulanıyor." in logs
+            assert "2 kayıt kontrol edildi." in logs
+            assert "1 eksik kayıt stale olarak işaretlendi." in logs
+        finally:
+            window._stop_all_threads()
+            window.close()
 
     # ------------------------------------------------------------------
-    # 12. MainWindow _start_history_validation birden fazla çağrılssa bile 1 worker başlatır
+    # 12. MainWindow _start_history_validation birden fazla çağrılsa bile 1 worker başlatır
     # ------------------------------------------------------------------
-    def test_multiple_show_events_start_only_one_history_validation_worker(self, qapp):
+    def test_multiple_show_events_start_only_one_history_validation_worker(self, qapp, monkeypatch):
         from unittest.mock import MagicMock, patch
 
         from src.main_window import MainWindow
 
+        orig_fn = MainWindow._start_history_validation
+        monkeypatch.setattr(MainWindow, "_start_history_validation", lambda self: None)
         window = MainWindow()
 
-        mock_worker = MagicMock()
-        with patch("src.main_window.HistoryValidationWorker", return_value=mock_worker) as mock_worker_cls:
-            window._start_history_validation()
-            window._start_history_validation()
-            window._start_history_validation()
+        try:
+            mock_worker = MagicMock()
+            mock_thread = MagicMock()
+            with patch("src.main_window.HistoryValidationWorker", return_value=mock_worker) as mock_worker_cls, patch(
+                "src.main_window.QThread", return_value=mock_thread
+            ):
+                orig_fn(window)
+                orig_fn(window)
+                orig_fn(window)
 
-            assert mock_worker_cls.call_count == 1
-
-        if window._history_thread is not None:
-            window._history_thread.quit()
-            window._history_thread.wait()
-        window.close()
+                assert mock_worker_cls.call_count == 1
+        finally:
+            window._stop_all_threads()
+            window.close()
 
     # ------------------------------------------------------------------
     # 13. Video (1).mp4 silindiğinde yeni indirme Video (3) yerine Video (1)'i tekrar kullanır
