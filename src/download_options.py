@@ -1,7 +1,6 @@
 """yt-dlp seçeneklerini tek bir yerde üretir."""
 
-from __future__ import annotations
-
+import re
 from typing import Any
 
 from src.models import DownloadRequest, PlatformType, detect_platform_type
@@ -9,17 +8,32 @@ from src.models import DownloadRequest, PlatformType, detect_platform_type
 QUALITY_HEIGHTS: dict[str, int | None] = {
     "En iyi kullanılabilir kalite": None,
     "En iyi kalite": None,
+    "2160p'ye kadar": 2160,
+    "2160p": 2160,
+    "1440p'ye kadar": 1440,
+    "1440p": 1440,
     "1080p'ye kadar": 1080,
     "1080p": 1080,
     "720p'ye kadar": 720,
     "720p": 720,
     "480p'ye kadar": 480,
     "480p": 480,
+    "360p'ye kadar": 360,
+    "360p": 360,
 }
 
 
+def parse_quality_height(quality: str) -> int | None:
+    if quality in QUALITY_HEIGHTS:
+        return QUALITY_HEIGHTS[quality]
+    match = re.search(r"(\d{3,4})", str(quality))
+    if match:
+        return int(match.group(1))
+    return None
+
+
 def _video_format(quality: str) -> str:
-    height = QUALITY_HEIGHTS.get(quality)
+    height = parse_quality_height(quality)
     if height is None:
         return (
             "bv*[vcodec^=avc1]+ba/bv*[vcodec^=h264]+ba/"
@@ -97,21 +111,28 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
         PlatformType.TIKTOK_SLIDESHOW,
     )
 
-    if is_tiktok:
-        template = "TikTok - %(uploader,uploader_id,channel|TikTok_Kullanicisi)s - %(title,id)s [%(id)s].%(ext)s"
+    if request.target_final_path:
+        outtmpl_str = str(request.target_final_path)
+        # Stem-only without extension; yt-dlp will append the real ext after postprocessing.
+        # Using the full target path here ensures the unique name is honoured.
+    elif is_tiktok:
+        outtmpl_str = str(request.output_dir / "TikTok - %(uploader,uploader_id,channel|TikTok_Kullanicisi)s - %(title,id)s [%(id)s].%(ext)s")
     elif request.playlist:
         if is_instagram_story:
-            template = "%(uploader,uploader_id,playlist_title,playlist|Instagram_Hikayeleri)s/%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s"
+            outtmpl_str = str(request.output_dir / "%(uploader,uploader_id,playlist_title,playlist|Instagram_Hikayeleri)s/%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s")
         else:
-            template = "%(playlist_title,playlist,title,id)s/%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s"
+            outtmpl_str = str(request.output_dir / "%(playlist_title,playlist,title,id)s/%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s")
     else:
-        template = "%(title)s [%(id)s].%(ext)s"
+        outtmpl_str = str(request.output_dir / "%(title)s [%(id)s].%(ext)s")
 
     options: dict[str, Any] = {
-        "outtmpl": str(request.output_dir / template),
+        "outtmpl": outtmpl_str,
         "noplaylist": not request.playlist,
         "ignoreerrors": False,
-        "continuedl": True,
+        # When a specific target_final_path is set we overwrite it so yt-dlp
+        # never reports "already downloaded" and skips it.
+        "overwrites": bool(request.target_final_path),
+        "continuedl": not bool(request.target_final_path),
         "retries": 5,
         "fragment_retries": 5,
         "concurrent_fragment_downloads": 4,

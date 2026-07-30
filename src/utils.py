@@ -223,3 +223,261 @@ def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
             "fps": 0.0,
             "duration": 0.0,
         }
+
+
+def extract_available_formats(info: dict[str, Any]) -> tuple[list[int], list[dict[str, Any]]]:
+    """
+    yt-dlp extract_info sözlüğünden mevcut çözünürlük yüksekliklerini (int)
+    ve video formatı listesini çıkarır.
+    """
+    raw_formats = info.get("formats") or []
+    valid_formats: list[dict[str, Any]] = []
+    heights_set: set[int] = set()
+
+    for fmt in raw_formats:
+        if not isinstance(fmt, dict):
+            continue
+        vcodec = str(fmt.get("vcodec") or "none")
+        height = fmt.get("height")
+        if vcodec != "none" and isinstance(height, int) and height > 0:
+            valid_formats.append(fmt)
+            heights_set.add(height)
+
+    if not heights_set:
+        h = info.get("height")
+        if isinstance(h, int) and h > 0:
+            heights_set.add(h)
+
+    sorted_heights = sorted(heights_set, reverse=True)
+    return sorted_heights, valid_formats
+
+
+def calculate_format_for_limit(
+    available_heights: list[int],
+    limit_height: int | None,
+) -> int | None:
+    """
+    Kullanıcının üst sınır seçimine göre (ör. 1080p -> 1080)
+    indirilecek gerçek yüksekliği hesaplar.
+    Upscale yapmaz.
+    """
+    if not available_heights:
+        return limit_height
+
+    if limit_height is None:
+        return available_heights[0]
+
+    for h in available_heights:
+        if h <= limit_height:
+            return h
+
+    return available_heights[-1]
+
+
+def calculate_detailed_format_info(
+    meta: Any,
+    chosen_quality_text: str,
+    media_type: str,
+    convert_hevc_to_h264: bool = True,
+) -> dict[str, Any]:
+    """
+    Metadata, seçilen kalite ve medya türüne göre:
+    - selected_height
+    - selected_resolution
+    - selected_vcodec
+    - selected_acodec
+    - selected_fps
+    - estimated_size_bytes
+    - is_approximate
+    - size_display_text
+    hesaplar.
+    """
+    from src.download_options import parse_quality_height
+    from src.models import format_bytes
+
+    duration = getattr(meta, "duration_seconds", None) or 0.0
+    formats = getattr(meta, "available_formats", []) or []
+    heights = getattr(meta, "available_heights", []) or []
+
+    is_audio = "mp3" in media_type.lower() or "ses" in media_type.lower()
+
+    if is_audio:
+        audio_bitrate = 192_000  # 192 kbps
+        best_abr = 0
+        for f in formats:
+            if isinstance(f, dict):
+                abr = f.get("abr") or f.get("tbr")
+                if isinstance(abr, (int, float)) and abr > best_abr:
+                    best_abr = float(abr)
+        if best_abr > 0:
+            audio_bitrate = int(best_abr * 1000)
+
+        est_bytes = int(duration * audio_bitrate / 8) if duration > 0 else 0
+        is_approx = True
+        size_text = f"Tahmini MP3: yaklaşık {format_bytes(est_bytes)}" if est_bytes > 0 else "Tahmini MP3: 192 kbps"
+
+        return {
+            "selected_height": None,
+            "selected_resolution": "Ses (MP3)",
+            "selected_vcodec": "none",
+            "selected_acodec": "mp3",
+            "selected_fps": None,
+            "estimated_size_bytes": est_bytes,
+            "is_approximate": is_approx,
+            "size_display_text": size_text,
+            "output_codec_text": "MP3 (192 kbps)",
+        }
+
+    limit_h = parse_quality_height(chosen_quality_text)
+    calc_h = calculate_format_for_limit(heights, limit_h)
+    if calc_h is None and getattr(meta, "maximum_available_height", None):
+        calc_h = meta.maximum_available_height
+
+    best_v_fmt: dict[str, Any] | None = None
+    best_a_fmt: dict[str, Any] | None = None
+    best_combo_fmt: dict[str, Any] | None = None
+
+    if formats:
+        for f in formats:
+            if not isinstance(f, dict):
+                continue
+            h = f.get("height")
+            vcodec = str(f.get("vcodec") or "none")
+            acodec = str(f.get("acodec") or "none")
+
+            if calc_h and isinstance(h, int) and h > calc_h:
+                continue
+
+            if vcodec != "none" and acodec != "none":
+                if not best_combo_fmt or (f.get("height") or 0) > (best_combo_fmt.get("height") or 0):
+                    best_combo_fmt = f
+            elif vcodec != "none" and acodec == "none":
+                if not best_v_fmt or (f.get("height") or 0) > (best_v_fmt.get("height") or 0):
+                    best_v_fmt = f
+            elif (
+                vcodec == "none"
+                and acodec != "none"
+                and (not best_a_fmt or (f.get("tbr") or 0) > (best_a_fmt.get("tbr") or 0))
+            ):
+                best_a_fmt = f
+
+    est_bytes = 0
+    is_approx = False
+    vcodec = getattr(meta, "video_codec", "") or ""
+    acodec = getattr(meta, "audio_codec", "") or ""
+    fps = None
+
+    if best_combo_fmt:
+        vcodec = str(best_combo_fmt.get("vcodec") or vcodec)
+        acodec = str(best_combo_fmt.get("acodec") or acodec)
+        fps = best_combo_fmt.get("fps")
+        sz = best_combo_fmt.get("filesize") or best_combo_fmt.get("filesize_approx")
+        if sz:
+            est_bytes = int(sz)
+        elif duration > 0:
+            tbr = best_combo_fmt.get("tbr") or 2000
+            est_bytes = int(duration * float(tbr) * 1000 / 8)
+            is_approx = True
+    elif best_v_fmt:
+        vcodec = str(best_v_fmt.get("vcodec") or vcodec)
+        fps = best_v_fmt.get("fps")
+        v_sz = best_v_fmt.get("filesize") or best_v_fmt.get("filesize_approx")
+        if not v_sz and duration > 0:
+            tbr = best_v_fmt.get("tbr") or best_v_fmt.get("vbr") or 1500
+            v_sz = int(duration * float(tbr) * 1000 / 8)
+            is_approx = True
+
+        a_sz = 0
+        if best_a_fmt:
+            acodec = str(best_a_fmt.get("acodec") or acodec)
+            a_sz = best_a_fmt.get("filesize") or best_a_fmt.get("filesize_approx") or 0
+            if not a_sz and duration > 0:
+                abr = best_a_fmt.get("abr") or 128
+                a_sz = int(duration * float(abr) * 1000 / 8)
+                is_approx = True
+        elif duration > 0:
+            a_sz = int(duration * 128_000 / 8)
+            is_approx = True
+
+        est_bytes = int((v_sz or 0) + a_sz)
+
+    if est_bytes == 0:
+        fallback_sz = getattr(meta, "estimated_size_bytes", 0) or 0
+        if fallback_sz > 0:
+            est_bytes = fallback_sz
+        elif duration > 0:
+            bitrate = 2500_000 if (calc_h or 0) >= 1080 else (1500_000 if (calc_h or 0) >= 720 else 800_000)
+            est_bytes = int(duration * bitrate / 8)
+            is_approx = True
+
+    is_hevc = is_hevc_codec(vcodec) or "vp9" in vcodec.lower() or "av01" in vcodec.lower()
+    if convert_hevc_to_h264 and is_hevc:
+        is_approx = True
+        output_codec_text = "H.264 (Dönüştürülecek)"
+    else:
+        output_codec_text = vcodec.upper() if vcodec else "H.264"
+
+    if getattr(meta, "is_playlist", False) and (getattr(meta, "playlist_count", 0) or 0) > 1:
+        p_count = meta.playlist_count
+        total_bytes = est_bytes * p_count
+        size_text = f"Tahmini Toplam ({p_count} içerik): yaklaşık {format_bytes(total_bytes)}"
+    else:
+        if is_approx:
+            size_text = f"Tahmini: yaklaşık {format_bytes(est_bytes)}"
+        else:
+            size_text = f"Tahmini: {format_bytes(est_bytes)}"
+
+    sel_res = f"{calc_h}p" if calc_h else "En iyi"
+
+    return {
+        "selected_height": calc_h,
+        "selected_resolution": sel_res,
+        "selected_vcodec": vcodec,
+        "selected_acodec": acodec,
+        "selected_fps": fps,
+        "estimated_size_bytes": est_bytes,
+        "is_approximate": is_approx,
+        "size_display_text": size_text,
+        "output_codec_text": output_codec_text,
+    }
+
+
+from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtWidgets import QWidget
+
+
+class PointingHandEventFilter(QObject):
+    """
+    Widget'ın enabled durum değişikliklerini izler ve cursor'ı dinamik günceller:
+    - enabled=True -> PointingHandCursor
+    - enabled=False -> ArrowCursor
+    """
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if event.type() in (QEvent.Type.EnabledChange, QEvent.Type.Show) and isinstance(watched, QWidget):
+            if watched.isEnabled():
+                watched.setCursor(Qt.CursorShape.PointingHandCursor)
+            else:
+                watched.setCursor(Qt.CursorShape.ArrowCursor)
+        return super().eventFilter(watched, event)
+
+
+_hand_event_filter: PointingHandEventFilter | None = None
+
+
+def apply_pointing_hand_cursor(widget: QWidget) -> None:
+    """
+    Verilen widget'a PointingHandCursor uygular ve enabled değiştiğinde el imlecini dinamik günceller.
+    """
+    global _hand_event_filter
+    if _hand_event_filter is None:
+        _hand_event_filter = PointingHandEventFilter()
+
+    if widget.isEnabled():
+        widget.setCursor(Qt.CursorShape.PointingHandCursor)
+    else:
+        widget.setCursor(Qt.CursorShape.ArrowCursor)
+
+    widget.installEventFilter(_hand_event_filter)
+
+

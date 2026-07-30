@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
@@ -168,6 +168,8 @@ class DownloadRequest:
     preferred_impersonation: str | None = None
     successful_request_url: str | None = None
     convert_hevc_to_h264: bool = True
+    job_id: str = ""
+    target_final_path: Path | None = None
 
 
 @dataclass
@@ -200,6 +202,11 @@ class MediaMetadata:
     preferred_impersonation: str | None = None
     successful_request_url: str | None = None
     successful_attempt_type: str | None = None
+    available_heights: list[int] = field(default_factory=list)
+    available_formats: list[dict] = field(default_factory=list)
+    selected_vcodec: str = ""
+    selected_acodec: str = ""
+    selected_fps: float | None = None
 
 
 def format_bytes(size: float | None) -> str:

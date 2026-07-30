@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from PySide6.QtCore import Qt, QThread, QTimer, QUrl
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -41,8 +43,6 @@ from src.browser_sessions import (
 from src.config import (
     APP_NAME,
     APP_VERSION,
-    DEFAULT_WINDOW_HEIGHT,
-    DEFAULT_WINDOW_WIDTH,
 )
 from src.dependency_check import (
     check_environment,
@@ -53,11 +53,17 @@ from src.dialogs import (
     AdvancedSessionDialog,
     AppMessageDialog,
     DownloadCompletedDialog,
+    LeftoverJobsDialog,
     LogDialog,
     SessionFailedDialog,
     UpdateAvailableDialog,
 )
 from src.download_worker import DownloadWorker
+from src.history import (
+    HistoryValidationWorker,
+    get_unique_filepath,
+    sanitize_filename,
+)
 from src.metadata_worker import MetadataWorker
 from src.models import (
     DownloadRequest,
@@ -71,6 +77,8 @@ from src.models import (
 from src.settings import load_settings, save_settings
 from src.updater import UpdateWorker
 from src.utils import (
+    apply_pointing_hand_cursor,
+    calculate_detailed_format_info,
     clean_log_message,
     configure_combo_box,
     probe_media_codecs,
@@ -88,6 +96,8 @@ class MainWindow(QMainWindow):
         self._metadata_worker: MetadataWorker | None = None
         self._update_thread: QThread | None = None
         self._update_worker: UpdateWorker | None = None
+        self._history_thread: QThread | None = None
+        self._history_worker: HistoryValidationWorker | None = None
         self._last_log_message: str | None = None
         self._download_succeeded_result: str | None = None
         self._download_succeeded_path: str = ""
@@ -116,7 +126,8 @@ class MainWindow(QMainWindow):
         )
         self.setWindowFlags(flags)
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
-        self.setFixedSize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        self.resize(710, 650)
+        self.setMinimumSize(710, 650)
         self.setAcceptDrops(True)
 
 
@@ -131,27 +142,49 @@ class MainWindow(QMainWindow):
         screen = QApplication.primaryScreen()
         if screen:
             geo = screen.availableGeometry()
-            x = (geo.width() - DEFAULT_WINDOW_WIDTH) // 2 + geo.x()
-            y = (geo.height() - DEFAULT_WINDOW_HEIGHT) // 2 + geo.y()
+            x = (geo.width() - 710) // 2 + geo.x()
+            y = (geo.height() - 650) // 2 + geo.y()
             self.move(x, y)
 
     def _build_ui(self) -> None:
         root = QWidget()
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(20, 14, 20, 14)
-        layout.setSpacing(8)
+        layout.setContentsMargins(18, 12, 18, 12)
+        layout.setSpacing(10)
+
 
         header_layout = QVBoxLayout()
         header_layout.setSpacing(2)
         title = QLabel(APP_NAME)
         title.setObjectName("titleLabel")
-        subtitle = QLabel("Bağlantıyı yapıştır, biçimi seç ve indir.")
+        subtitle = QLabel("Hızlı, Kolay ve Yüksek Kaliteli Medya İndirici")
         subtitle.setObjectName("subtitleLabel")
         header_layout.addWidget(title)
         header_layout.addWidget(subtitle)
         layout.addLayout(header_layout)
 
-        layout.addWidget(QLabel("İçerik bağlantısı"))
+        scroll_area = QScrollArea()
+        scroll_area.setObjectName("contentScrollArea")
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+        scroll_content = QWidget()
+        content_layout = QVBoxLayout(scroll_content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(10)
+
+        sec1_header = QLabel("1. İçerik Bağlantısı")
+        sec1_header.setStyleSheet("font-weight: 700; color: #1e293b; font-size: 13px;")
+        sec1_sub = QLabel("Video, oynatma listesi veya sosyal medya paylaşım bağlantısını yapıştırın.")
+        sec1_sub.setStyleSheet("color: #64748b; font-size: 11px;")
+
+        sec1_box = QVBoxLayout()
+        sec1_box.setSpacing(2)
+        sec1_box.addWidget(sec1_header)
+        sec1_box.addWidget(sec1_sub)
+        content_layout.addLayout(sec1_box)
+
         self.url_input = QLineEdit()
         self.url_input.setPlaceholderText(
             "YouTube, Instagram, X/Twitter veya desteklenen başka bir bağlantı…"
@@ -174,17 +207,18 @@ class MainWindow(QMainWindow):
         url_row.addWidget(self.url_input, 1)
         url_row.addWidget(paste_button)
         url_row.addWidget(self.analyze_button)
-        layout.addLayout(url_row)
+        content_layout.addLayout(url_row)
 
         self.preview_frame = QFrame()
         self.preview_frame.setObjectName("previewFrame")
+        self.preview_frame.setMinimumHeight(95)
         self.preview_frame.hide()
         preview_layout = QHBoxLayout(self.preview_frame)
         preview_layout.setContentsMargins(10, 8, 10, 8)
         preview_layout.setSpacing(12)
 
         self.thumbnail_label = QLabel()
-        self.thumbnail_label.setFixedSize(140, 78)
+        self.thumbnail_label.setFixedSize(138, 78)
         self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.thumbnail_label.setStyleSheet(
             "background-color: #e2e8f0; border-radius: 6px; color: #64748b;"
@@ -193,6 +227,7 @@ class MainWindow(QMainWindow):
         preview_layout.addWidget(self.thumbnail_label)
 
         meta_info_box = QVBoxLayout()
+        meta_info_box.setContentsMargins(0, 0, 0, 0)
         meta_info_box.setSpacing(3)
 
         self.platform_badge_label = QLabel("YouTube")
@@ -200,18 +235,21 @@ class MainWindow(QMainWindow):
         self.platform_badge_label.setStyleSheet(
             "color: #1d4ed8; font-size: 11px; font-weight: 700; "
             "background-color: #eff6ff; border: 1px solid #bfdbfe; "
-            "border-radius: 4px; padding: 1px 6px; max-width: 160px;"
+            "border-radius: 4px; padding: 1px 6px; max-width: 140px;"
         )
 
         self.meta_title_label = QLabel("İçerik başlığı yükleniyor…")
-        self.meta_title_label.setStyleSheet("font-weight: 700; color: #0f172a;")
+        self.meta_title_label.setStyleSheet("font-weight: 700; color: #0f172a; font-size: 13px;")
         self.meta_title_label.setWordWrap(True)
+        self.meta_title_label.setMinimumHeight(32)
+        self.meta_title_label.setMaximumHeight(44)
 
         self.meta_uploader_label = QLabel("Kanal / Yükleyen")
-        self.meta_uploader_label.setStyleSheet("color: #475569; font-size: 13px;")
+        self.meta_uploader_label.setStyleSheet("color: #475569; font-size: 12px;")
 
         self.meta_badges_label = QLabel("Kaynak: — • İndirilecek: — • Tahmini: —")
-        self.meta_badges_label.setStyleSheet("color: #2563eb; font-size: 13px; font-weight: 600;")
+        self.meta_badges_label.setStyleSheet("color: #2563eb; font-size: 12px; font-weight: 600;")
+        self.meta_badges_label.setWordWrap(True)
 
         meta_info_box.addWidget(self.platform_badge_label)
         meta_info_box.addWidget(self.meta_title_label)
@@ -219,7 +257,18 @@ class MainWindow(QMainWindow):
         meta_info_box.addWidget(self.meta_badges_label)
 
         preview_layout.addLayout(meta_info_box, 1)
-        layout.addWidget(self.preview_frame)
+        content_layout.addWidget(self.preview_frame)
+
+        sec2_header = QLabel("2. İndirme Seçenekleri")
+        sec2_header.setStyleSheet("font-weight: 700; color: #1e293b; font-size: 13px;")
+        sec2_sub = QLabel("Dosya türünü, kaliteyi ve kayıt konumunu seçin.")
+        sec2_sub.setStyleSheet("color: #64748b; font-size: 11px;")
+
+        sec2_box = QVBoxLayout()
+        sec2_box.setSpacing(2)
+        sec2_box.addWidget(sec2_header)
+        sec2_box.addWidget(sec2_sub)
+        content_layout.addLayout(sec2_box)
 
         options_grid = QGridLayout()
         options_grid.setContentsMargins(0, 0, 0, 0)
@@ -227,6 +276,10 @@ class MainWindow(QMainWindow):
         options_grid.setColumnStretch(0, 1)
         options_grid.setColumnStretch(1, 1)
         options_grid.setColumnStretch(2, 1)
+
+        self.media_type_label = QLabel("Dosya türü:")
+        self.quality_label = QLabel("Video kalitesi:")
+        self.browser_label = QLabel("Oturum kullanımı:")
 
         self.media_combo = QComboBox()
         self.media_combo.setObjectName("mediaTypeCombo")
@@ -255,7 +308,6 @@ class MainWindow(QMainWindow):
         self.browser_combo.addItem("Brave oturumu", "brave")
         configure_combo_box(self.browser_combo)
 
-
         self.playlist_checkbox = QCheckBox(
             "Oynatma listesinin tamamını indir"
         )
@@ -273,21 +325,21 @@ class MainWindow(QMainWindow):
             object_name="autoOpenOptionCard",
         )
 
-        for column, text in enumerate(("İndirme türü", "Kalite", "Oturum kullanımı")):
-            options_grid.addWidget(QLabel(text), 0, column)
+        options_grid.addWidget(self.media_type_label, 0, 0)
+        options_grid.addWidget(self.quality_label, 0, 1)
+        options_grid.addWidget(self.browser_label, 0, 2)
         options_grid.addWidget(self.media_combo, 1, 0)
         options_grid.addWidget(self.quality_combo, 1, 1)
         options_grid.addWidget(self.browser_combo, 1, 2)
-        layout.addLayout(options_grid)
+        content_layout.addLayout(options_grid)
 
         cards_box = QVBoxLayout()
-        cards_box.setSpacing(6)
+        cards_box.setSpacing(8)
         cards_box.addWidget(self.playlist_card)
         cards_box.addWidget(self.auto_open_card)
-        layout.addLayout(cards_box)
+        content_layout.addLayout(cards_box)
 
-
-        layout.addWidget(QLabel("İndirme klasörü"))
+        content_layout.addWidget(QLabel("İndirme klasörü:"))
         self.folder_input = QLineEdit()
         self.folder_input.setReadOnly(False)
         self.folder_input.setPlaceholderText("İndirme klasör yolu…")
@@ -323,22 +375,29 @@ class MainWindow(QMainWindow):
         folder_row.addWidget(self.folder_input, 1)
         folder_row.addWidget(self.folder_button)
         folder_row.addWidget(self.open_folder_button)
-        layout.addLayout(folder_row)
+        content_layout.addLayout(folder_row)
+
+        scroll_area.setWidget(scroll_content)
+        layout.addWidget(scroll_area, 1)
+
+        bottom_box = QVBoxLayout()
+        bottom_box.setSpacing(8)
 
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
-        self.download_button = QPushButton("İndirmeyi başlat")
+        self.download_button = QPushButton("Önce bağlantıyı inceleyin")
         self.download_button.setObjectName("primaryButton")
+        self.download_button.setEnabled(False)
         self.download_button.clicked.connect(self.start_download)
 
         self.cancel_button = QPushButton("İptal")
-        self.cancel_button.setObjectName("dangerButton")
+        self.cancel_button.setObjectName("cancelButton")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self.cancel_download)
 
         action_row.addWidget(self.download_button, 3)
         action_row.addWidget(self.cancel_button, 1)
-        layout.addLayout(action_row)
+        bottom_box.addLayout(action_row)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
@@ -350,9 +409,9 @@ class MainWindow(QMainWindow):
         self.stats_label.setStyleSheet("color: #64748b; font-size: 12px;")
         self.stats_label.setWordWrap(True)
 
-        layout.addWidget(self.progress_bar)
-        layout.addWidget(self.status_label)
-        layout.addWidget(self.stats_label)
+        bottom_box.addWidget(self.progress_bar)
+        bottom_box.addWidget(self.status_label)
+        bottom_box.addWidget(self.stats_label)
 
         footer = QHBoxLayout()
         footer.setSpacing(8)
@@ -370,15 +429,65 @@ class MainWindow(QMainWindow):
         footer.addWidget(self.tech_details_button)
         footer.addStretch(1)
         footer.addWidget(self.update_button)
-        layout.addLayout(footer)
+        bottom_box.addLayout(footer)
+
+        layout.addLayout(bottom_box)
+
+        # El imleci (PointingHandCursor) uygulamasını tüm tıklanabilir bileşenlerde etkinleştir
+        for w in (
+            paste_button,
+            self.analyze_button,
+            self.download_button,
+            self.cancel_button,
+            self.folder_button,
+            self.open_folder_button,
+            self.tech_details_button,
+            self.update_button,
+            self.media_combo,
+            self.quality_combo,
+            self.browser_combo,
+            self.playlist_checkbox,
+            self.playlist_card,
+            self.auto_open_checkbox,
+            self.auto_open_card,
+        ):
+            apply_pointing_hand_cursor(w)
 
         self.setCentralWidget(root)
 
+    def _update_download_button_state(self, is_downloading: bool = False) -> None:
+        if is_downloading:
+            self.download_button.setText("İndiriliyor…")
+            self.download_button.setEnabled(False)
+            self.download_button.setToolTip("İndirme işlemi devam ediyor.")
+            self.cancel_button.setEnabled(True)
+            self.cancel_button.setText("İptal")
+        elif self._current_metadata is None:
+            self.download_button.setText("Önce bağlantıyı inceleyin")
+            self.download_button.setEnabled(False)
+            self.download_button.setToolTip("İndirmeye başlamadan önce bir bağlantı girin ve 'İncele' düğmesine basın.")
+            self.cancel_button.setEnabled(False)
+        else:
+            self.download_button.setText("İndirmeyi Başlat")
+            self.download_button.setEnabled(True)
+            self.download_button.setToolTip("İçeriği seçilen kalite ve konumda indirmek için tıklayın.")
+            self.cancel_button.setEnabled(False)
+
     def _on_url_changed(self) -> None:
+        url = self.url_input.text().strip()
         if self._current_metadata is not None:
             self._current_metadata = None
             self.preview_frame.hide()
         self._story_notice = None
+
+        if not url:
+            self.url_input.setStyleSheet("")
+        elif self._is_valid_url(url):
+            self.url_input.setStyleSheet("border: 1.5px solid #2563eb;")
+        else:
+            self.url_input.setStyleSheet("border: 1.5px solid #ef4444;")
+
+        self._update_download_button_state()
 
     def analyze_url(self) -> None:
         if self._metadata_thread is not None:
@@ -466,9 +575,76 @@ class MainWindow(QMainWindow):
         track_info = f" • Müzik: {meta.track_name}" if meta.track_name else ""
         self.meta_uploader_label.setText(f"{uploader_text}{duration}{track_info}")
 
+        if (
+            meta.is_playlist
+            and meta.platform_type in (
+                PlatformType.INSTAGRAM_POST,
+                PlatformType.INSTAGRAM_REEL,
+                PlatformType.TWITTER_POST,
+            )
+            and meta.playlist_count
+            and meta.playlist_count > 1
+        ):
+            self.playlist_checkbox.setChecked(True)
+
+        self.quality_combo.blockSignals(True)
+        current_sel = self.quality_combo.currentText()
+        self.quality_combo.clear()
+        self.quality_combo.addItem("En iyi kullanılabilir kalite")
+
+        if meta.available_heights:
+            for h in meta.available_heights:
+                self.quality_combo.addItem(f"{h}p'ye kadar")
+        else:
+            self.quality_combo.addItems([
+                "1080p’ye kadar",
+                "720p’ye kadar",
+                "480p’ye kadar",
+                "360p’ye kadar",
+            ])
+
+        find_idx = self.quality_combo.findText(current_sel)
+        if find_idx >= 0:
+            self.quality_combo.setCurrentIndex(find_idx)
+        else:
+            self.quality_combo.setCurrentIndex(0)
+        self.quality_combo.blockSignals(False)
+
+        self._update_download_button_state()
+        self._update_preview_quality_display()
+
+        # Hikâye URL bilgi notunu badges alanında göster
+        if self._story_notice:
+            self.meta_badges_label.setText(f"ℹ️ {self._story_notice}")
+            self.meta_badges_label.setStyleSheet(
+                "color: #92400e; font-size: 12px; font-weight: 600;"
+            )
+
+    def _update_preview_quality_display(self) -> None:
+        meta = self._current_metadata
+        if meta is None:
+            return
+
+        chosen_q = self.quality_combo.currentText()
+        media_t = self.media_combo.currentText()
+        convert_hevc = self.settings.get("convert_hevc_to_h264", True)
+
+        info = calculate_detailed_format_info(meta, chosen_q, media_t, convert_hevc)
+
+        meta.requested_quality = chosen_q
+        meta.selected_height = info.get("selected_height")
+        meta.selected_resolution = info.get("selected_resolution", "En iyi")
+        meta.video_codec = info.get("selected_vcodec", "")
+        meta.audio_codec = info.get("selected_acodec", "")
+        meta.estimated_size_bytes = info.get("estimated_size_bytes", 0)
+
+        max_q = f"{meta.maximum_available_height}p" if meta.maximum_available_height else "Bilinmiyor"
+        sel_q = meta.selected_resolution
+        size_str = info.get("size_display_text", "")
+        out_codec = info.get("output_codec_text", "MP4")
+
         if meta.is_playlist:
             p_count = meta.playlist_count if meta.playlist_count else "Bilinmiyor"
-            size_str = format_bytes(meta.estimated_size_bytes)
             if (
                 meta.platform_type in (
                     PlatformType.INSTAGRAM_POST,
@@ -478,39 +654,30 @@ class MainWindow(QMainWindow):
                 and meta.playlist_count
                 and meta.playlist_count > 1
             ):
-                self.meta_badges_label.setText(
-                    f"Bu gönderide {meta.playlist_count} indirilebilir video var."
-                )
-                self.playlist_checkbox.setChecked(True)
+                base_text = f"Bu gönderide {meta.playlist_count} indirilebilir video var."
             else:
-                self.meta_badges_label.setText(
-                    f"Oynatma Listesi ({p_count} İçerik) • Tahmini: {size_str}"
-                )
+                base_text = f"Oynatma Listesi ({p_count} İçerik) • {size_str}"
         else:
-            max_q = f"{meta.maximum_available_height}p" if meta.maximum_available_height else "Bilinmiyor"
-            sel_q = meta.selected_resolution
-            ext = meta.selected_extension.upper()
-            size_str = format_bytes(meta.estimated_size_bytes)
-            base_text = f"Kaynak: {max_q} • İndirilecek: {sel_q} • {ext} • Tahmini: {size_str}"
-            if meta.view_count or meta.like_count:
-                extra_parts = []
-                if meta.view_count:
-                    formatted_views = f"{meta.view_count:,}".replace(",", ".")
-                    extra_parts.append(f"İzlenme: {formatted_views}")
-                if meta.like_count:
-                    formatted_likes = f"{meta.like_count:,}".replace(",", ".")
-                    extra_parts.append(f"Beğeni: {formatted_likes}")
-                base_text += " • " + " • ".join(extra_parts)
-            self.meta_badges_label.setText(base_text)
-            self.meta_badges_label.setStyleSheet("color: #2563eb; font-size: 13px; font-weight: 600;")
+            if "MP3" in media_t or "Ses" in media_t:
+                base_text = f"Biçim: MP3 • {size_str}"
+            else:
+                base_text = f"Kaynak: {max_q} • İndirilecek: {sel_q} • Codec: {out_codec} • {size_str}"
+                if meta.view_count or meta.like_count:
+                    extra_parts = []
+                    if meta.view_count:
+                        formatted_views = f"{meta.view_count:,}".replace(",", ".")
+                        extra_parts.append(f"İzlenme: {formatted_views}")
+                    if meta.like_count:
+                        formatted_likes = f"{meta.like_count:,}".replace(",", ".")
+                        extra_parts.append(f"Beğeni: {formatted_likes}")
+                    base_text += " • " + " • ".join(extra_parts)
 
-        # Hikâye URL bilgi notunu badges alanında göster
         if self._story_notice:
             self.meta_badges_label.setText(f"ℹ️ {self._story_notice}")
-            self.meta_badges_label.setStyleSheet(
-                "color: #92400e; font-size: 12px; font-weight: 600;"
-            )
-
+            self.meta_badges_label.setStyleSheet("color: #92400e; font-size: 12px; font-weight: 600;")
+        else:
+            self.meta_badges_label.setText(base_text)
+            self.meta_badges_label.setStyleSheet("color: #2563eb; font-size: 13px; font-weight: 600;")
 
     def _on_story_notice(self, notice: str) -> None:
         """Hikâye URL bilgi notunu saklar; meta_badges_label'a ekler."""
@@ -599,7 +766,7 @@ class MainWindow(QMainWindow):
     def _on_quality_changed(self) -> None:
         self._save_current_settings()
         if self._current_metadata is not None:
-            self.analyze_url()
+            self._update_preview_quality_display()
 
     def _show_tech_details(self) -> None:
         LogDialog("\n".join(self._log_history), parent=self).exec()
@@ -693,10 +860,20 @@ class MainWindow(QMainWindow):
             self.folder_input.setText(folder)
             self._save_current_settings()
 
-    def _on_media_type_changed(self, text: str) -> None:
-        is_audio = "MP3" in text or "Ses" in text
+    def _on_media_type_changed(self, text: str = "") -> None:
+        media_text = text if text else self.media_combo.currentText()
+        is_audio = "MP3" in media_text or "Ses" in media_text
         self.quality_combo.setEnabled(not is_audio)
+        if is_audio:
+            self.quality_label.setText("Ses kalitesi:")
+            self.quality_combo.setToolTip("MP3 formatı için 192 kbps sabit ses kalitesi kullanılır.")
+        else:
+            self.quality_label.setText("Video kalitesi:")
+            self.quality_combo.setToolTip("Video çözünürlük üst sınırını seçin.")
+
         self._save_current_settings()
+        if self._current_metadata is not None:
+            self._update_preview_quality_display()
 
     def _paste_url(self) -> None:
         clipboard = QApplication.clipboard()
@@ -789,18 +966,45 @@ class MainWindow(QMainWindow):
         elif self._current_metadata and self._current_metadata.webpage_url and detect_platform_type(self._current_metadata.webpage_url) != PlatformType.UNKNOWN:
             download_url = self._current_metadata.webpage_url
 
+        media_type = self.media_combo.currentText()
+        quality = self.quality_combo.currentText()
+        playlist = self.playlist_checkbox.isChecked()
+
+        ext = "mp3" if ("MP3" in media_type or "Ses" in media_type) else "mp4"
+        raw_title = self._current_metadata.title if (self._current_metadata and self._current_metadata.title) else "Video"
+        clean_title = sanitize_filename(raw_title)
+        initial_target_path = output_dir / f"{clean_title}.{ext}"
+
+        if self._current_metadata and self._current_metadata.is_playlist and playlist:
+            # Playlist: yt-dlp manages its own file naming per item
+            target_override: Path | None = None
+        else:
+            # Single video: always compute unique path to avoid overwriting completed files.
+            # If the initial path doesn't exist, get_unique_filepath returns it unchanged.
+            target_override = get_unique_filepath(initial_target_path)
+
+        if target_override and target_override != initial_target_path:
+            self._append_log(f"Çakışma önlendi, otomatik benzersiz dosya adı oluşturuldu: {target_override.name}")
+        elif target_override:
+            self._append_log(f"Hedef dosya yolu belirlendi: {target_override.name}")
+        else:
+            self._append_log("Oynatma listesi modu: dosya adları yt-dlp tarafından belirleniyor.")
+
+        self._force_redownload_once = False
+
         request = DownloadRequest(
             url=download_url,
             output_dir=output_dir,
-            media_type=self.media_combo.currentText(),
-            quality=self.quality_combo.currentText(),
-            playlist=self.playlist_checkbox.isChecked(),
+            media_type=media_type,
+            quality=quality,
+            playlist=playlist,
             browser=self.browser_combo.currentData(),
             preferred_browser=self._preferred_browser,
             preferred_profile=self._preferred_profile,
             preferred_impersonation=self._preferred_impersonation,
             successful_request_url=download_url,
             convert_hevc_to_h264=self.settings.get("convert_hevc_to_h264", True),
+            target_final_path=target_override,
         )
 
         self._set_ui_downloading(True)
@@ -837,6 +1041,7 @@ class MainWindow(QMainWindow):
             return
         self._cancel_requested = True
         self.cancel_button.setEnabled(False)
+        self.cancel_button.setText("İptal ediliyor…")
 
         if self._download_worker is not None:
             self._append_log("İptal isteği gönderildi…")
@@ -1082,6 +1287,7 @@ class MainWindow(QMainWindow):
             (self._close_requested or self._pending_close or self._shutdown_in_progress)
             and self._download_thread is None
             and self._metadata_thread is None
+            and self._history_thread is None
         ):
             if self._force_close_timer is not None:
                 self._force_close_timer.stop()
@@ -1224,4 +1430,66 @@ class MainWindow(QMainWindow):
 
         self.cancel_download()
         self._try_finish_close()
+
+    def showEvent(self, event: Any) -> None:
+        super().showEvent(event)
+        if not getattr(self, "_leftover_checked", False):
+            self._leftover_checked = True
+            QTimer.singleShot(500, self.check_and_clean_leftover_jobs)
+            QTimer.singleShot(600, self._start_history_validation)
+
+    def _start_history_validation(self) -> None:
+        if getattr(self, "_history_validation_started", False):
+            return
+        self._history_validation_started = True
+        self._append_log("İndirme geçmişi doğrulanıyor.")
+
+        self._history_thread = QThread(self)
+        self._history_worker = HistoryValidationWorker()
+        self._history_worker.moveToThread(self._history_thread)
+
+        self._history_thread.started.connect(self._history_worker.run)
+        self._history_worker.finished.connect(self._on_history_validation_finished)
+        self._history_worker.finished.connect(self._history_thread.quit)
+        self._history_worker.deleteLater()
+        self._history_thread.finished.connect(self._history_thread.deleteLater)
+
+        self._history_thread.start()
+
+    def _on_history_validation_finished(self, total_checked: int, stale_count: int) -> None:
+        self._append_log(f"{total_checked} kayıt kontrol edildi.")
+        self._append_log(f"{stale_count} eksik kayıt stale olarak işaretlendi.")
+        self._history_thread = None
+        self._history_worker = None
+        self._try_finish_close()
+
+    def check_and_clean_leftover_jobs(self) -> None:
+        raw_folder = self.folder_input.text().strip()
+        if not raw_folder:
+            return
+        output_dir = Path(raw_folder)
+        if not output_dir.exists():
+            return
+
+        leftover_files = []
+        for p in output_dir.glob("*"):
+            name = p.name.lower()
+            if name.startswith(".kolayindir_") or name.endswith((".kolayindir_tmp", ".hevc_temp.mp4")):
+                leftover_files.append(p)
+
+        if leftover_files:
+            dlg = LeftoverJobsDialog(count=len(leftover_files), parent=self)
+            dlg.exec()
+            if dlg.clicked_button_id == "clean":
+                cleaned_count = 0
+                for f in leftover_files:
+                    try:
+                        if f.exists():
+                            f.unlink()
+                            cleaned_count += 1
+                    except OSError:
+                        pass
+                self._append_log(f"Önceki oturumdan kalan {cleaned_count} adet geçici dosya temizlendi.")
+            elif dlg.clicked_button_id == "open_folder":
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(output_dir)))
 

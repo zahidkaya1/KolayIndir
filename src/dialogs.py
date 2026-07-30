@@ -521,3 +521,174 @@ class AdvancedSessionDialog(QDialog):
         return self.convert_hevc_check.isChecked()
 
 
+class AlreadyDownloadedDialog(QDialog):
+    """Aynı içerik önceden indirildiğinde gösterilen açık temalı diyalog."""
+
+    def __init__(
+        self,
+        filename: str = "",
+        filepath: str = "",
+        filesize_text: str = "",
+        resolution_or_format: str = "",
+        completed_at: str = "",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("alreadyDownloadedDialog")
+        self.setWindowTitle("Bu içerik daha önce indirilmiş")
+        self.setMinimumWidth(440)
+        self.setMaximumWidth(620)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        self.clicked_button_id: str = "cancel"
+        self.filepath = filepath
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        title = QLabel("Bu içerik daha önce indirilmiş")
+        title.setObjectName("dialogTitleLabel")
+
+        info_parts = [
+            f"• Dosya Adı: {filename}",
+            f"• Dosya Yolu: {filepath}",
+        ]
+        if filesize_text:
+            info_parts.append(f"• Boyut: {filesize_text}")
+        if resolution_or_format:
+            info_parts.append(f"• Biçim/Kalite: {resolution_or_format}")
+        if completed_at:
+            info_parts.append(f"• İndirilme Tarihi: {completed_at}")
+
+        info_text = "\n".join(info_parts) + "\n\nNe yapmak istersiniz?"
+        message = QLabel(info_text)
+        message.setObjectName("dialogMessageLabel")
+        message.setWordWrap(True)
+
+        btn_layout = QVBoxLayout()
+        btn_layout.setSpacing(8)
+
+        row1 = QHBoxLayout()
+        row1.setSpacing(8)
+
+        open_file_btn = QPushButton("Dosyayı Aç")
+        open_file_btn.setObjectName("dialogSecondaryButton")
+        open_file_btn.clicked.connect(lambda: self._choose("open_file"))
+
+        open_folder_btn = QPushButton("Klasörü Aç")
+        open_folder_btn.setObjectName("dialogSecondaryButton")
+        open_folder_btn.clicked.connect(lambda: self._choose("open_folder"))
+
+        row1.addWidget(open_file_btn)
+        row1.addWidget(open_folder_btn)
+
+        row2 = QHBoxLayout()
+        row2.setSpacing(8)
+
+        redownload_btn = QPushButton("Yeniden İndir")
+        redownload_btn.setObjectName("dialogPrimaryButton")
+        redownload_btn.clicked.connect(lambda: self._choose("redownload"))
+
+        save_as_btn = QPushButton("Farklı Adla İndir")
+        save_as_btn.setObjectName("dialogSecondaryButton")
+        save_as_btn.clicked.connect(lambda: self._choose("save_as"))
+
+        cancel_btn = QPushButton("Vazgeç")
+        cancel_btn.setObjectName("dialogSecondaryButton")
+        cancel_btn.clicked.connect(lambda: self._choose("cancel"))
+
+        row2.addWidget(redownload_btn)
+        row2.addWidget(save_as_btn)
+        row2.addWidget(cancel_btn)
+
+        from src.utils import apply_pointing_hand_cursor
+
+        for btn in (open_file_btn, open_folder_btn, redownload_btn, save_as_btn, cancel_btn):
+            apply_pointing_hand_cursor(btn)
+
+        btn_layout.addLayout(row1)
+        btn_layout.addLayout(row2)
+
+        layout.addWidget(title)
+        layout.addWidget(message)
+        layout.addSpacing(6)
+        layout.addLayout(btn_layout)
+
+    def _choose(self, button_id: str) -> None:
+        self.clicked_button_id = button_id
+        if button_id == "cancel":
+            self.reject()
+        else:
+            self.accept()
+
+
+class LeftoverJobsDialog(QDialog):
+    """Uygulama çökmesi/zorla kapatılmasından kalan yarım dosyalar için diyalog."""
+
+    def __init__(
+        self,
+        count: int = 1,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("leftoverJobsDialog")
+        self.setWindowTitle("Önceki yarım indirmeler bulundu")
+        self.setMinimumWidth(420)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        self.clicked_button_id: str = "keep"
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        title = QLabel("Önceki yarım indirmeler bulundu")
+        title.setObjectName("dialogTitleLabel")
+
+        message = QLabel(
+            f"Daha önceki bir oturumdan kalan {count} adet tamamlanmamış geçici indirme dosyası tespit edildi.\n\n"
+            "Bu dosyaları temizlemek ister misiniz?"
+        )
+        message.setObjectName("dialogMessageLabel")
+        message.setWordWrap(True)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addStretch(1)
+
+        clean_btn = QPushButton("Temizle")
+        clean_btn.setObjectName("dialogPrimaryButton")
+        clean_btn.clicked.connect(lambda: self._choose("clean"))
+
+        folder_btn = QPushButton("Klasörü Aç")
+        folder_btn.setObjectName("dialogSecondaryButton")
+        folder_btn.clicked.connect(lambda: self._choose("open_folder"))
+
+        keep_btn = QPushButton("Şimdilik Sakla")
+        keep_btn.setObjectName("dialogSecondaryButton")
+        keep_btn.clicked.connect(lambda: self._choose("keep"))
+
+        from src.utils import apply_pointing_hand_cursor
+
+        for btn in (clean_btn, folder_btn, keep_btn):
+            apply_pointing_hand_cursor(btn)
+
+        btn_row.addWidget(clean_btn)
+        btn_row.addWidget(folder_btn)
+        btn_row.addWidget(keep_btn)
+
+        layout.addWidget(title)
+        layout.addWidget(message)
+        layout.addSpacing(6)
+        layout.addLayout(btn_row)
+
+    def _choose(self, button_id: str) -> None:
+        self.clicked_button_id = button_id
+        if button_id == "keep":
+            self.reject()
+        else:
+            self.accept()
+
+
+

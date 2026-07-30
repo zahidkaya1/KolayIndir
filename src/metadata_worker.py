@@ -472,6 +472,9 @@ class MetadataWorker(QObject):
             if platform_type == PlatformType.TWITTER_POST:
                 raise ValueError("Bu X gönderisinde indirilebilir video bulunamadı.")
 
+        from src.utils import extract_available_formats
+        available_heights, valid_formats = extract_available_formats(info)
+
         requested_limit = QUALITY_HEIGHTS.get(self.requested_quality)
         selected_height = None
         if max_height is not None:
@@ -519,4 +522,6 @@ class MetadataWorker(QObject):
             view_count=view_count,
             like_count=like_count,
             track_name=track_name,
+            available_heights=available_heights,
+            available_formats=valid_formats,
         )

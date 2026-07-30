@@ -119,11 +119,21 @@ QPushButton#primaryButton {
     color: #ffffff;
     background: #2563eb;
     border: 1px solid #2563eb;
+    min-height: 38px;
+    font-size: 14px;
+    font-weight: 700;
 }
 
 QPushButton#primaryButton:hover {
     background: #1d4ed8;
+    border: 1px solid #1d4ed8;
     color: #ffffff;
+}
+
+QPushButton#primaryButton:pressed {
+    background: #1e40af;
+    border: 1px solid #1e40af;
+    padding-top: 10px;
 }
 
 QPushButton#primaryButton:disabled {
@@ -132,10 +142,32 @@ QPushButton#primaryButton:disabled {
     border: 1px solid #93c5fd;
 }
 
-QPushButton#dangerButton {
+QPushButton#dangerButton, QPushButton#cancelButton {
     color: #b42318;
     background: #fff1f0;
     border: 1px solid #fecdca;
+    min-height: 38px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QPushButton#dangerButton:hover, QPushButton#cancelButton:hover {
+    color: #912018;
+    background: #fee4e2;
+    border: 1px solid #fda29b;
+}
+
+QPushButton#dangerButton:pressed, QPushButton#cancelButton:pressed {
+    color: #7a1b14;
+    background: #fecdca;
+    border: 1px solid #f97066;
+    padding-top: 10px;
+}
+
+QPushButton#dangerButton:disabled, QPushButton#cancelButton:disabled {
+    color: #d0d5dd;
+    background: #fcfcfc;
+    border: 1px solid #eaecf0;
 }
 
 QPushButton#updateButton {

@@ -1,5 +1,8 @@
+import datetime
 import re
 import subprocess
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +24,7 @@ from src.browser_sessions import (
     is_chromium_encryption_error,
 )
 from src.download_options import build_ydl_options
+from src.history import DownloadRecord, save_record
 from src.models import (
     DownloadRequest,
     PlatformType,
@@ -94,6 +98,29 @@ class DownloadWorker(QObject):
         self._cancel_requested = False
         self._last_filename = ""
         self._active_process: subprocess.Popen | None = None
+        self.job_id = request.job_id or f"job_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        self._created_files: set[Path] = set()
+        self._initial_files: dict[Path, tuple[int, float]] = {}
+
+        if request.output_dir.exists():
+            for p in request.output_dir.glob("*"):
+                if p.is_file():
+                    try:
+                        self._initial_files[p.resolve()] = (p.stat().st_size, p.stat().st_mtime)
+                    except OSError:
+                        pass
+
+    def _track_file(self, raw_path: Any) -> None:
+        if not raw_path:
+            return
+        p_str = str(raw_path).strip()
+        if not p_str:
+            return
+        try:
+            path_obj = Path(p_str).resolve()
+            self._created_files.add(path_obj)
+        except Exception:  # noqa: BLE001, S110
+            pass
 
     @Slot()
     def cancel(self) -> None:
@@ -113,6 +140,14 @@ class DownloadWorker(QObject):
     def _progress_hook(self, data: dict[str, Any]) -> None:
         if self._cancel_requested:
             raise DownloadCancelled("İndirme kullanıcı tarafından iptal edildi.")
+
+        filename = str(data.get("filename") or "")
+        filepath = str(data.get("filepath") or "")
+        tmpfilename = str(data.get("tmpfilename") or "")
+        self._track_file(filename)
+        self._track_file(filepath)
+        self._track_file(tmpfilename)
+
         state = data.get("status")
         if state == "downloading":
             downloaded = data.get("downloaded_bytes") or 0
@@ -127,7 +162,6 @@ class DownloadWorker(QObject):
                 f"İndiriliyor: %{percentage} • Hız: {speed_str} • Kalan: {eta_text}"
             )
 
-            filename = str(data.get("filename") or "")
             if filename:
                 self._last_filename = filename
 
@@ -156,7 +190,6 @@ class DownloadWorker(QObject):
             })
 
         elif state == "finished":
-            filename = str(data.get("filename") or "")
             if filename:
                 self._last_filename = filename
             self.progress.emit(100)
@@ -296,6 +329,7 @@ class DownloadWorker(QObject):
                     title = ""
                     if isinstance(result, dict):
                         title = str(result.get("title") or result.get("playlist_title") or result.get("id") or "")
+                    self._save_completed_record(platform, result)
                     self.succeeded.emit(title or self._last_filename or "İndirme tamamlandı.")
                     succeeded = True
                     return
@@ -325,6 +359,7 @@ class DownloadWorker(QObject):
                     preferred_impersonation=self.request.preferred_impersonation,
                     successful_request_url=self.request.successful_request_url,
                     convert_hevc_to_h264=self.request.convert_hevc_to_h264,
+                    job_id=self.job_id,
                 )
 
                 options = build_ydl_options(req_copy)
@@ -363,6 +398,7 @@ class DownloadWorker(QObject):
                     title = ""
                     if isinstance(result, dict):
                         title = str(result.get("title") or result.get("playlist_title") or result.get("id") or "")
+                    self._save_completed_record(platform, result)
                     self.succeeded.emit(title or self._last_filename or "İndirme tamamlandı.")
                     succeeded = True
                     break
@@ -408,13 +444,113 @@ class DownloadWorker(QObject):
                 translated = translate_social_error(err_msg, self.request.url)
                 self.failed.emit(clean_log_message(translated))
         finally:
-            if self._active_process:
-                try:
-                    self._active_process.kill()
-                except Exception:  # noqa: BLE001, S110
-                    pass
-                self._active_process = None
+            clean_ok = self._cleanup_job_files(is_cancel=self._cancel_requested)
+            if self._cancel_requested:
+                if clean_ok:
+                    self.status.emit("İndirme iptal edildi. Yarım dosyalar temizlendi.")
+                else:
+                    self.status.emit("İndirme iptal edildi ancak bazı geçici dosyalar silinemedi.")
             self.finished.emit()
+
+    def _save_completed_record(self, platform: PlatformType, result: Any) -> None:
+        target_file: Path | None = None
+        if self._last_filename and Path(self._last_filename).exists():
+            target_file = Path(self._last_filename)
+        elif isinstance(result, dict):
+            fn = result.get("_filename") or result.get("filepath")
+            if fn and Path(fn).exists():
+                target_file = Path(fn)
+
+        if not target_file and self.request.output_dir.exists():
+            files = [f for f in self.request.output_dir.glob("*") if f.is_file() and not f.name.endswith((".part", ".ytdl", ".temp"))]
+            if files:
+                target_file = max(files, key=lambda f: f.stat().st_mtime)
+
+        if not target_file or not target_file.exists():
+            return
+
+        probe = probe_media_codecs(target_file)
+        media_id = ""
+        if isinstance(result, dict):
+            media_id = str(result.get("id") or "")
+
+        rec = DownloadRecord(
+            platform=platform.value,
+            media_id=media_id,
+            media_type=self.request.media_type,
+            requested_quality=self.request.quality,
+            selected_height=probe.get("height"),
+            final_path=str(target_file.resolve()),
+            state="completed",
+            file_size=target_file.stat().st_size,
+            completed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            video_codec=probe.get("video_codec", ""),
+            audio_codec=probe.get("audio_codec", ""),
+            playlist=self.request.playlist,
+        )
+        save_record(rec)
+
+    def _cleanup_job_files(self, is_cancel: bool) -> bool:
+        if self._active_process:
+            try:
+                self._active_process.terminate()
+                self._active_process.poll()
+                if self._active_process.returncode is None:
+                    self._active_process.kill()
+            except Exception:  # noqa: BLE001, S110
+                pass
+            self._active_process = None
+
+        all_clean = True
+        candidates: set[Path] = set(self._created_files)
+
+        if self.request.output_dir.exists():
+            for p in self.request.output_dir.glob("*"):
+                name = p.name.lower()
+                if (
+                    name.endswith((".part", ".ytdl", ".temp", ".hevc_temp.mp4"))
+                    or ".f" in name
+                    or name.startswith(".kolayindir_")
+                ):
+                    try:
+                        candidates.add(p.resolve())
+                    except Exception:  # noqa: BLE001, S110
+                        pass
+
+        temp_suffixes = (".part", ".ytdl", ".temp", ".hevc_temp.mp4")
+
+        for path_obj in candidates:
+            if not path_obj.exists() or not path_obj.is_file():
+                continue
+
+            try:
+                res_path = path_obj.resolve()
+                if res_path in self._initial_files:
+                    init_size, init_mtime = self._initial_files[res_path]
+                    curr_size = path_obj.stat().st_size
+                    curr_mtime = path_obj.stat().st_mtime
+                    if curr_size == init_size and abs(curr_mtime - init_mtime) < 1.0:
+                        continue
+            except OSError:
+                pass
+
+            name_lower = path_obj.name.lower()
+            is_temp_ext = name_lower.endswith(temp_suffixes) or ".f" in name_lower or name_lower.startswith(".kolayindir_")
+
+            if is_temp_ext:
+                try:
+                    path_obj.unlink()
+                except OSError:
+                    all_clean = False
+            elif is_cancel or not self._last_filename:
+                probe = probe_media_codecs(path_obj)
+                if probe.get("duration", 0.0) <= 0.0:
+                    try:
+                        path_obj.unlink()
+                    except OSError:
+                        all_clean = False
+
+        return all_clean
 
     def _handle_post_download_transcode(self, result: Any) -> None:
         if self._cancel_requested or self.request.media_type == "Ses (MP3)":

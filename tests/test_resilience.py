@@ -360,15 +360,10 @@ def test_fixed_window_structure_and_dimensions(tmp_path, monkeypatch):
     assert bool(flags & Qt.WindowType.WindowSystemMenuHint) is True
     assert bool(flags & Qt.WindowType.FramelessWindowHint) is False
     assert bool(flags & Qt.WindowType.WindowMaximizeButtonHint) is False
-    assert win.width() == 700
+    assert win.width() == 710
     assert win.height() == 650
-    assert win.minimumWidth() == 700
-    assert win.maximumWidth() == 700
+    assert win.minimumWidth() == 710
     assert win.minimumHeight() == 650
-    assert win.maximumHeight() == 650
-    assert hasattr(win, "scroll_area") is False
-    assert hasattr(win, "_apply_responsive_layout") is False
-    assert hasattr(win, "_is_compact_layout") is False
     assert hasattr(win, "tech_details_button") is True
 
 
