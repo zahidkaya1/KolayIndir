@@ -1405,10 +1405,14 @@ class MainWindow(QMainWindow):
         """Kapanışta veya test temizliğinde tüm çalışan arka plan iş parçacıklarını güvenle durdurur."""
         for attr in ("_history_thread", "_update_thread", "_metadata_thread", "_download_thread"):
             thread = getattr(self, attr, None)
-            if thread is not None:
+            if thread is not None and not isinstance(thread, str):
                 try:
+                    if hasattr(thread, "requestInterruption"):
+                        thread.requestInterruption()
                     thread.quit()
-                    thread.wait(3000)
+                    if not thread.wait(2000):
+                        thread.terminate()
+                        thread.wait(1000)
                 except Exception:  # noqa: BLE001, S110
                     pass
                 setattr(self, attr, None)

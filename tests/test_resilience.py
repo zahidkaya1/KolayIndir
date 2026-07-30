@@ -418,20 +418,38 @@ def test_download_worker_log_signal_and_main_window_connections(
 
     settings_file = tmp_path / "settings.json"
     monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
+    monkeypatch.setattr(MainWindow, "_start_history_validation", lambda self: None)
+
+    from unittest.mock import MagicMock, patch
 
     _app = QApplication.instance() or QApplication([])
     win = MainWindow()
-    win.url_input.setText("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-    win.folder_input.setText(str(tmp_path))
+    try:
+        win.url_input.setText("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        win.folder_input.setText(str(tmp_path))
 
-    with patch.object(DownloadWorker, "run"):
-        win.start_download()
-        assert win._download_worker is not None
-        assert hasattr(win._download_worker, "log") is True
-        if win._download_thread:
-            win._download_thread.quit()
-            win._download_thread.wait(1000)
-    win.close()
+        mock_thread = MagicMock()
+        mock_worker = MagicMock()
+        mock_worker.log = MagicMock()
+        mock_worker.status = MagicMock()
+        mock_worker.progress = MagicMock()
+        mock_worker.progress_details = MagicMock()
+        mock_worker.succeeded = MagicMock()
+        mock_worker.failed = MagicMock()
+        mock_worker.cancelled = MagicMock()
+        mock_worker.finished = MagicMock()
+
+        with patch("src.main_window.QThread", return_value=mock_thread), patch(
+            "src.main_window.DownloadWorker", return_value=mock_worker
+        ):
+            win.start_download()
+            assert win._download_worker is mock_worker
+            assert hasattr(win._download_worker, "log") is True
+            assert mock_thread.start.called is True
+    finally:
+        win._stop_all_threads()
+        win.close()
+        QApplication.processEvents()
 
 
 def test_format_bytes_and_duration():

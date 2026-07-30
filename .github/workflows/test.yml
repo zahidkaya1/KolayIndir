@@ -9,6 +9,9 @@ on:
 jobs:
   test:
     runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONFAULTHANDLER: "1"
     steps:
       - name: Depoyu al
         uses: actions/checkout@v4
@@ -23,4 +26,4 @@ jobs:
         run: python -m compileall -q app.py src tests
       - name: Testleri çalıştır
         timeout-minutes: 15
-        run: python -m pytest -vv -s -m "not live" --durations=30
+        run: python -X faulthandler -m pytest -vv -s -m "not live" --setup-show --durations=30
