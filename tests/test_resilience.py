@@ -247,6 +247,7 @@ def test_main_window_object_names():
 
     assert win.folder_button.menu().objectName() == "folderMenu"
     assert win.update_button.objectName() == "updateButton"
+    win.close()
 
 
 def test_http_user_agent_ascii_only():
@@ -292,6 +293,7 @@ def test_combo_boxes_object_names_and_defaults(tmp_path, monkeypatch):
     assert win.media_combo.currentText() == "Video (MP4)"
     assert win.quality_combo.currentText() == "En iyi kullanılabilir kalite"
     assert win.browser_combo.currentText() == "Otomatik oturum"
+    win.close()
 
 
 
@@ -332,6 +334,7 @@ def test_fusion_style_and_combo_box_heights(tmp_path, monkeypatch):
         assert combo.minimumHeight() >= 38
         assert combo.currentIndex() >= 0
         assert bool(combo.currentText()) is True
+    win.close()
 
 
 def test_set_combo_value_fallback():
@@ -358,6 +361,7 @@ def test_fixed_window_structure_and_dimensions(tmp_path, monkeypatch):
     assert bool(flags & Qt.WindowType.WindowMinimizeButtonHint) is True
     assert bool(flags & Qt.WindowType.WindowTitleHint) is True
     assert bool(flags & Qt.WindowType.WindowSystemMenuHint) is True
+    win.close()
     assert bool(flags & Qt.WindowType.FramelessWindowHint) is False
     assert bool(flags & Qt.WindowType.WindowMaximizeButtonHint) is False
     assert win.width() == 710
@@ -427,6 +431,7 @@ def test_download_worker_log_signal_and_main_window_connections(
         if win._download_thread:
             win._download_thread.quit()
             win._download_thread.wait(1000)
+    win.close()
 
 
 def test_format_bytes_and_duration():
@@ -585,6 +590,7 @@ def test_option_cards_structure_and_clicking(tmp_path, monkeypatch):
     loaded = load_settings()
     assert loaded.get("auto_open_folder") is True
     assert "playlist" not in loaded
+    win.close()
 
 
 def test_close_event_when_idle(tmp_path, monkeypatch):
@@ -648,6 +654,8 @@ def test_close_event_when_active_and_canceled(mock_dialog_exec, tmp_path, monkey
     win.closeEvent(event2)
     assert event2.isAccepted() is False
     assert win._close_requested is True
+    win._download_thread = None
+    win.close()
 
 
 
@@ -678,6 +686,7 @@ def test_reset_after_successful_download(tmp_path, monkeypatch):
     assert win.browser_combo.currentIndex() == 0
     assert win.folder_input.text() == folder_before
     assert win.media_combo.currentText() == "Video (MP4)"
+    win.close()
 
 
 @patch.object(AppMessageDialog, "exec")
@@ -698,6 +707,7 @@ def test_error_preserves_url_and_preview(mock_dialog_exec, tmp_path, monkeypatch
     assert "İndirme başarısız" in win.status_label.text()
     assert win.download_button.isEnabled() is True
     assert win.cancel_button.isEnabled() is False
+    win.close()
 
 
 def test_platform_type_detection():
@@ -758,6 +768,7 @@ def test_multi_media_auto_check_playlist(tmp_path, monkeypatch):
     assert win.platform_badge_label.text() == "Instagram Gönderisi"
     assert win.playlist_checkbox.isChecked() is True
     assert "3 indirilebilir video var" in win.meta_badges_label.text()
+    win.close()
 
 
 def test_720p_source_limit_display(tmp_path, monkeypatch):
@@ -783,6 +794,7 @@ def test_720p_source_limit_display(tmp_path, monkeypatch):
     assert win.platform_badge_label.text() == "X / Twitter"
     assert "Kaynak: 720p" in win.meta_badges_label.text()
     assert "İndirilecek: 720p" in win.meta_badges_label.text()
+    win.close()
 
 
 def test_download_worker_cancel_raises_download_cancelled(tmp_path):
@@ -832,6 +844,7 @@ def test_cancel_download_idempotent(tmp_path, monkeypatch):
     # Repeat call
     win.cancel_download()
     assert win._cancel_requested is True
+    win.close()
 
 
 def test_close_event_asynchronous_with_timer(tmp_path, monkeypatch):
@@ -860,6 +873,8 @@ def test_close_event_asynchronous_with_timer(tmp_path, monkeypatch):
         assert win._shutdown_in_progress is True
         assert win._force_close_timer is not None
         win._force_close_timer.stop()
+        win._download_thread = None
+        win.close()
 
 
 

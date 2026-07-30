@@ -598,6 +598,9 @@ class TestHistoryMultipleDownloadsSameMediaId:
         assert "İndirme geçmişi doğrulanıyor." in logs
         assert "2 kayıt kontrol edildi." in logs
         assert "1 eksik kayıt stale olarak işaretlendi." in logs
+        if window._history_thread is not None:
+            window._history_thread.quit()
+            window._history_thread.wait(5000)
         window.close()
 
     # ------------------------------------------------------------------

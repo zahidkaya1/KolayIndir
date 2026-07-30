@@ -22,4 +22,5 @@ jobs:
       - name: Sözdizimini kontrol et
         run: python -m compileall -q app.py src tests
       - name: Testleri çalıştır
-        run: pytest
+        timeout-minutes: 15
+        run: python -m pytest -vv -s -m "not live" --durations=30

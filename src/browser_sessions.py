@@ -406,3 +406,34 @@ def analyze_tiktok_url(url: str) -> tuple[str | None, str | None]:
         )
 
     return None, None
+
+
+def analyze_kick_url(url: str) -> tuple[str | None, str | None]:
+    """
+    Kick URL'lerini analiz eder.
+    Returns: (notice_text, error_text)
+    """
+    raw = url.strip().lower()
+    if "kick.com" not in raw:
+        return None, None
+
+    if "/clips/" in raw or "clip=" in raw:
+        return (
+            None,
+            "Kick klipleri henüz desteklenmiyor. Yalnızca tamamlanmış Kick VOD videoları destekleniyor.",
+        )
+
+    if re.search(r"kick\.com/[^/]+/videos/?(?:\?.*)?$", raw):
+        return (
+            None,
+            "Kick kanal videoları listesi desteklenmiyor. Lütfen indirmek istediğiniz tekil VOD videosunun bağlantısını yapıştırın.",
+        )
+
+    if "/videos/" not in raw or "/live" in raw:
+        return None, "Kick canlı yayınları henüz desteklenmiyor."
+
+    match = re.search(r"kick\.com/([^/]+)/videos/([a-f0-9\-]{8,})", raw)
+    if not match:
+        return None, "Geçersiz Kick video bağlantısı veya UUID."
+
+    return "Kick VOD videosu algılandı.", None

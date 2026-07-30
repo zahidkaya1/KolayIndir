@@ -1,3 +1,6 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "live: marks tests as live internet network tests (deselect with '-m \"not live\"')",
+]

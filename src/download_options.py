@@ -140,6 +140,12 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
         "no_warnings": False,
     }
 
+    if platform == PlatformType.KICK_VIDEO or "kick.com" in request.url.lower():
+        options["http_headers"] = {
+            "Referer": "https://kick.com/",
+            "Origin": "https://kick.com",
+        }
+
     if not request.playlist:
         options["playlist_items"] = "1"
 

@@ -21,6 +21,7 @@ class PlatformType(Enum):
     TIKTOK_PROFILE = "tiktok_profile"
     TIKTOK_LIVE = "tiktok_live"
     TIKTOK_SLIDESHOW = "tiktok_slideshow"
+    KICK_VIDEO = "kick_video"
     UNKNOWN = "unknown"
 
 
@@ -62,6 +63,11 @@ def detect_platform_type(url: str) -> PlatformType:
             return PlatformType.TIKTOK_PROFILE
         return PlatformType.TIKTOK_VIDEO
 
+    if "kick.com" in raw:
+        if re.search(r"kick\.com/([^/]+)/videos/([a-f0-9\-]{8,})", raw):
+            return PlatformType.KICK_VIDEO
+        return PlatformType.UNKNOWN
+
     return PlatformType.UNKNOWN
 
 
@@ -79,6 +85,7 @@ def get_platform_badge_text(platform: PlatformType) -> str:
         PlatformType.TIKTOK_PROFILE: "TikTok",
         PlatformType.TIKTOK_LIVE: "TikTok",
         PlatformType.TIKTOK_SLIDESHOW: "TikTok Slaytı",
+        PlatformType.KICK_VIDEO: "Kick",
         PlatformType.UNKNOWN: "Diğer",
     }
     return badge_map.get(platform, "Diğer")
@@ -96,6 +103,25 @@ def translate_social_error(exc_or_msg: Exception | str, url: str) -> str:
     msg = str(exc_or_msg)
     msg_lower = msg.lower()
     platform = detect_platform_type(url)
+
+    if platform == PlatformType.KICK_VIDEO or "kick.com" in url.lower():
+        raw_url = url.strip().lower()
+        if "/clips/" in raw_url or "clip=" in raw_url:
+            return "Kick klipleri henüz desteklenmiyor. Yalnızca tamamlanmış Kick VOD videoları destekleniyor."
+        if re.search(r"kick\.com/[^/]+/videos/?(?:\?.*)?$", raw_url):
+            return "Kick kanal videoları listesi desteklenmiyor. Lütfen indirmek istediğiniz tekil VOD videosunun bağlantısını yapıştırın."
+        if "/videos/" not in raw_url or "/live" in raw_url:
+            return "Kick canlı yayınları henüz desteklenmiyor."
+        if any(term in msg_lower for term in ("geçersiz", "invalid")):
+            return "Geçersiz Kick video bağlantısı veya UUID."
+        if "403" in msg_lower or "forbidden" in msg_lower or "access denied" in msg_lower:
+            if any(term in msg_lower for term in ("hls", "stream", "akış", "playlist")):
+                return "Kick video akışına erişim reddedildi."
+            return "Kick video bilgilerine erişilemedi. Tarayıcı oturumu veya güncel yt-dlp gerekebilir."
+        if any(term in msg_lower for term in ("not found", "deleted", "404", "video unavailable", "does not exist")):
+            return "Bu Kick videosu artık mevcut olmayabilir."
+        if any(term in msg_lower for term in ("subscriber", "login required", "sign in", "auth", "private")):
+            return "Bu video giriş veya abonelik gerektiriyor olabilir."
 
     if platform in (
         PlatformType.TIKTOK_VIDEO,

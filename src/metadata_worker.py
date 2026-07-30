@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from src.browser_sessions import (
     analyze_instagram_story_url,
+    analyze_kick_url,
     analyze_tiktok_url,
     build_profile_attempt_order,
     classify_session_error,
@@ -29,6 +30,142 @@ from src.models import (
     translate_social_error,
 )
 from src.utils import clean_log_message, clean_tiktok_url
+
+
+def _extract_kick_vod(url: str, requested_quality: str, media_type: str) -> MediaMetadata:
+    match = re.search(r"kick\.com/([^/]+)/videos/([a-f0-9\-]{8,})", url, re.IGNORECASE)
+    if not match:
+        raise ValueError("Geçersiz Kick VOD bağlantısı.")
+
+    channel = match.group(1)
+    uuid = match.group(2)
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://kick.com/",
+        "Origin": "https://kick.com",
+    }
+
+    title = f"Kick VOD ({channel})"
+    thumbnail = ""
+    m3u8_url = None
+    duration_sec = None
+
+    # Try fetching channel videos list first for stream.kick.com URL & exact metadata
+    try:
+        from curl_cffi import requests
+
+        r_api = requests.get(
+            f"https://kick.com/api/v2/channels/{channel}/videos",
+            impersonate="chrome110",
+            headers=headers,
+            timeout=6,
+        )
+        if r_api.status_code == 200:
+            for v in r_api.json():
+                v_obj = v.get("video") or {}
+                if v_obj.get("uuid") == uuid or v.get("slug") == uuid or str(v.get("id")) == uuid:
+                    m3u8_url = v.get("source")
+                    if v.get("session_title"):
+                        title = v.get("session_title")
+                    if isinstance(v.get("thumbnail"), dict) and v["thumbnail"].get("src"):
+                        thumbnail = v["thumbnail"]["src"]
+                    elif isinstance(v.get("thumbnail"), str):
+                        thumbnail = v["thumbnail"]
+                    if v.get("duration"):
+                        duration_sec = float(v["duration"]) / 1000.0
+                    break
+    except Exception:  # noqa: BLE001, S110
+        pass
+
+    # Fetch webpage HTML via curl_cffi for fallback / title
+    try:
+        from curl_cffi import requests
+
+        r_page = requests.get(url, impersonate="chrome110", headers=headers, timeout=6)
+        if r_page.status_code == 404 and not m3u8_url:
+            raise ValueError("Bu Kick videosu artık mevcut olmayabilir.")
+        if r_page.status_code == 403 and not m3u8_url:
+            raise ValueError("Kick video bilgilerine erişilemedi. Tarayıcı oturumu veya güncel yt-dlp gerekebilir.")
+        if r_page.status_code == 200:
+            html = r_page.text
+            title_match = re.search(r'<meta[^>]*property=["\']og:title["\'][^>]*content=["\'](.*?)["\']', html)
+            desc_match = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\'](.*?)["\']', html)
+            thumb_match = re.search(r'<meta[^>]*property=["\']og:image["\'][^>]*content=["\'](.*?)["\']', html)
+
+            if not thumbnail and thumb_match:
+                thumbnail = thumb_match.group(1)
+
+            if not title or title.startswith("Kick VOD"):
+                raw_t = title_match.group(1) if title_match else ""
+                if raw_t.endswith("- Watch the VOD on Kick"):
+                    raw_t = raw_t[:-len("- Watch the VOD on Kick")].strip()
+                desc_t = desc_match.group(1) if desc_match else ""
+                title = desc_t or raw_t or f"Kick VOD {uuid}"
+
+            if not m3u8_url:
+                vod_m3u8s = re.findall(
+                    r'https?://[^\s\"\',\\<>]*(?:stream\.kick\.com|media/hls/master\.m3u8)[^\s\"\',\\<>]*',
+                    html,
+                )
+                if vod_m3u8s:
+                    m3u8_url = vod_m3u8s[0]
+    except Exception:
+        if not m3u8_url:
+            raise
+
+    if not m3u8_url:
+        raise ValueError("Kick video akış adresi (m3u8) bulunamadı.")
+
+    # Extract formats from m3u8 using yt-dlp
+    ydl_opts = {
+        "quiet": True,
+        "http_headers": headers,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(m3u8_url, download=False)
+
+    info_dict = info if isinstance(info, dict) else {}
+    if not duration_sec and info_dict.get("duration"):
+        duration_sec = float(info_dict["duration"])
+
+    from src.utils import extract_available_formats
+
+    available_heights, valid_formats = extract_available_formats(info_dict)
+
+    max_height = max(available_heights) if available_heights else None
+    requested_limit = QUALITY_HEIGHTS.get(requested_quality)
+    selected_height = None
+    if max_height is not None:
+        if requested_limit is None:
+            selected_height = max_height
+        else:
+            selected_height = min(max_height, requested_limit)
+
+    vcodec = str(info_dict.get("vcodec") or "h264")
+    acodec = str(info_dict.get("acodec") or "aac")
+
+    return MediaMetadata(
+        title=title,
+        uploader=channel,
+        source_name="Kick",
+        duration_seconds=duration_sec,
+        duration_text=format_duration(duration_sec),
+        thumbnail_url=thumbnail,
+        webpage_url=url,
+        media_id=uuid,
+        requested_quality=requested_quality,
+        maximum_available_height=max_height,
+        selected_height=selected_height,
+        selected_resolution=f"{selected_height}p" if selected_height else "En iyi",
+        selected_extension="mp3" if ("MP3" in media_type or "Ses" in media_type) else "mp4",
+        video_codec=vcodec,
+        audio_codec=acodec,
+        platform_type=PlatformType.KICK_VIDEO,
+        successful_request_url=m3u8_url,
+        available_heights=available_heights,
+        available_formats=valid_formats,
+    )
 
 
 def _parse_max_height(formats: list[dict[str, Any]]) -> int | None:
@@ -153,7 +290,47 @@ class MetadataWorker(QObject):
             self.story_notice_ready.emit(tiktok_notice)
             self.status.emit(tiktok_notice)
 
+        kick_notice, kick_err = analyze_kick_url(self.url)
+        if kick_err:
+            self.failed.emit(kick_err)
+            self.finished.emit()
+            return
+        if kick_notice:
+            self.story_notice_ready.emit(kick_notice)
+            self.status.emit(kick_notice)
+
         platform = detect_platform_type(self.url)
+        is_kick = platform == PlatformType.KICK_VIDEO or "kick.com" in self.url.lower()
+
+        if is_kick:
+            self.log.emit("Kick VOD bağlantısı algılandı")
+            self.log.emit("Kick metadata isteği başlatıldı")
+            try:
+                meta = _extract_kick_vod(self.url, self.requested_quality, self.media_type)
+                self.log.emit("Kick metadata bilgileri alındı")
+                if not self._cancel_requested:
+                    self.metadata_ready.emit(meta)
+
+                if meta.thumbnail_url and not self._cancel_requested:
+                    try:
+                        request = Request(
+                            meta.thumbnail_url,
+                            headers={"User-Agent": HTTP_USER_AGENT},
+                        )
+                        with urlopen(request, timeout=6) as response:
+                            thumb_bytes = response.read()
+                        if thumb_bytes and not self._cancel_requested:
+                            self.thumbnail_ready.emit(thumb_bytes)
+                    except Exception:  # noqa: BLE001, S110
+                        pass
+                return
+            except Exception as exc:  # noqa: BLE001
+                self.log.emit("Standart bağlantı denemesi başarısız oldu")
+                self.log.emit("Tarayıcı uyumluluk yöntemi deneniyor")
+                err_clean = clean_log_message(str(exc))
+                err_msg = translate_social_error(err_clean, self.url)
+                self.failed.emit(err_msg)
+                return
         is_tiktok = platform in (
             PlatformType.TIKTOK_VIDEO,
             PlatformType.TIKTOK_SHORT_LINK,

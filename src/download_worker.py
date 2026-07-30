@@ -215,7 +215,10 @@ class DownloadWorker(QObject):
             raise yt_dlp.utils.DownloadError("İndirme kullanıcı tarafından iptal edildi.")
         if not getattr(self, "_ffmpeg_logged", False):
             self._ffmpeg_logged = True
-            self.log.emit("FFmpeg işleme başladı.")
+            if "kick.com" in self.request.url.lower():
+                self.log.emit("FFmpeg birleştirme işlemi başladı")
+            else:
+                self.log.emit("FFmpeg işleme başladı.")
         postprocessor_key = str(data.get("postprocessor") or "")
         status = str(data.get("status") or "")
 
@@ -323,6 +326,9 @@ class DownloadWorker(QObject):
                     imp_text = self.request.preferred_impersonation or "Yok"
                     sess_text = b_name_pref or "Oturumsuz"
                     self.log.emit(f"TikTok indirme başlatılıyor (URL Türü: {url_type} | Oturum: {sess_text} | Impersonation: {imp_text})…")
+                elif platform == PlatformType.KICK_VIDEO or "kick.com" in self.request.url.lower():
+                    self.log.emit("Kick indirme işlemi başladı")
+                    self.log.emit("Kick HLS akışı indiriliyor")
 
                 self.status.emit(f"{pref_label} oturumuyla indirme başlatılıyor…" if b_name_pref else "İndirme başlatılıyor…")
                 self.log.emit("yt-dlp işlemi başladı.")
@@ -340,7 +346,10 @@ class DownloadWorker(QObject):
                     if isinstance(result, dict):
                         title = str(result.get("title") or result.get("playlist_title") or result.get("id") or "")
                     self._save_completed_record(platform, result)
-                    self.log.emit("İndirme tamamlandı.")
+                    if platform == PlatformType.KICK_VIDEO or "kick.com" in self.request.url.lower():
+                        self.log.emit("Kick videosu başarıyla indirildi")
+                    else:
+                        self.log.emit("İndirme tamamlandı.")
                     self.succeeded.emit(title or self._last_filename or "İndirme tamamlandı.")
                     succeeded = True
                     return
@@ -496,8 +505,10 @@ class DownloadWorker(QObject):
         if isinstance(result, dict):
             media_id = str(result.get("id") or "")
 
+        platform_str = "kick" if platform == PlatformType.KICK_VIDEO else platform.value
+
         rec = DownloadRecord(
-            platform=platform.value,
+            platform=platform_str,
             media_id=media_id,
             media_type=self.request.media_type,
             requested_quality=self.request.quality,

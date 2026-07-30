@@ -1401,9 +1401,22 @@ class MainWindow(QMainWindow):
             self.analyze_url()
             event.acceptProposedAction()
 
+    def _stop_all_threads(self) -> None:
+        """Kapanışta veya test temizliğinde tüm çalışan arka plan iş parçacıklarını güvenle durdurur."""
+        for attr in ("_history_thread", "_update_thread", "_metadata_thread", "_download_thread"):
+            thread = getattr(self, attr, None)
+            if thread is not None:
+                try:
+                    thread.quit()
+                    thread.wait(3000)
+                except Exception:  # noqa: BLE001, S110
+                    pass
+                setattr(self, attr, None)
+
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._download_thread is None and self._metadata_thread is None:
             self._save_current_settings()
+            self._stop_all_threads()
             event.accept()
             return
 
@@ -1471,6 +1484,12 @@ class MainWindow(QMainWindow):
     def _on_history_validation_finished(self, total_checked: int, stale_count: int) -> None:
         self._append_log(f"{total_checked} kayıt kontrol edildi.")
         self._append_log(f"{stale_count} eksik kayıt stale olarak işaretlendi.")
+        if self._history_thread is not None:
+            try:
+                self._history_thread.quit()
+                self._history_thread.wait(3000)
+            except Exception:  # noqa: BLE001, S110
+                pass
         self._history_thread = None
         self._history_worker = None
         self._try_finish_close()
