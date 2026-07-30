@@ -150,6 +150,9 @@ class DownloadWorker(QObject):
 
         state = data.get("status")
         if state == "downloading":
+            if not getattr(self, "_data_downloading_logged", False):
+                self._data_downloading_logged = True
+                self.log.emit("İndirme verisi alınmaya başladı.")
             downloaded = data.get("downloaded_bytes") or 0
             total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
             percentage = int(downloaded * 100 / total) if total else 0
@@ -210,6 +213,9 @@ class DownloadWorker(QObject):
     def _postprocessor_hook(self, data: dict[str, Any]) -> None:
         if self._cancel_requested:
             raise yt_dlp.utils.DownloadError("İndirme kullanıcı tarafından iptal edildi.")
+        if not getattr(self, "_ffmpeg_logged", False):
+            self._ffmpeg_logged = True
+            self.log.emit("FFmpeg işleme başladı.")
         postprocessor_key = str(data.get("postprocessor") or "")
         status = str(data.get("status") or "")
 
@@ -297,6 +303,9 @@ class DownloadWorker(QObject):
                     preferred_profile=(b_name_pref, p_name_pref) if (b_name_pref and p_name_pref) else None,
                     preferred_impersonation=self.request.preferred_impersonation,
                     successful_request_url=self.request.successful_request_url,
+                    convert_hevc_to_h264=self.request.convert_hevc_to_h264,
+                    job_id=self.job_id,
+                    target_final_path=self.request.target_final_path,
                 )
                 pref_options = build_ydl_options(pref_req)
                 pref_options["logger"] = _YtDlpLogger(self.log)
@@ -316,6 +325,7 @@ class DownloadWorker(QObject):
                     self.log.emit(f"TikTok indirme başlatılıyor (URL Türü: {url_type} | Oturum: {sess_text} | Impersonation: {imp_text})…")
 
                 self.status.emit(f"{pref_label} oturumuyla indirme başlatılıyor…" if b_name_pref else "İndirme başlatılıyor…")
+                self.log.emit("yt-dlp işlemi başladı.")
                 try:
                     with yt_dlp.YoutubeDL(pref_options) as downloader:
                         result = downloader.extract_info(self.request.url, download=True)
@@ -330,6 +340,7 @@ class DownloadWorker(QObject):
                     if isinstance(result, dict):
                         title = str(result.get("title") or result.get("playlist_title") or result.get("id") or "")
                     self._save_completed_record(platform, result)
+                    self.log.emit("İndirme tamamlandı.")
                     self.succeeded.emit(title or self._last_filename or "İndirme tamamlandı.")
                     succeeded = True
                     return
@@ -360,6 +371,7 @@ class DownloadWorker(QObject):
                     successful_request_url=self.request.successful_request_url,
                     convert_hevc_to_h264=self.request.convert_hevc_to_h264,
                     job_id=self.job_id,
+                    target_final_path=self.request.target_final_path,
                 )
 
                 options = build_ydl_options(req_copy)
@@ -454,7 +466,9 @@ class DownloadWorker(QObject):
 
     def _save_completed_record(self, platform: PlatformType, result: Any) -> None:
         target_file: Path | None = None
-        if self._last_filename and Path(self._last_filename).exists():
+        if self.request.target_final_path and self.request.target_final_path.exists():
+            target_file = self.request.target_final_path
+        elif self._last_filename and Path(self._last_filename).exists():
             target_file = Path(self._last_filename)
         elif isinstance(result, dict):
             fn = result.get("_filename") or result.get("filepath")
@@ -468,6 +482,14 @@ class DownloadWorker(QObject):
 
         if not target_file or not target_file.exists():
             return
+
+        if self.request.target_final_path and target_file != self.request.target_final_path:
+            try:
+                if not self.request.target_final_path.exists():
+                    target_file.rename(self.request.target_final_path)
+                    target_file = self.request.target_final_path
+            except OSError:
+                pass
 
         probe = probe_media_codecs(target_file)
         media_id = ""

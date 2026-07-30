@@ -298,9 +298,47 @@ QPushButton#dialogSecondaryButton:pressed {
     background-color: #dce4f0;
 }
 
-QScrollArea {
+QScrollArea#mainScrollArea {
     border: none;
-    background-color: transparent;
+    background-color: #f7f8fa;
+}
+
+QScrollArea#mainScrollArea QWidget#qt_scrollarea_viewport {
+    background-color: #f7f8fa;
+}
+
+QWidget#scrollContent {
+    background-color: #f7f8fa;
+}
+
+QScrollBar:vertical {
+    border: none;
+    background: #f7f8fa;
+    width: 10px;
+    margin: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background: #cbd5e1;
+    min-height: 20px;
+    border-radius: 5px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #94a3b8;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+    background: none;
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    height: 0px;
 }
 
 /* Option Card Ayar Kartı Stilleri */

@@ -18,7 +18,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
-    QComboBox,
     QDialog,
     QFileDialog,
     QFrame,
@@ -84,7 +83,7 @@ from src.utils import (
     probe_media_codecs,
     set_combo_value,
 )
-from src.widgets import OptionCard
+from src.widgets import NoWheelComboBox, OptionCard
 
 
 class MainWindow(QMainWindow):
@@ -164,12 +163,14 @@ class MainWindow(QMainWindow):
         layout.addLayout(header_layout)
 
         scroll_area = QScrollArea()
-        scroll_area.setObjectName("contentScrollArea")
+        scroll_area.setObjectName("mainScrollArea")
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         scroll_content = QWidget()
+        scroll_content.setObjectName("scrollContent")
         content_layout = QVBoxLayout(scroll_content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(10)
@@ -281,13 +282,13 @@ class MainWindow(QMainWindow):
         self.quality_label = QLabel("Video kalitesi:")
         self.browser_label = QLabel("Oturum kullanımı:")
 
-        self.media_combo = QComboBox()
+        self.media_combo = NoWheelComboBox()
         self.media_combo.setObjectName("mediaTypeCombo")
         self.media_combo.addItems(["Video (MP4)", "Ses (MP3)"])
         self.media_combo.currentTextChanged.connect(self._on_media_type_changed)
         configure_combo_box(self.media_combo)
 
-        self.quality_combo = QComboBox()
+        self.quality_combo = NoWheelComboBox()
         self.quality_combo.setObjectName("qualityCombo")
         self.quality_combo.addItems([
             "En iyi kullanılabilir kalite",
@@ -298,7 +299,7 @@ class MainWindow(QMainWindow):
         self.quality_combo.currentTextChanged.connect(self._on_quality_changed)
         configure_combo_box(self.quality_combo)
 
-        self.browser_combo = QComboBox()
+        self.browser_combo = NoWheelComboBox()
         self.browser_combo.setObjectName("browserCombo")
         self.browser_combo.addItem("Otomatik oturum", "auto")
         self.browser_combo.addItem("Oturum kullanma", None)
@@ -957,7 +958,7 @@ class MainWindow(QMainWindow):
                 self,
                 [("yes", "Devam Et", True), ("no", "İptal", False)],
             )
-            if dlg.exec() != QDialog.DialogCode.Accepted or dlg.clicked_button_id == "yes":
+            if dlg.exec() != QDialog.DialogCode.Accepted or dlg.clicked_button_id != "yes":
                 return
 
         download_url = url
@@ -975,6 +976,9 @@ class MainWindow(QMainWindow):
         clean_title = sanitize_filename(raw_title)
         initial_target_path = output_dir / f"{clean_title}.{ext}"
 
+        self._append_log("İndirme isteği oluşturuldu.")
+        self._append_log(f"Hedef klasör doğrulandı: {output_dir}")
+
         if self._current_metadata and self._current_metadata.is_playlist and playlist:
             # Playlist: yt-dlp manages its own file naming per item
             target_override: Path | None = None
@@ -986,7 +990,7 @@ class MainWindow(QMainWindow):
         if target_override and target_override != initial_target_path:
             self._append_log(f"Çakışma önlendi, otomatik benzersiz dosya adı oluşturuldu: {target_override.name}")
         elif target_override:
-            self._append_log(f"Hedef dosya yolu belirlendi: {target_override.name}")
+            self._append_log(f"Hedef dosya adı belirlendi: {target_override.name}")
         else:
             self._append_log("Oynatma listesi modu: dosya adları yt-dlp tarafından belirleniyor.")
 
@@ -1011,7 +1015,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         self.status_label.setText("İndirme başlatılıyor…")
         self.stats_label.setText("")
-        self._append_log(f"İndirme isteği gönderildi: {url}")
+        self._append_log("İndirme worker’ı başlatıldı.")
         self._download_succeeded_result = None
         self._download_succeeded_path = ""
 
@@ -1145,6 +1149,14 @@ class MainWindow(QMainWindow):
                             break
                     self.settings["convert_hevc_to_h264"] = adv.is_convert_hevc_enabled()
                     save_settings(self.settings)
+            return
+
+        AppMessageDialog(
+            "İndirme Başarısız",
+            f"İndirme işlemi tamamlanamadı:\n\n{error_msg}",
+            "error",
+            self,
+        ).exec()
 
     def _prompt_install_firefox(self) -> None:
         """Kullanıcı onayından sonra Windows Terminal'de Firefox kurulum komutunu başlatır."""

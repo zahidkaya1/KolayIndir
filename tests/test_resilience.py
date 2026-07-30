@@ -680,7 +680,8 @@ def test_reset_after_successful_download(tmp_path, monkeypatch):
     assert win.media_combo.currentText() == "Video (MP4)"
 
 
-def test_error_preserves_url_and_preview(tmp_path, monkeypatch):
+@patch.object(AppMessageDialog, "exec")
+def test_error_preserves_url_and_preview(mock_dialog_exec, tmp_path, monkeypatch):
     settings_file = tmp_path / "settings.json"
     monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
 

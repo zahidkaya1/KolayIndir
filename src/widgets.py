@@ -1,17 +1,31 @@
 """Özel arayüz widget bileşenleri."""
 
-from __future__ import annotations
+from typing import Any
 
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QVBoxLayout,
     QWidget,
 )
+
+
+class NoWheelComboBox(QComboBox):
+    """
+    Kullanıcı fare tekerleğini kaydırdığında ComboBox açılır listesi kapalıysa
+    seçili değeri değiştirmeyen, tekerlek olayını üst container'a (QScrollArea) devreden ComboBox.
+    """
+
+    def wheelEvent(self, event: Any) -> None:
+        if self.view().isVisible():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
 
 
 class OptionCard(QFrame):

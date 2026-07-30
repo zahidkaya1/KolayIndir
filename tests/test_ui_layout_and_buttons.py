@@ -642,3 +642,70 @@ class TestHistoryMultipleDownloadsSameMediaId:
         assert next_path.name == "Video (1).mp4"
 
 
+class TestNoWheelComboBoxAndScrollArea:
+    def test_no_wheel_combobox_ignores_wheel_when_popup_hidden(self, qapp):
+        from PySide6.QtCore import QPoint, QPointF, Qt
+        from PySide6.QtGui import QWheelEvent
+
+        from src.widgets import NoWheelComboBox
+
+        combo = NoWheelComboBox()
+        combo.addItems(["Seçenek 1", "Seçenek 2", "Seçenek 3"])
+        combo.setCurrentIndex(0)
+
+        # Wheel event oluştur (scroll down)
+        wheel_ev = QWheelEvent(
+            QPointF(10, 10),
+            QPointF(10, 10),
+            QPoint(0, 0),
+            QPoint(0, -120),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+
+        combo.wheelEvent(wheel_ev)
+
+        # Açılır menü kapalıyken indeks değişmemeli ve event.isAccepted() False kalmalı (ignore edilmiş olmalı)
+        assert combo.currentIndex() == 0
+        assert not wheel_ev.isAccepted()
+
+    def test_main_scroll_area_object_names_and_policies(self, qapp):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QScrollArea, QWidget
+
+        from src.main_window import MainWindow
+
+        win = MainWindow()
+        scroll_area = win.findChild(QScrollArea, "mainScrollArea")
+        assert scroll_area is not None
+        assert scroll_area.widgetResizable()
+        assert scroll_area.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        assert scroll_area.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+
+        scroll_content = win.findChild(QWidget, "scrollContent")
+        assert scroll_content is not None
+        win.close()
+
+    def test_download_options_target_final_path_outtmpl(self, tmp_path):
+        from src.download_options import build_ydl_options
+        from src.models import DownloadRequest
+
+        target_file = tmp_path / "Video (1).mp4"
+        req = DownloadRequest(
+            url="https://www.youtube.com/watch?v=69y8UEYbp4Q",
+            output_dir=tmp_path,
+            media_type="Video (MP4)",
+            quality="720p'ye kadar",
+            playlist=False,
+            target_final_path=target_file,
+        )
+
+        opts = build_ydl_options(req)
+        assert opts["outtmpl"] == str(tmp_path / "Video (1).%(ext)s")
+        assert opts["overwrites"] is True
+        assert opts["continuedl"] is False
+
+
+

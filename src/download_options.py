@@ -112,9 +112,7 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
     )
 
     if request.target_final_path:
-        outtmpl_str = str(request.target_final_path)
-        # Stem-only without extension; yt-dlp will append the real ext after postprocessing.
-        # Using the full target path here ensures the unique name is honoured.
+        outtmpl_str = str(request.target_final_path.with_suffix("")) + ".%(ext)s"
     elif is_tiktok:
         outtmpl_str = str(request.output_dir / "TikTok - %(uploader,uploader_id,channel|TikTok_Kullanicisi)s - %(title,id)s [%(id)s].%(ext)s")
     elif request.playlist:
