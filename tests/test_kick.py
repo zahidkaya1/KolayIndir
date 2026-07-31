@@ -745,12 +745,14 @@ class TestKickDownloadCancellationAndCleanup:
         from src.download_worker import DownloadWorker
         from src.models import DownloadRequest
 
+        target_file = tmp_path / "Test Kick.mp4"
         req = DownloadRequest(
             url="https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189",
             output_dir=tmp_path,
             media_type="Video (MP4)",
             quality="720p'ye kadar",
             playlist=False,
+            target_final_path=target_file,
         )
         worker = DownloadWorker(req)
 
@@ -780,14 +782,31 @@ class TestKickDownloadCancellationAndCleanup:
         worker.cancelled.connect(on_cancelled)
         worker.failed.connect(on_failed)
 
+        def mock_extract(url, download=True):
+            temp_ts = tmp_path / f".kolayindir_{worker.job_id}_kick.ts"
+            temp_ts.write_text("ts content" * 100, encoding="utf-8")
+            return {"title": "Test Kick"}
+
+        def mock_ffmpeg(cmd, **kwargs):
+            target_file.write_text("mp4 content" * 100, encoding="utf-8")
+            m = MagicMock()
+            m.returncode = 0
+            m.wait.return_value = 0
+            m.stdout = None
+            return m
+
         with patch.object(
             worker, "_resolve_kick_playback_url", return_value="https://example.com/stream.m3u8"
-        ), patch("yt_dlp.YoutubeDL") as mock_ydl, patch.object(
+        ), patch("yt_dlp.YoutubeDL") as mock_ydl, patch(
+            "subprocess.Popen", side_effect=mock_ffmpeg
+        ), patch(
+            "src.utils.probe_media_codecs", return_value={"video_codec": "h264", "audio_codec": "aac", "duration": 100.0, "height": 720}
+        ), patch.object(
             worker, "_save_completed_record"
         ), patch.object(
             worker, "_handle_post_download_transcode"
         ):
-            mock_ydl.return_value.__enter__.return_value.extract_info.return_value = {"title": "Test Kick"}
+            mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = mock_extract
             worker.run()
 
         assert succeeded_count == 1
@@ -943,3 +962,328 @@ class TestPlaybackErrorReasonPreservation:
 
         assert m3u8 is None
         assert reason == "missing_playback_url"
+
+
+# ---------------------------------------------------------------------------
+# Manifest Önleme ve Sıkı Doğrulama Testleri
+# ---------------------------------------------------------------------------
+
+class TestKickManifestPreventionAndValidation:
+    def test_validate_final_download_rejects_manifest_stem(self, tmp_path):
+        from src.utils import validate_final_download
+
+        manifest_file = tmp_path / "manifest.mp4"
+        manifest_file.write_text("x" * 2000, encoding="utf-8")
+
+        valid, reason = validate_final_download(manifest_file, is_audio_mode=False)
+        assert valid is False
+        assert "Geçersiz dosya adı" in reason
+
+    def test_validate_final_download_rejects_temp_ts_extension(self, tmp_path):
+        from src.utils import validate_final_download
+
+        ts_file = tmp_path / "video.ts"
+        ts_file.write_text("x" * 2000, encoding="utf-8")
+
+        valid, reason = validate_final_download(ts_file, is_audio_mode=False)
+        assert valid is False
+        assert "Beklenen dosya uzantısı" in reason or "Geçici dosya" in reason
+
+    def test_validate_final_download_rejects_duration_zero(self, tmp_path):
+        from src.utils import validate_final_download
+
+        mp4_file = tmp_path / "test.mp4"
+        mp4_file.write_text("x" * 2000, encoding="utf-8")
+
+        with patch("src.utils.probe_media_codecs", return_value={"video_codec": "h264", "audio_codec": "aac", "duration": 0.0}):
+            valid, reason = validate_final_download(mp4_file, is_audio_mode=False)
+
+        assert valid is False
+        assert "Medya süresi 0 saniye" in reason
+
+    def test_validate_final_download_rejects_missing_video_codec(self, tmp_path):
+        from src.utils import validate_final_download
+
+        mp4_file = tmp_path / "test.mp4"
+        mp4_file.write_text("x" * 2000, encoding="utf-8")
+
+        with patch("src.utils.probe_media_codecs", return_value={"video_codec": "none", "audio_codec": "aac", "duration": 10.0}):
+            valid, reason = validate_final_download(mp4_file, is_audio_mode=False)
+
+        assert valid is False
+        assert "Video akışı (video stream) bulunamadı" in reason
+
+    def test_validate_final_download_rejects_missing_audio_codec(self, tmp_path):
+        from src.utils import validate_final_download
+
+        mp4_file = tmp_path / "test.mp4"
+        mp4_file.write_text("x" * 2000, encoding="utf-8")
+
+        with patch("src.utils.probe_media_codecs", return_value={"video_codec": "h264", "audio_codec": "none", "duration": 10.0}):
+            valid, reason = validate_final_download(mp4_file, is_audio_mode=False)
+
+        assert valid is False
+        assert "Ses akışı (audio stream) bulunamadı" in reason
+
+    def test_validate_final_download_accepts_valid_mp4(self, tmp_path):
+        from src.utils import validate_final_download
+
+        mp4_file = tmp_path / "valid_video.mp4"
+        mp4_file.write_text("x" * 2000, encoding="utf-8")
+
+        with patch("src.utils.probe_media_codecs", return_value={"video_codec": "h264", "audio_codec": "aac", "duration": 120.5}):
+            valid, reason = validate_final_download(mp4_file, is_audio_mode=False)
+
+        assert valid is True
+        assert reason == "Doğrulama başarılı."
+
+    def test_succeeded_signal_emits_real_mp4_path_even_if_extractor_title_is_manifest(self, tmp_path):
+        from pathlib import Path
+
+        from src.download_worker import DownloadWorker
+        from src.models import DownloadRequest
+
+        target_file = tmp_path / "Güvenli Kick Video Başlığı.mp4"
+        temp_ts = tmp_path / ".kolayindir_testjob_kick.ts"
+        temp_ts.write_text("temp ts data" * 100, encoding="utf-8")
+
+        req = DownloadRequest(
+            url="https://kick.com/konsoloyun/videos/019faef9-eeb8-755e-a9b3-fb974cc7769e",
+            output_dir=tmp_path,
+            media_type="Video (MP4)",
+            quality="720p'ye kadar",
+            playlist=False,
+            target_final_path=target_file,
+            job_id="testjob",
+        )
+        worker = DownloadWorker(req)
+        worker._kick_m3u8 = "https://example.com/manifest.m3u8"
+
+        emitted_path = ""
+
+        def on_succeeded(path_str: str):
+            nonlocal emitted_path
+            emitted_path = path_str
+
+        worker.succeeded.connect(on_succeeded)
+
+        def mock_ffmpeg_run(cmd, **kwargs):
+            # Target file yaz
+            target_file.write_text("valid mp4 content" * 100, encoding="utf-8")
+            mock_proc = MagicMock()
+            mock_proc.returncode = 0
+            mock_proc.wait.return_value = 0
+            return mock_proc
+
+        with patch("yt_dlp.YoutubeDL") as mock_ydl, \
+             patch("subprocess.Popen", side_effect=mock_ffmpeg_run), \
+             patch("src.utils.probe_media_codecs", return_value={"video_codec": "h264", "audio_codec": "aac", "duration": 300.0, "height": 720}), \
+             patch.object(worker, "_save_completed_record") as mock_save_rec:
+
+            mock_ydl.return_value.__enter__.return_value.extract_info.return_value = {"title": "manifest", "id": "manifest"}
+            worker._run_kick_download(req.url)
+
+        assert emitted_path == str(target_file.resolve())
+        assert "manifest" not in Path(emitted_path).name
+        assert mock_save_rec.called
+
+    def test_history_record_sanitizes_manifest_media_id(self, tmp_path):
+        from src.download_worker import DownloadWorker
+        from src.models import DownloadRequest, PlatformType
+
+        target_file = tmp_path / "Kick Video.mp4"
+        target_file.write_text("valid video content" * 100, encoding="utf-8")
+
+        req = DownloadRequest(
+            url="https://kick.com/konsoloyun/videos/019faef9-eeb8-755e-a9b3-fb974cc7769e",
+            output_dir=tmp_path,
+            media_type="Video (MP4)",
+            quality="720p'ye kadar",
+            playlist=False,
+            target_final_path=target_file,
+        )
+        worker = DownloadWorker(req)
+
+        with patch("src.download_worker.save_record") as mock_save, \
+             patch("src.utils.probe_media_codecs", return_value={"video_codec": "h264", "audio_codec": "aac", "height": 720}):
+            worker._save_completed_record(PlatformType.KICK_VIDEO, {"id": "manifest"}, override_target_file=target_file)
+
+        assert mock_save.called
+        saved_rec = mock_save.call_args[0][0]
+        assert saved_rec.media_id == "019faef9-eeb8-755e-a9b3-fb974cc7769e"
+        assert saved_rec.final_path == str(target_file.resolve())
+
+    def test_download_completed_dialog_sanitizes_manifest_display(self):
+        from src.dialogs import DownloadCompletedDialog
+
+        dlg = DownloadCompletedDialog(
+            result_summary="manifest",
+            filepath="C:\\Downloads\\manifest",
+            video_codec="h264",
+            audio_codec="aac",
+            resolution="720p",
+            filesize_text="10 MB",
+        )
+        label_text = dlg.message_label.text()
+        assert "Tamamlanan: manifest" not in label_text
+        assert "Dosya: manifest" not in label_text
+        assert "Kick Videosu" in label_text
+
+
+# ---------------------------------------------------------------------------
+# Progress Hook, Safe UI Text ve Stall Watchdog Testleri
+# ---------------------------------------------------------------------------
+
+class TestKickProgressAndStallWatchdog:
+    def test_progress_percent_priority(self, tmp_path):
+        from src.download_worker import DownloadWorker
+        from src.models import DownloadRequest
+
+        req = DownloadRequest(
+            url="https://kick.com/konsoloyun/videos/019faef9-eeb8-755e-a9b3-fb974cc7769e",
+            output_dir=tmp_path,
+            media_type="Video (MP4)",
+            quality="720p'ye kadar",
+            playlist=False,
+        )
+        worker = DownloadWorker(req)
+
+        emitted_pcts = []
+        emitted_details = []
+
+        worker.progress.connect(lambda p: emitted_pcts.append(p))
+        worker.progress_details.connect(lambda d: emitted_details.append(d))
+
+        # 1. total_bytes ile yüzde
+        worker._progress_hook({
+            "status": "downloading",
+            "downloaded_bytes": 50,
+            "total_bytes": 100,
+            "speed": 1000,
+            "eta": 5,
+        })
+        assert emitted_pcts[-1] == 50
+
+        # 2. total_bytes_estimate ile yüzde
+        worker._progress_hook({
+            "status": "downloading",
+            "downloaded_bytes": 30,
+            "total_bytes": 0,
+            "total_bytes_estimate": 100,
+            "speed": None,
+            "eta": None,
+        })
+        assert emitted_pcts[-1] == 30
+        assert emitted_details[-1]["speed"] == "Hız hesaplanıyor…"
+        assert emitted_details[-1]["eta"] == "Kalan süre hesaplanıyor…"
+
+        # 3. fragment_index/fragment_count ile yüzde
+        worker._progress_hook({
+            "status": "downloading",
+            "downloaded_bytes": 1000,
+            "total_bytes": 0,
+            "total_bytes_estimate": 0,
+            "fragment_index": 25,
+            "fragment_count": 100,
+            "speed": None,
+            "eta": None,
+        })
+        assert emitted_pcts[-1] == 25
+
+    def test_watchdog_resets_on_activity(self, tmp_path):
+        import time
+
+        from src.download_worker import DownloadWorker
+        from src.models import DownloadRequest
+
+        req = DownloadRequest(
+            url="https://kick.com/konsoloyun/videos/019faef9-eeb8-755e-a9b3-fb974cc7769e",
+            output_dir=tmp_path,
+            media_type="Video (MP4)",
+            quality="720p'ye kadar",
+            playlist=False,
+        )
+        worker = DownloadWorker(req)
+        worker._last_activity_time = time.time() - 25.0  # 25 saniye geçmiş
+
+        # Aktivite gerçekleşti: downloaded_bytes arttı
+        worker._progress_hook({
+            "status": "downloading",
+            "downloaded_bytes": 500,
+            "fragment_index": 1,
+            "fragment_count": 10,
+        })
+
+        # last_activity_time sıfırlanmış olmalı (güncel zaman)
+        assert time.time() - worker._last_activity_time < 2.0
+
+    def test_watchdog_raises_stall_timeout_after_30s_inactivity(self, tmp_path):
+        import time
+
+        import yt_dlp
+
+        from src.download_worker import DownloadWorker
+        from src.models import DownloadRequest
+
+        req = DownloadRequest(
+            url="https://kick.com/konsoloyun/videos/019faef9-eeb8-755e-a9b3-fb974cc7769e",
+            output_dir=tmp_path,
+            media_type="Video (MP4)",
+            quality="720p'ye kadar",
+            playlist=False,
+        )
+        worker = DownloadWorker(req)
+        worker._last_activity_time = time.time() - 31.0  # 31 saniye hareketsiz
+        worker._last_downloaded_bytes = 500
+        worker._last_fragment_index = 5
+
+        # Aktivite yok (aynı downloaded_bytes ve fragment_index)
+        with pytest.raises(yt_dlp.utils.DownloadError) as exc_info:
+            worker._progress_hook({
+                "status": "downloading",
+                "downloaded_bytes": 500,
+                "fragment_index": 5,
+                "fragment_count": 10,
+            })
+
+        assert "STALL_TIMEOUT" in str(exc_info.value)
+
+    def test_single_retry_on_stall_and_fail_on_second_stall(self, tmp_path):
+        import yt_dlp
+
+        from src.download_worker import DownloadWorker
+        from src.models import DownloadRequest
+
+        req = DownloadRequest(
+            url="https://kick.com/konsoloyun/videos/019faef9-eeb8-755e-a9b3-fb974cc7769e",
+            output_dir=tmp_path,
+            media_type="Video (MP4)",
+            quality="720p'ye kadar",
+            playlist=False,
+        )
+        worker = DownloadWorker(req)
+        worker._kick_m3u8 = "https://example.com/stream.m3u8"
+
+        failed_msg = ""
+        worker.failed.connect(lambda err: nonlocal_failed(err))
+
+        def nonlocal_failed(err):
+            nonlocal failed_msg
+            failed_msg = err
+
+        extract_calls = 0
+
+        def mock_extract(url, download=True):
+            nonlocal extract_calls
+            extract_calls += 1
+            raise yt_dlp.utils.DownloadError("STALL_TIMEOUT: Kick indirmesi sırasında veri akışı durdu.")
+
+        with patch("yt_dlp.YoutubeDL") as mock_ydl, \
+             patch.object(worker, "_resolve_kick_playback_url", return_value="https://example.com/fresh.m3u8") as mock_resolve:
+            mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = mock_extract
+            worker._run_kick_download(req.url)
+
+        # 1 ana deneme + 1 retry = 2 indirme denemesi yapılmalı
+        assert extract_calls == 2
+        assert mock_resolve.call_count == 1
+        assert "Kick indirmesi sırasında veri akışı durdu." in failed_msg

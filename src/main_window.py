@@ -980,6 +980,9 @@ class MainWindow(QMainWindow):
         ext = "mp3" if ("MP3" in media_type or "Ses" in media_type) else "mp4"
         raw_title = self._current_metadata.title if (self._current_metadata and self._current_metadata.title) else "Video"
         clean_title = sanitize_filename(raw_title)
+        if clean_title.lower() in {"manifest", "master", "playlist", "index", "chunklist", ""}:
+            clean_title = "Kick Videosu" if (platform_now == PlatformType.KICK_VIDEO or "kick.com" in url.lower()) else "Video"
+
         initial_target_path = output_dir / f"{clean_title}.{ext}"
 
         self._append_log("İndirme isteği oluşturuldu.")
@@ -1066,8 +1069,16 @@ class MainWindow(QMainWindow):
         phase = details.get("phase", "downloading")
         downloaded = details.get("downloaded_bytes") or 0
         total = details.get("total_bytes") or 0
-        speed = details.get("speed", "—")
-        eta = details.get("eta", "—")
+        speed = details.get("speed") or "Hız hesaplanıyor…"
+        eta = details.get("eta") or "Kalan süre hesaplanıyor…"
+        frag_idx = details.get("fragment_index")
+        frag_cnt = details.get("fragment_count")
+        pct = details.get("percent", 0)
+
+        if phase == "merging_video_audio":
+            self.status_label.setText(f"Video MP4 olarak hazırlanıyor: %{pct}" if pct > 0 else "Video ve ses birleştiriliyor…")
+            self.stats_label.setText("Hız: Dosya işleniyor • Kalan: Hesaplanıyor")
+            return
 
         is_tiktok = (
             self._current_metadata is not None
@@ -1079,26 +1090,48 @@ class MainWindow(QMainWindow):
                 PlatformType.TIKTOK_SLIDESHOW,
             )
         )
+        is_kick = (
+            self._current_metadata is not None
+            and self._current_metadata.platform_type == PlatformType.KICK_VIDEO
+        )
 
-        phase_texts = {
-            "downloading": "TikTok videosu indiriliyor" if is_tiktok else "İndiriliyor",
-            "video_downloading": "TikTok videosu indiriliyor" if is_tiktok else "Video indiriliyor",
-            "audio_downloading": "TikTok sesi indiriliyor" if is_tiktok else "Ses indiriliyor",
-            "merging_video_audio": "Video ve ses birleştiriliyor",
-            "preparing_mp3": "MP3 dosyası hazırlanıyor",
-            "finished": "Dosya hazırlanıyor",
-        }
-        header_text = phase_texts.get(phase, "İndiriliyor")
+        if is_kick:
+            if frag_cnt and frag_idx:
+                header_text = f"HLS parçaları indiriliyor… (Parça {frag_idx} / {frag_cnt})"
+            elif downloaded > 0:
+                header_text = f"HLS parçaları indiriliyor… ({format_bytes(downloaded)} indirildi)"
+            else:
+                header_text = "HLS parçaları indiriliyor…"
+        else:
+            phase_texts = {
+                "downloading": "TikTok videosu indiriliyor" if is_tiktok else "İndiriliyor",
+                "video_downloading": "TikTok videosu indiriliyor" if is_tiktok else "Video indiriliyor",
+                "audio_downloading": "TikTok sesi indiriliyor" if is_tiktok else "Ses indiriliyor",
+                "merging_video_audio": "Video ve ses birleştiriliyor",
+                "preparing_mp3": "MP3 dosyası hazırlanıyor",
+                "finished": "Dosya hazırlanıyor",
+            }
+            header_text = phase_texts.get(phase, "İndiriliyor")
+
         self.status_label.setText(header_text)
 
         if total > 0:
             dl_str = format_bytes(downloaded)
             tot_str = format_bytes(total)
             self.stats_label.setText(f"{dl_str} / {tot_str} • Hız: {speed} • Kalan: {eta}")
+        elif frag_cnt and frag_idx:
+            dl_str = format_bytes(downloaded) if downloaded > 0 else ""
+            size_part = f" • {dl_str}" if dl_str else ""
+            self.stats_label.setText(f"Parça {frag_idx} / {frag_cnt}{size_part} • Hız: {speed} • Kalan: {eta}")
+        elif downloaded > 0:
+            dl_str = format_bytes(downloaded)
+            self.stats_label.setText(f"{dl_str} indirildi • Hız: {speed} • Kalan: {eta}")
         else:
             self.stats_label.setText(f"Hız: {speed} • Kalan: {eta}")
 
     def _on_download_succeeded(self, filename: str) -> None:
+        if filename.lower() in {"manifest", "master", "playlist", "index", "chunklist"}:
+            filename = "Kick Videosu.mp4"
         self._download_succeeded_result = filename
         if os.path.isabs(filename):
             self._download_succeeded_path = filename

@@ -19,3 +19,4 @@ settings.local.json
 *.log
 downloads/
 scratch/
+scratch_downloads/

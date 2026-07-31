@@ -57,7 +57,11 @@ class DownloadCompletedDialog(QDialog):
 
         msg_parts = []
         if result_summary:
-            msg_parts.append(f"Tamamlanan: {result_summary}")
+            import os
+            clean_res = Path(result_summary).stem if os.path.isabs(result_summary) else result_summary
+            if clean_res.lower() in {"manifest", "master", "playlist", "index", "chunklist"}:
+                clean_res = Path(filepath).stem if (filepath and Path(filepath).stem.lower() not in {"manifest", "master", "playlist", "index", "chunklist"}) else "Kick Videosu"
+            msg_parts.append(f"Tamamlanan: {clean_res}")
 
         info_parts = []
         if video_codec:
@@ -75,7 +79,9 @@ class DownloadCompletedDialog(QDialog):
         if filesize_text:
             info_parts.append(f"• Boyut: {filesize_text}")
         if self.filepath:
-            info_parts.append(f"• Dosya: {Path(self.filepath).name}")
+            fn = Path(self.filepath).name
+            if fn.lower() not in {"manifest", "master", "playlist", "index", "chunklist"}:
+                info_parts.append(f"• Dosya: {fn}")
 
         if info_parts:
             msg_parts.append("\n".join(info_parts))

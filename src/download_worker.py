@@ -35,6 +35,7 @@ from src.utils import (
     clean_log_message,
     is_hevc_codec,
     probe_media_codecs,
+    validate_final_download,
 )
 
 
@@ -153,17 +154,60 @@ class DownloadWorker(QObject):
             if not getattr(self, "_data_downloading_logged", False):
                 self._data_downloading_logged = True
                 self.log.emit("İndirme verisi alınmaya başladı.")
-            downloaded = data.get("downloaded_bytes") or 0
-            total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
-            percentage = int(downloaded * 100 / total) if total else 0
-            self.progress.emit(max(0, min(percentage, 100)))
 
-            eta = data.get("eta")
-            eta_text = f"{eta} sn" if isinstance(eta, int) else "—"
-            speed_str = _human_speed(data.get("speed"))
-            self.status.emit(
-                f"İndiriliyor: %{percentage} • Hız: {speed_str} • Kalan: {eta_text}"
-            )
+            downloaded = data.get("downloaded_bytes") or 0
+            total_bytes = data.get("total_bytes") or 0
+            total_estimate = data.get("total_bytes_estimate") or 0
+            frag_idx = data.get("fragment_index")
+            frag_cnt = data.get("fragment_count")
+
+            # Yüzde hesaplama önceliği:
+            # 1. total_bytes 2. total_bytes_estimate 3. fragment_index / fragment_count
+            percentage = 0
+            if total_bytes > 0:
+                percentage = int(downloaded * 100 / total_bytes)
+            elif total_estimate > 0:
+                percentage = int(downloaded * 100 / total_estimate)
+            elif frag_cnt and frag_idx and frag_cnt > 0:
+                percentage = int(frag_idx * 100 / frag_cnt)
+
+            percentage = max(0, min(percentage, 100))
+            self.progress.emit(percentage)
+
+            raw_speed = data.get("speed")
+            speed_str = _human_speed(raw_speed) if raw_speed else "Hız hesaplanıyor…"
+
+            raw_eta = data.get("eta")
+            if isinstance(raw_eta, (int, float)) and raw_eta > 0:
+                eta_text = f"{int(raw_eta)} sn"
+            else:
+                eta_text = "Kalan süre hesaplanıyor…"
+
+            # Watchdog için aktivite takibi (downloaded_bytes, fragment_index veya geçici dosya boyutu)
+            now = time.time()
+            curr_file_size = 0
+            target_p = Path(filepath or filename or tmpfilename)
+            if target_p.exists() and target_p.is_file():
+                try:
+                    curr_file_size = target_p.stat().st_size
+                except OSError:
+                    pass
+
+            last_dl = getattr(self, "_last_downloaded_bytes", 0)
+            last_frag = getattr(self, "_last_fragment_index", 0)
+            last_size = getattr(self, "_last_file_size", 0)
+
+            if downloaded > last_dl or (frag_idx and frag_idx > last_frag) or curr_file_size > last_size:
+                self._last_activity_time = now
+                self._last_downloaded_bytes = downloaded
+                if frag_idx:
+                    self._last_fragment_index = frag_idx
+                if curr_file_size > 0:
+                    self._last_file_size = curr_file_size
+
+            # Stall denetimi (30 saniye boyunca sıfır aktivite)
+            if getattr(self, "_last_activity_time", None) and (now - self._last_activity_time > 30.0):
+                raise yt_dlp.utils.DownloadError("STALL_TIMEOUT: Kick indirmesi sırasında veri akışı durdu.")
 
             if filename:
                 self._last_filename = filename
@@ -179,18 +223,27 @@ class DownloadWorker(QObject):
             else:
                 phase = "downloading"
 
+            effective_total = total_bytes or total_estimate
+
             self.progress_details.emit({
                 "phase": phase,
-                "percent": max(0, min(percentage, 100)),
+                "percent": percentage,
                 "downloaded_bytes": downloaded,
-                "total_bytes": total,
+                "total_bytes": effective_total,
                 "speed": speed_str,
                 "eta": eta_text,
                 "filename": filename or self._last_filename,
                 "format_id": str(data.get("format_id") or ""),
-                "fragment_index": data.get("fragment_index"),
-                "fragment_count": data.get("fragment_count"),
+                "fragment_index": frag_idx,
+                "fragment_count": frag_cnt,
             })
+
+            # Status mesajını zenginleştir
+            if frag_cnt and frag_idx:
+                status_msg = f"HLS parçaları indiriliyor… (Parça {frag_idx} / {frag_cnt}) • Hız: {speed_str} • Kalan: {eta_text}"
+            else:
+                status_msg = f"İndiriliyor: %{percentage} • Hız: {speed_str} • Kalan: {eta_text}"
+            self.status.emit(status_msg)
 
         elif state == "finished":
             if filename:
@@ -304,29 +357,49 @@ class DownloadWorker(QObject):
     def _run_kick_download(self, platform: PlatformType) -> None:
         """
         Kick VOD için özel indirme akışı.
-        - Signed m3u8 üzerinden yt-dlp ile indirir.
+        - Signed m3u8 üzerinden yt-dlp ile geçici .ts / .part dosyasına indirir.
         - 403 alırsa URL'yi bir kez yeniler, tekrar dener.
-        - Signed URL history/settings içine kaydedilmez.
+        - FFmpeg ile target_final_path (.mp4 / .mp3) dosyasına remux veya dönüştürme yapar.
+        - FFprobe (validate_final_download) ile video ve ses akışlarını doğrular.
+        - Yalnız doğrulama başarılı ise succeeded sinyalinde gerçek final MP4 dosya yolunu gönderir.
         """
         from yt_dlp.networking.impersonate import ImpersonateTarget
 
-        succeeded = False
+        from src.history import get_unique_filepath, sanitize_filename
+        from src.utils import validate_final_download
+
+        is_audio = "MP3" in self.request.media_type or "Ses" in self.request.media_type
+        ext = "mp3" if is_audio else "mp4"
+
+        # 1. Target Final Path Belirleme (İndirmeden önce sabitlenir)
+        target_final_path = self.request.target_final_path
+        if not target_final_path or target_final_path.stem.lower() in {"manifest", "master", "playlist", "index", "chunklist", ""}:
+            default_title = "Kick Videosu"
+            clean_title = sanitize_filename(default_title)
+            target_final_path = get_unique_filepath(self.request.output_dir / f"{clean_title}.{ext}")
+
+        self.log.emit("Kick indirme işlemi başladı")
+        self.status.emit("Kick oynatma bağlantısı alınıyor…")
+        self.request.output_dir.mkdir(parents=True, exist_ok=True)
+
+        m3u8_url = self._kick_m3u8
+        retry_count = 0
+        max_retries = 1
         last_error: Exception | str | None = None
+        result: Any = None
 
-        def _build_kick_opts(m3u8_url: str) -> dict[str, Any]:
+        # İşe özel geçici medya dosyası (örn: .kolayindir_<job_id>_kick.ts)
+        temp_base = self.request.output_dir / f".kolayindir_{self.job_id}_kick"
+        temp_ts_path = temp_base.with_suffix(".ts")
+
+        def _build_kick_opts(current_m3u8: str) -> dict[str, Any]:
             from src.download_options import parse_quality_height
-
-            outtmpl_path = (
-                str(self.request.target_final_path.with_suffix("")) + ".%(ext)s"
-                if self.request.target_final_path
-                else str(self.request.output_dir / "Kick Videosu.%(ext)s")
-            )
 
             opts: dict[str, Any] = {
                 "quiet": True,
                 "no_warnings": False,
-                "outtmpl": outtmpl_path,
-                "merge_output_format": "mp4",
+                "outtmpl": str(temp_base) + ".%(ext)s",
+                "merge_output_format": None if is_audio else "ts",
                 "concurrent_fragment_downloads": 4,
                 "retries": 3,
                 "fragment_retries": 3,
@@ -334,10 +407,9 @@ class DownloadWorker(QObject):
                 "socket_timeout": 10,
                 "windowsfilenames": True,
                 "trim_file_name": 180,
-                "overwrites": bool(self.request.target_final_path),
-                "continuedl": not bool(self.request.target_final_path),
+                "overwrites": True,
+                "continuedl": False,
                 "ignoreerrors": False,
-
                 "http_headers": {
                     "Referer": "https://kick.com/",
                     "Origin": "https://kick.com",
@@ -345,28 +417,18 @@ class DownloadWorker(QObject):
                 "logger": _YtDlpLogger(self.log),
                 "progress_hooks": [self._progress_hook],
                 "postprocessor_hooks": [self._postprocessor_hook],
-                # Kick segmentleri uzantısız olduğundan FFmpeg HLS downloader yerine yt-dlp native HLS downloader tercih et
                 "hls_prefer_native": True,
                 "hls_use_mpegts": True,
             }
 
-
-            # Impersonation: m3u8 segmentleri için chrome impersonation
             try:
                 imp_target = ImpersonateTarget.from_str("chrome")
                 opts["impersonate"] = imp_target
             except Exception:  # noqa: BLE001, S110
                 pass
 
-            # Kalite filtresi
-            if "MP3" in self.request.media_type or "Ses" in self.request.media_type:
+            if is_audio:
                 opts["format"] = "bestaudio/best"
-                opts["postprocessors"] = [{
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }]
-                opts.pop("merge_output_format", None)
             else:
                 height = parse_quality_height(self.request.quality)
                 if height:
@@ -376,17 +438,17 @@ class DownloadWorker(QObject):
 
             return opts
 
-        self.log.emit("Kick indirme işlemi başladı")
-        self.status.emit("Kick HLS akışı indiriliyor…")
-        self.request.output_dir.mkdir(parents=True, exist_ok=True)
+        self.status.emit("Video kalitesi hazırlanıyor…")
 
-        m3u8_url = self._kick_m3u8
-        retry_done = False
-
-        while True:
+        while retry_count <= max_retries:
             if self._cancel_requested:
                 self.cancelled.emit()
                 return
+
+            self._last_activity_time = time.time()
+            self._last_downloaded_bytes = 0
+            self._last_fragment_index = 0
+            self._last_file_size = 0
 
             opts = _build_kick_opts(m3u8_url)  # type: ignore[arg-type]
             try:
@@ -397,20 +459,7 @@ class DownloadWorker(QObject):
                     self.cancelled.emit()
                     return
 
-                self._handle_post_download_transcode(result)
-                if self._cancel_requested:
-                    self.cancelled.emit()
-                    return
-
-                title = ""
-                if isinstance(result, dict):
-                    title = str(result.get("title") or result.get("id") or "")
-
-                self._save_completed_record(platform, result)
-                self.log.emit("Kick videosu başarıyla indirildi")
-                self.succeeded.emit(title or self._last_filename or "İndirme tamamlandı.")
-                succeeded = True
-                return
+                break
 
             except (DownloadCancelled, Exception) as exc:  # noqa: BLE001
                 if self._cancel_requested or isinstance(exc, DownloadCancelled):
@@ -418,26 +467,224 @@ class DownloadWorker(QObject):
                     return
 
                 err_str = str(exc)
-                # 403 alındıysa ve henüz retry yapılmadıysa URL'yi yenile
-                if "403" in err_str and not retry_done:
-                    self.log.emit("Kick erişim hatası (403), oynatma bağlantısı yenileniyor…")
+                is_stall = "STALL_TIMEOUT" in err_str or "veri akışı durdu" in err_str.lower()
+                is_403 = "403" in err_str
+
+                if (is_403 or is_stall) and retry_count < max_retries:
+                    retry_count += 1
+                    reason_msg = "bağlantı zaman aşımı" if is_stall else "403 erişim hatası"
+                    self.log.emit(f"Kick indirme aksaması ({reason_msg}), oynatma bağlantısı yenileniyor (Deneme {retry_count}/{max_retries})…")
                     self.status.emit("Kick oynatma bağlantısı yenileniyor…")
                     fresh_url = self._resolve_kick_playback_url(self.request.url)
                     if fresh_url:
                         m3u8_url = fresh_url
-                        retry_done = True
-                        continue  # bir kez daha dene
+                        continue
                     else:
-                        self.failed.emit("Kick video akışına erişim reddedildi. Erişim bağlantısı yenilenemedi.")
+                        self.failed.emit("Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin.")
                         return
+
+                if is_stall:
+                    self.failed.emit("Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin.")
+                    return
 
                 last_error = exc
                 break
 
-        if not succeeded:
-            err_msg = str(last_error) if last_error else "Kick indirme başarısız."
+        if self._cancel_requested:
+            self.cancelled.emit()
+            return
+
+        if not result and last_error:
+            err_msg = str(last_error)
             err_msg = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", err_msg)
             self.failed.emit(err_msg)
+            return
+
+        # 2. İndirilen geçici parçayı tespit et
+        downloaded_temp_file: Path | None = None
+        for cand in (
+            temp_ts_path,
+            temp_base.with_suffix(".mp4"),
+            temp_base.with_suffix(".m4a"),
+            temp_base.with_suffix(""),
+        ):
+            if cand.exists() and cand.is_file() and cand.stat().st_size > 0:
+                downloaded_temp_file = cand
+                break
+
+        if not downloaded_temp_file and self.request.output_dir.exists():
+            for p in self.request.output_dir.glob(f".kolayindir_{self.job_id}_kick*"):
+                if p.is_file() and p.stat().st_size > 0 and not p.name.endswith(".part"):
+                    downloaded_temp_file = p
+                    break
+
+        if not downloaded_temp_file:
+            self.failed.emit("Kick HLS segmentleri indirilemedi veya geçici medya dosyası bulunamadı.")
+            return
+
+        self._track_file(downloaded_temp_file)
+
+        # 3. FFmpeg Remux (veya MP3 dönüştürme) İşlemi - Non-blocking Pipe Streaming
+        self.status.emit("Video dosyası birleştiriliyor…")
+        self.log.emit("FFmpeg birleştirme/remux işlemi başladı")
+
+        probe_temp = probe_media_codecs(downloaded_temp_file)
+        duration_sec = float(probe_temp.get("duration") or 0.0)
+
+        if is_audio:
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(downloaded_temp_file),
+                "-vn",
+                "-c:a",
+                "libmp3lame",
+                "-b:a",
+                "192k",
+                str(target_final_path),
+            ]
+        else:
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(downloaded_temp_file),
+                "-map",
+                "0",
+                "-c",
+                "copy",
+                "-bsf:a",
+                "aac_adtstoasc",
+                str(target_final_path),
+            ]
+
+        self._track_file(target_final_path)
+
+        def _run_ffmpeg_cmd(cmd_args: list[str]) -> int:
+            full_cmd = [cmd_args[0], "-y", "-progress", "pipe:1", "-nostats"] + cmd_args[2:]
+            proc = subprocess.Popen(
+                full_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            self._active_process = proc
+
+            time_pattern = re.compile(r"out_time_ms=(\d+)")
+            last_pipe_activity = time.time()
+
+            while True:
+                if self._cancel_requested:
+                    proc.kill()
+                    return -1
+
+                line_raw = proc.stdout.readline() if proc.stdout else ""
+                if not line_raw or not isinstance(line_raw, str):
+                    if proc.poll() is not None or not isinstance(line_raw, str):
+                        break
+                    time.sleep(0.05)
+                    if time.time() - last_pipe_activity > 30.0:
+                        proc.kill()
+                        return -2
+                    continue
+
+                line = line_raw
+                last_pipe_activity = time.time()
+                m = time_pattern.search(line)
+                if m and duration_sec > 0:
+                    curr_ms = float(m.group(1))
+                    curr_sec = curr_ms / 1_000_000.0
+                    pct = min(99, max(0, int((curr_sec / duration_sec) * 100)))
+                    self.progress.emit(pct)
+                    self.status.emit(f"Video MP4 olarak hazırlanıyor: %{pct}")
+                    self.progress_details.emit({
+                        "phase": "merging_video_audio",
+                        "percent": pct,
+                        "downloaded_bytes": 0,
+                        "total_bytes": 0,
+                        "speed": "Dosya işleniyor",
+                        "eta": "Hesaplanıyor",
+                        "filename": target_final_path.name,
+                        "format_id": "",
+                        "fragment_index": None,
+                        "fragment_count": None,
+                    })
+
+            proc.wait()
+            self._active_process = None
+            return proc.returncode
+
+        ret = _run_ffmpeg_cmd(cmd)
+
+        if ret == -2:
+            self.failed.emit("Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin.")
+            return
+
+        # Remux başarısızsa safe fallback: Re-encode (Kapsayıcı uyumsuzluğu için)
+        if (ret != 0 or not target_final_path.exists() or target_final_path.stat().st_size < 1024) and not is_audio:
+            self.log.emit("Remux işlemi başarısız veya uyumsuz, güvenli re-encode fallback uygulanıyor…")
+            cmd_fallback = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(downloaded_temp_file),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "22",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                str(target_final_path),
+            ]
+            ret_fallback = _run_ffmpeg_cmd(cmd_fallback)
+            if ret_fallback == -2:
+                self.failed.emit("Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin.")
+                return
+
+        if self._cancel_requested:
+            self.cancelled.emit()
+            return
+
+        # 4. Sıkı FFprobe Doğrulaması
+        self.status.emit("MP4 doğrulanıyor…")
+        valid, val_reason = validate_final_download(target_final_path, is_audio_mode=is_audio)
+        if not valid:
+            self.log.emit(f"Hata: Final Kick dosyası doğrulamadan geçemedi: {val_reason}")
+            if target_final_path.exists():
+                try:
+                    target_final_path.unlink()
+                except OSError:
+                    pass
+            self.failed.emit(f"Kick indirme doğrulaması başarısız: {val_reason}")
+            return
+
+        # HEVC dönüştürme kontrolü
+        self._handle_post_download_transcode(result)
+        if self._cancel_requested:
+            self.cancelled.emit()
+            return
+
+        # Transcode sonrası 2. doğrulama
+        valid, val_reason = validate_final_download(target_final_path, is_audio_mode=is_audio)
+        if not valid:
+            self.failed.emit(f"Kick indirme doğrulaması başarısız: {val_reason}")
+            return
+
+        # 5. Başarılı Tamamlama
+        self._save_completed_record(platform, result, override_target_file=target_final_path)
+        self.log.emit("Kick videosu başarıyla indirildi")
+        final_abs_path = str(target_final_path.resolve())
+        self.succeeded.emit(final_abs_path)
+
 
     @Slot()
     def run(self) -> None:
@@ -679,16 +926,17 @@ class DownloadWorker(QObject):
                     self.status.emit("İndirme iptal edildi ancak bazı geçici dosyalar silinemedi.")
             self.finished.emit()
 
-    def _save_completed_record(self, platform: PlatformType, result: Any) -> None:
-        target_file: Path | None = None
-        if self.request.target_final_path and self.request.target_final_path.exists():
-            target_file = self.request.target_final_path
-        elif self._last_filename and Path(self._last_filename).exists():
-            target_file = Path(self._last_filename)
-        elif isinstance(result, dict):
-            fn = result.get("_filename") or result.get("filepath")
-            if fn and Path(fn).exists():
-                target_file = Path(fn)
+    def _save_completed_record(self, platform: PlatformType, result: Any, override_target_file: Path | None = None) -> None:
+        target_file: Path | None = override_target_file
+        if not target_file or not target_file.exists():
+            if self.request.target_final_path and self.request.target_final_path.exists():
+                target_file = self.request.target_final_path
+            elif self._last_filename and Path(self._last_filename).exists():
+                target_file = Path(self._last_filename)
+            elif isinstance(result, dict):
+                fn = result.get("_filename") or result.get("filepath")
+                if fn and Path(fn).exists():
+                    target_file = Path(fn)
 
         if not target_file and self.request.output_dir.exists():
             files = [f for f in self.request.output_dir.glob("*") if f.is_file() and not f.name.endswith((".part", ".ytdl", ".temp"))]
@@ -710,6 +958,11 @@ class DownloadWorker(QObject):
         media_id = ""
         if isinstance(result, dict):
             media_id = str(result.get("id") or "")
+
+        if media_id.lower() in ("manifest", "index", "master", "playlist", "chunklist", ""):
+            match = re.search(r"videos/([a-f0-9\-]{8,})", self.request.url, re.IGNORECASE)
+            if match:
+                media_id = match.group(1)
 
         platform_str = "kick" if platform == PlatformType.KICK_VIDEO else platform.value
 
@@ -780,12 +1033,18 @@ class DownloadWorker(QObject):
             except OSError:
                 pass
 
+            if not is_cancel and self.request.target_final_path and path_obj.resolve() == self.request.target_final_path.resolve():
+                valid, _ = validate_final_download(path_obj, is_audio_mode=("MP3" in self.request.media_type or "Ses" in self.request.media_type))
+                if valid:
+                    continue
+
             name_lower = path_obj.name.lower()
             is_temp_ext = (
                 name_lower.endswith(temp_suffixes)
                 or ".f" in name_lower
                 or ".frag" in name_lower
                 or name_lower.startswith(".kolayindir_")
+                or name_lower in ("manifest", "index", "master", "playlist", "chunklist")
             )
 
             if is_temp_ext or is_cancel:

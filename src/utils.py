@@ -225,6 +225,68 @@ def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
         }
 
 
+INVALID_FINAL_NAMES = {"manifest", "master", "playlist", "index", "chunklist"}
+TEMP_FILE_SUFFIXES = (".part", ".ytdl", ".ts", ".temp", ".frag", ".urls", ".m3u8")
+
+
+def validate_final_download(file_path: str | Path, is_audio_mode: bool = False) -> tuple[bool, str]:
+    """
+    Final indirilen medya dosyasını doğrular.
+    - Dosya mevcut, normal bir dosya olmalı.
+    - Dosya adı 'manifest', 'index', 'master', 'playlist', 'chunklist' olmamalı.
+    - Dosya uzantısı geçici uzantılar (.part, .ytdl, .ts vb.) veya uzantısız olmamalı.
+    - Uzantı beklenen mp4/mp3 uzantısına sahip olmalı.
+    - Dosya boyutu 0'dan büyük ve anlamlı olmalı (> 1 KB).
+    - ffprobe duration > 0 olmalı.
+    - MP4 modunda hem video hem ses codec'i mevcut olmalı. MP3 modunda ses codec'i mevcut olmalı.
+    """
+    if not file_path:
+        return False, "Dosya yolu boş veya geçersiz."
+
+    path = Path(file_path)
+    if not path.exists():
+        return False, f"Dosya mevcut değil: {path.name}"
+    if not path.is_file():
+        return False, f"Yol bir dosya değil: {path.name}"
+
+    name_lower = path.name.lower()
+    stem_lower = path.stem.lower()
+
+    if stem_lower in INVALID_FINAL_NAMES or name_lower in INVALID_FINAL_NAMES:
+        return False, f"Geçersiz dosya adı ({path.name}). 'manifest/index/master' final çıktı olamaz."
+
+    if name_lower.startswith(".kolayindir_") or any(name_lower.endswith(sfx) for sfx in TEMP_FILE_SUFFIXES):
+        return False, f"Geçici dosya uzantısı final çıktı olamaz: {path.name}"
+
+    expected_ext = ".mp3" if is_audio_mode else ".mp4"
+    if path.suffix.lower() != expected_ext:
+        return False, f"Beklenen dosya uzantısı '{expected_ext}' ancak '{path.suffix}' bulundu."
+
+    file_size = path.stat().st_size
+    if file_size < 1024:
+        return False, f"Dosya boyutu yetersiz ({file_size} bayt)."
+
+    probe = probe_media_codecs(path)
+    duration = float(probe.get("duration") or 0.0)
+    if duration <= 0.0:
+        return False, "ffprobe doğrulaması başarısız: Medya süresi 0 saniye."
+
+    v_codec = str(probe.get("video_codec") or "none").lower()
+    a_codec = str(probe.get("audio_codec") or "none").lower()
+
+    if is_audio_mode:
+        if a_codec in ("none", "unknown"):
+            return False, "ffprobe doğrulaması başarısız: Ses akışı (audio stream) bulunamadı."
+    else:
+        if v_codec in ("none", "unknown"):
+            return False, "ffprobe doğrulaması başarısız: Video akışı (video stream) bulunamadı."
+        if a_codec in ("none", "unknown"):
+            return False, "ffprobe doğrulaması başarısız: Ses akışı (audio stream) bulunamadı."
+
+    return True, "Doğrulama başarılı."
+
+
+
 def extract_available_formats(info: dict[str, Any]) -> tuple[list[int], list[dict[str, Any]]]:
     """
     yt-dlp extract_info sözlüğünden mevcut çözünürlük yüksekliklerini (int)
