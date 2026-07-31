@@ -526,6 +526,7 @@ class MainWindow(QMainWindow):
             browser=self.browser_combo.currentData(),
             preferred_browser=self._preferred_browser,
             preferred_profile=self._preferred_profile,
+            settings=dict(self.settings),
         )
         worker.moveToThread(thread)
 
@@ -962,7 +963,12 @@ class MainWindow(QMainWindow):
                 return
 
         download_url = url
-        if self._current_metadata and self._current_metadata.successful_request_url:
+        platform_now = detect_platform_type(url)
+        if platform_now == PlatformType.KICK_VIDEO or "kick.com" in url.lower():
+            # Kick VOD: DownloadWorker indirme başında playback URL'yi yeniden alacak.
+            # Signed m3u8 saklamıyoruz; her zaman orijinal kick.com URL'sini kullan.
+            download_url = url
+        elif self._current_metadata and self._current_metadata.successful_request_url:
             download_url = self._current_metadata.successful_request_url
         elif self._current_metadata and self._current_metadata.webpage_url and detect_platform_type(self._current_metadata.webpage_url) != PlatformType.UNKNOWN:
             download_url = self._current_metadata.webpage_url

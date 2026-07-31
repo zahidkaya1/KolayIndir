@@ -115,11 +115,15 @@ def translate_social_error(exc_or_msg: Exception | str, url: str) -> str:
         if any(term in msg_lower for term in ("geçersiz", "invalid")):
             return "Geçersiz Kick video bağlantısı veya UUID."
         if "403" in msg_lower or "forbidden" in msg_lower or "access denied" in msg_lower:
-            if any(term in msg_lower for term in ("hls", "stream", "akış", "playlist")):
-                return "Kick video akışına erişim reddedildi."
-            return "Kick video bilgilerine erişilemedi. Tarayıcı oturumu veya güncel yt-dlp gerekebilir."
-        if any(term in msg_lower for term in ("not found", "deleted", "404", "video unavailable", "does not exist")):
-            return "Bu Kick videosu artık mevcut olmayabilir."
+            return "Kick erişim isteğini reddetti. Tarayıcı uyumluluk yöntemi denenemedi veya yeterli olmadı."
+        if any(term in msg_lower for term in ("404", "not found", "json metadata", "v1/video", "yeni yapıyı desteklemiyor")):
+            return (
+                "Kick desteği geçici olarak kullanılamıyor\n\n"
+                "Kick, VOD bağlantı sistemini yakın zamanda değiştirdi. Kullanılan yt-dlp sürümü henüz bu yeni yapıyı desteklemiyor.\n\n"
+                "Kolayİndir ve yt-dlp güncellendiğinde tekrar deneyin."
+            )
+        if "m3u8 bulunamadı" in msg_lower or "no formats" in msg_lower or "oynatma url" in msg_lower:
+            return "Kick video akış adresi (m3u8) bulunamadı."
         if any(term in msg_lower for term in ("subscriber", "login required", "sign in", "auth", "private")):
             return "Bu video giriş veya abonelik gerektiriyor olabilir."
 

@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+.venv-kick-test/
 venv/
 build/
 dist/
@@ -17,3 +18,4 @@ cookies.txt
 settings.local.json
 *.log
 downloads/
+scratch/

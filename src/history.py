@@ -348,11 +348,76 @@ def find_completed_record(
     return found, reason
 
 
-def sanitize_filename(filename: str) -> str:
-    """Windows dosya adları için geçersiz karakterleri temizler."""
+_WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "COM1",
+    "COM2",
+    "COM3",
+    "COM4",
+    "COM5",
+    "COM6",
+    "COM7",
+    "COM8",
+    "COM9",
+    "LPT1",
+    "LPT2",
+    "LPT3",
+    "LPT4",
+    "LPT5",
+    "LPT6",
+    "LPT7",
+    "LPT8",
+    "LPT9",
+}
+
+
+def sanitize_filename(
+    title: str,
+    max_length: int = 180,
+    default_name: str = "Video",
+) -> str:
+    """
+    Windows dosya adları için geçersiz karakterleri, kontrol karakterlerini (\\n, \\r, \\t),
+    ayrılmış sistem isimlerini ve uzunluk sınırlarını güvenli biçimde temizler.
+    """
     import re
-    cleaned = re.sub(r'[\\/:*?"<>|]', "_", filename).strip()
-    return cleaned or "Video"
+
+    if not title:
+        return default_name
+
+    # 1. Control characters (\r, \n, \t, \x00-\x1f, \x7f-\x9f) -> space
+    cleaned = re.sub(r"[\r\n\t\x00-\x1f\x7f-\x9f]", " ", str(title))
+
+    # 2. Windows invalid filename characters (< > : " / \ | ? *) -> space
+    cleaned = re.sub(r'[<>"/:\\|?*]', " ", cleaned)
+
+    # 3. Multiple spaces -> single space
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    # 4. Consecutive hyphens and underscores -> single
+    cleaned = re.sub(r"-{2,}", "-", cleaned)
+    cleaned = re.sub(r"_{2,}", "_", cleaned)
+
+    # 5. Strip leading/trailing dots and spaces
+    cleaned = cleaned.strip(". ")
+
+    # 6. Fallback if empty
+    if not cleaned:
+        cleaned = default_name
+
+    # 7. Windows reserved names check
+    stem_upper = cleaned.split(".")[0].upper()
+    if stem_upper in _WINDOWS_RESERVED_NAMES:
+        cleaned = f"{cleaned}_file"
+
+    # 8. Truncate to max_length safely
+    if len(cleaned) > max_length:
+        cleaned = cleaned[:max_length].rstrip(". ")
+
+    return cleaned or default_name
 
 
 def _is_temp_or_fragment_file(path: Path) -> bool:
@@ -361,6 +426,7 @@ def _is_temp_or_fragment_file(path: Path) -> bool:
     Bu dosyalar benzersiz isim hesabında tamamlanmış sayılmaz.
     """
     import re
+
     name = path.name.lower()
     temp_suffixes = (".part", ".temp", ".ytdl", ".hevc_temp")
     # yt-dlp fragment dosyaları: video.f137.mp4, audio.f140.m4a
@@ -380,23 +446,36 @@ def get_unique_filepath(target_path: Path) -> Path:
 
     Yalnızca tamamlanmış dosyalar numaralandırmayı tetikler.
     .part, .temp, .ytdl, .hevc_temp ve .f137.mp4 tarzı geçici dosyalar yok sayılır.
-    """
-    if not target_path.exists():
-        return target_path
 
+    Ayrıca tam yolun Windows sınırına (~230 karakter) yaklaşmaması için dosya adını güvenli şekilde kısaltır.
+    """
     directory = target_path.parent
     original_stem = target_path.stem
     suffix = target_path.suffix
 
     import re
+
+    # Windows MAX_PATH koruması:
+    # 230 karakter limit, dizin uzunluğu, suffix (.mp4) ve potansiyel (999) + .ytdl ekleri için pay
+    try:
+        dir_len = len(str(directory.resolve()))
+    except Exception:  # noqa: BLE001
+        dir_len = len(str(directory))
+
+    # Pay: \ (1) + (999) (6) + suffix (5) + .ytdl (5) + güvenlik (10) = ~27 karakter
+    max_stem_len = max(30, 230 - dir_len - 27)
+
     match = re.match(r"^(.*?)\s*\((\d+)\)$", original_stem)
     if match:
         base_stem = match.group(1).strip()
     else:
         base_stem = original_stem
 
-    if len(base_stem) > 180:
-        base_stem = base_stem[:180].rstrip()
+    base_stem = sanitize_filename(base_stem, max_length=max_stem_len)
+
+    candidate = directory / f"{base_stem}{suffix}"
+    if not candidate.exists() or _is_temp_or_fragment_file(candidate):
+        return candidate
 
     counter = 1
     while True:

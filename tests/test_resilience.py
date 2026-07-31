@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QComboBox
 
@@ -384,6 +385,7 @@ def test_dialogs_max_width_constraints():
     assert dlg3.maximumWidth() <= 600
 
 
+@pytest.mark.qt_integration
 @patch("src.main_window.check_environment")
 def test_download_worker_log_signal_and_main_window_connections(
     mock_check_env, tmp_path, monkeypatch
@@ -419,6 +421,9 @@ def test_download_worker_log_signal_and_main_window_connections(
     settings_file = tmp_path / "settings.json"
     monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
     monkeypatch.setattr(MainWindow, "_start_history_validation", lambda self: None)
+    monkeypatch.setattr(MainWindow, "check_for_updates", lambda self: None)
+    monkeypatch.setattr(MainWindow, "check_and_clean_leftover_jobs", lambda self: None)
+    monkeypatch.setattr("src.main_window.check_environment", lambda: {"ffmpeg": True, "ytdlp": True})
 
     from unittest.mock import MagicMock, patch
 
@@ -447,6 +452,7 @@ def test_download_worker_log_signal_and_main_window_connections(
             assert hasattr(win._download_worker, "log") is True
             assert mock_thread.start.called is True
     finally:
+        win._download_thread = None
         win._stop_all_threads()
         win.close()
         QApplication.processEvents()

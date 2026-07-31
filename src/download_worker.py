@@ -253,8 +253,196 @@ class DownloadWorker(QObject):
             "fragment_count": None,
         })
 
+    def _resolve_kick_playback_url(self, url: str, retry: bool = False) -> str | None:
+        """
+        Kick VOD için güncel imzalı m3u8 adresini playback endpoint'ten alır.
+        İndirme başında ve 403 sonrası bir kez yenileme için çağrılır.
+        Signed URL history/settings içine kaydedilmez.
+        """
+        import re as _re
+
+        match = _re.search(r"kick\.com/([^/]+)/videos/([a-f0-9\-]{8,})", url, _re.IGNORECASE)
+        if not match:
+            return None
+        uuid = match.group(2)
+        try:
+            from curl_cffi import requests as cffi_requests
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://kick.com/",
+                "Origin": "https://kick.com",
+                "Content-Type": "application/json",
+            }
+            for attempt in range(2):
+                try:
+                    r = cffi_requests.post(
+                        f"https://web.kick.com/api/v1/stream/{uuid}/playback",
+                        impersonate="chrome120",
+                        headers=headers,
+                        json={
+                            "video_player": {"player": {}},
+                            "video_session": {},
+                            "user_session": {"non_personalised_ads": True},
+                        },
+                        timeout=15,
+                    )
+                    if r.status_code != 200:
+                        return None
+                    data = r.json()
+                    playback_urls = data.get("playback_url") or {}
+                    m3u8 = playback_urls.get("vod") or playback_urls.get("live")
+                    return m3u8 or None
+                except Exception:  # noqa: BLE001
+                    if attempt == 0:
+                        continue
+                    return None
+            return None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _run_kick_download(self, platform: PlatformType) -> None:
+        """
+        Kick VOD için özel indirme akışı.
+        - Signed m3u8 üzerinden yt-dlp ile indirir.
+        - 403 alırsa URL'yi bir kez yeniler, tekrar dener.
+        - Signed URL history/settings içine kaydedilmez.
+        """
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+
+        succeeded = False
+        last_error: Exception | str | None = None
+
+        def _build_kick_opts(m3u8_url: str) -> dict[str, Any]:
+            from src.download_options import parse_quality_height
+
+            outtmpl_path = (
+                str(self.request.target_final_path.with_suffix("")) + ".%(ext)s"
+                if self.request.target_final_path
+                else str(self.request.output_dir / "Kick Videosu.%(ext)s")
+            )
+
+            opts: dict[str, Any] = {
+                "quiet": True,
+                "no_warnings": False,
+                "outtmpl": outtmpl_path,
+                "merge_output_format": "mp4",
+                "concurrent_fragment_downloads": 4,
+                "retries": 3,
+                "fragment_retries": 3,
+                "retry_sleep": 1,
+                "socket_timeout": 10,
+                "windowsfilenames": True,
+                "trim_file_name": 180,
+                "overwrites": bool(self.request.target_final_path),
+                "continuedl": not bool(self.request.target_final_path),
+                "ignoreerrors": False,
+
+                "http_headers": {
+                    "Referer": "https://kick.com/",
+                    "Origin": "https://kick.com",
+                },
+                "logger": _YtDlpLogger(self.log),
+                "progress_hooks": [self._progress_hook],
+                "postprocessor_hooks": [self._postprocessor_hook],
+                # Kick segmentleri uzantısız olduğundan FFmpeg HLS downloader yerine yt-dlp native HLS downloader tercih et
+                "hls_prefer_native": True,
+                "hls_use_mpegts": True,
+            }
+
+
+            # Impersonation: m3u8 segmentleri için chrome impersonation
+            try:
+                imp_target = ImpersonateTarget.from_str("chrome")
+                opts["impersonate"] = imp_target
+            except Exception:  # noqa: BLE001, S110
+                pass
+
+            # Kalite filtresi
+            if "MP3" in self.request.media_type or "Ses" in self.request.media_type:
+                opts["format"] = "bestaudio/best"
+                opts["postprocessors"] = [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }]
+                opts.pop("merge_output_format", None)
+            else:
+                height = parse_quality_height(self.request.quality)
+                if height:
+                    opts["format"] = f"bv*[height<={height}]+ba/b[height<={height}]/b"
+                else:
+                    opts["format"] = "bv*+ba/b"
+
+            return opts
+
+        self.log.emit("Kick indirme işlemi başladı")
+        self.status.emit("Kick HLS akışı indiriliyor…")
+        self.request.output_dir.mkdir(parents=True, exist_ok=True)
+
+        m3u8_url = self._kick_m3u8
+        retry_done = False
+
+        while True:
+            if self._cancel_requested:
+                self.cancelled.emit()
+                return
+
+            opts = _build_kick_opts(m3u8_url)  # type: ignore[arg-type]
+            try:
+                with yt_dlp.YoutubeDL(opts) as downloader:
+                    result = downloader.extract_info(m3u8_url, download=True)
+
+                if self._cancel_requested:
+                    self.cancelled.emit()
+                    return
+
+                self._handle_post_download_transcode(result)
+                if self._cancel_requested:
+                    self.cancelled.emit()
+                    return
+
+                title = ""
+                if isinstance(result, dict):
+                    title = str(result.get("title") or result.get("id") or "")
+
+                self._save_completed_record(platform, result)
+                self.log.emit("Kick videosu başarıyla indirildi")
+                self.succeeded.emit(title or self._last_filename or "İndirme tamamlandı.")
+                succeeded = True
+                return
+
+            except (DownloadCancelled, Exception) as exc:  # noqa: BLE001
+                if self._cancel_requested or isinstance(exc, DownloadCancelled):
+                    self.cancelled.emit()
+                    return
+
+                err_str = str(exc)
+                # 403 alındıysa ve henüz retry yapılmadıysa URL'yi yenile
+                if "403" in err_str and not retry_done:
+                    self.log.emit("Kick erişim hatası (403), oynatma bağlantısı yenileniyor…")
+                    self.status.emit("Kick oynatma bağlantısı yenileniyor…")
+                    fresh_url = self._resolve_kick_playback_url(self.request.url)
+                    if fresh_url:
+                        m3u8_url = fresh_url
+                        retry_done = True
+                        continue  # bir kez daha dene
+                    else:
+                        self.failed.emit("Kick video akışına erişim reddedildi. Erişim bağlantısı yenilenemedi.")
+                        return
+
+                last_error = exc
+                break
+
+        if not succeeded:
+            err_msg = str(last_error) if last_error else "Kick indirme başarısız."
+            err_msg = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", err_msg)
+            self.failed.emit(err_msg)
+
     @Slot()
     def run(self) -> None:
+
+
         last_error: Exception | str | None = None
         succeeded: bool = False
 
@@ -264,6 +452,24 @@ class DownloadWorker(QObject):
                 return
 
             platform = detect_platform_type(self.request.url)
+
+            # --- Kick VOD: İndirme başlamadan güncel playback URL'sini al ---
+            if platform == PlatformType.KICK_VIDEO or "kick.com" in self.request.url.lower():
+                kick_m3u8 = self._resolve_kick_playback_url(self.request.url)
+                if kick_m3u8:
+                    self.log.emit("Kick oynatma bağlantısı alındı")
+                    # DownloadRequest frozen, self._kick_m3u8 üzerinden kullan
+                    self._kick_m3u8 = kick_m3u8
+                else:
+                    self._kick_m3u8 = None
+            else:
+                self._kick_m3u8 = None
+
+            # --- Kick VOD: özel indirme akışı ---
+            if (platform == PlatformType.KICK_VIDEO or "kick.com" in self.request.url.lower()) and self._kick_m3u8:
+                self._run_kick_download(platform)
+                return
+
             requested_browser = self.request.browser or "auto"
             attempt_order = build_profile_attempt_order(platform, requested_browser)
 
@@ -524,6 +730,9 @@ class DownloadWorker(QObject):
         save_record(rec)
 
     def _cleanup_job_files(self, is_cancel: bool) -> bool:
+        import gc
+        gc.collect()
+
         if self._active_process:
             try:
                 self._active_process.terminate()
@@ -537,20 +746,24 @@ class DownloadWorker(QObject):
         all_clean = True
         candidates: set[Path] = set(self._created_files)
 
+        if self.request.target_final_path:
+            try:
+                candidates.add(self.request.target_final_path.resolve())
+                p_str = str(self.request.target_final_path)
+                candidates.add(Path(p_str + ".part").resolve())
+                candidates.add(Path(p_str + ".ytdl").resolve())
+            except Exception:  # noqa: BLE001, S110
+                pass
+
         if self.request.output_dir.exists():
             for p in self.request.output_dir.glob("*"):
-                name = p.name.lower()
-                if (
-                    name.endswith((".part", ".ytdl", ".temp", ".hevc_temp.mp4"))
-                    or ".f" in name
-                    or name.startswith(".kolayindir_")
-                ):
+                if p.is_file():
                     try:
                         candidates.add(p.resolve())
                     except Exception:  # noqa: BLE001, S110
                         pass
 
-        temp_suffixes = (".part", ".ytdl", ".temp", ".hevc_temp.mp4")
+        temp_suffixes = (".part", ".ytdl", ".temp", ".hevc_temp.mp4", ".ts", ".frag", ".urls")
 
         for path_obj in candidates:
             if not path_obj.exists() or not path_obj.is_file():
@@ -568,22 +781,36 @@ class DownloadWorker(QObject):
                 pass
 
             name_lower = path_obj.name.lower()
-            is_temp_ext = name_lower.endswith(temp_suffixes) or ".f" in name_lower or name_lower.startswith(".kolayindir_")
+            is_temp_ext = (
+                name_lower.endswith(temp_suffixes)
+                or ".f" in name_lower
+                or ".frag" in name_lower
+                or name_lower.startswith(".kolayindir_")
+            )
 
-            if is_temp_ext:
-                try:
-                    path_obj.unlink()
-                except OSError:
+            if is_temp_ext or is_cancel:
+                if not self._safe_unlink(path_obj):
                     all_clean = False
-            elif is_cancel or not self._last_filename:
+            elif not self._last_filename:
                 probe = probe_media_codecs(path_obj)
-                if probe.get("duration", 0.0) <= 0.0:
-                    try:
-                        path_obj.unlink()
-                    except OSError:
-                        all_clean = False
+                if probe.get("duration", 0.0) <= 0.0 and not self._safe_unlink(path_obj):
+                    all_clean = False
 
         return all_clean
+
+    def _safe_unlink(self, path_obj: Path, retries: int = 15, delay: float = 0.1) -> bool:
+        import gc
+        for attempt in range(retries):
+            try:
+                if not path_obj.exists():
+                    return True
+                path_obj.unlink()
+                return True
+            except OSError:
+                gc.collect()
+                if attempt < retries - 1:
+                    time.sleep(delay)
+        return False
 
     def _handle_post_download_transcode(self, result: Any) -> None:
         if self._cancel_requested or self.request.media_type == "Ses (MP3)":

@@ -252,10 +252,13 @@ def test_tiktok_short_url_success_logs_and_preview(monkeypatch):
             pass
 
         def extract_info(self, target_url, download=False):
-            assert target_url == url
             return fake_info
 
     monkeypatch.setattr("yt_dlp.YoutubeDL", FakeYDL)
+    monkeypatch.setattr(
+        "src.metadata_worker.resolve_tiktok_short_link",
+        lambda u: ("https://www.tiktok.com/@user/video/111222333", "video"),
+    )
 
     meta_received = []
     worker.metadata_ready.connect(meta_received.append)

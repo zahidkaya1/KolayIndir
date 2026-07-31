@@ -5,3 +5,6 @@ markers = [
     "live: marks tests as live internet network tests (deselect with '-m \"not live\"')",
     "qt_integration: marks tests as real Qt thread integration tests (deselect with '-m \"not qt_integration\"')",
 ]
+
+[tool.ruff]
+exclude = ["scratch/", ".venv/", ".venv-kick-test/"]

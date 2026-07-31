@@ -126,13 +126,48 @@ class TestIsTempOrFragmentFile:
 
 class TestSanitizeFilename:
     def test_removes_invalid_chars(self):
-        assert sanitize_filename('video: "title" <ok>') == "video_ _title_ _ok_"
+        assert sanitize_filename('video: "title" <ok>') == "video title ok"
 
     def test_empty_fallback(self):
         assert sanitize_filename("") == "Video"
+        assert sanitize_filename("", default_name="Kick Videosu") == "Kick Videosu"
 
     def test_normal_title_unchanged(self):
         assert sanitize_filename("My Video 2024") == "My Video 2024"
+
+    def test_newlines_and_control_chars_cleared(self):
+        assert (
+            sanitize_filename("Bu sefer gerçekten döndüm\n\n\\wraith")
+            == "Bu sefer gerçekten döndüm wraith"
+        )
+        assert sanitize_filename("Başlık\r\nYeni satır") == "Başlık Yeni satır"
+        assert sanitize_filename("Başlık\tKanal") == "Başlık Kanal"
+
+    def test_invalid_windows_chars_cleared(self):
+        assert sanitize_filename("Gündem: Haberler | Bugün?") == "Gündem Haberler Bugün"
+        assert sanitize_filename("Test / : * ? \" < > | File") == "Test File"
+
+    def test_turkish_and_unicode_preserved(self):
+        assert sanitize_filename("Çığırtkan Öğrenci Şarkısı Ödev") == "Çığırtkan Öğrenci Şarkısı Ödev"
+
+    def test_leading_trailing_dots_and_spaces_cleared(self):
+        assert sanitize_filename(". . .Gizli Dosya. . .") == "Gizli Dosya"
+
+    def test_reserved_windows_names(self):
+        assert sanitize_filename("CON") == "CON_file"
+        assert sanitize_filename("prn") == "prn_file"
+        assert sanitize_filename("AUX") == "AUX_file"
+        assert sanitize_filename("com1") == "com1_file"
+
+    def test_max_length_truncation(self):
+        long_title = "A" * 250
+        result = sanitize_filename(long_title, max_length=50)
+        assert len(result) == 50
+        assert result == "A" * 50
+
+    def test_consecutive_hyphens_and_underscores(self):
+        assert sanitize_filename("Video---Title___Test") == "Video-Title_Test"
+
 
 
 # ---------------------------------------------------------------------------

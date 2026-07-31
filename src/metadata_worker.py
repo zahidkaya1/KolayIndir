@@ -32,7 +32,149 @@ from src.models import (
 from src.utils import clean_log_message, clean_tiktok_url
 
 
-def _extract_kick_vod(url: str, requested_quality: str, media_type: str) -> MediaMetadata:
+def _fetch_kick_playback_m3u8(uuid: str, headers: dict[str, str]) -> tuple[str | None, int | str | None, str | None]:
+    """
+    Kick yeni playback endpoint'ine POST isteği gönderir.
+    En fazla 2 deneme yapar; her denemede 15 sn timeout kullanır.
+    Returns: (m3u8_url, status_code_or_reason, raw_title)
+    """
+    from curl_cffi import requests as cffi_requests
+
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            r = cffi_requests.post(
+                f"https://web.kick.com/api/v1/stream/{uuid}/playback",
+                impersonate="chrome120",
+                headers={
+                    **headers,
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "video_player": {"player": {}},
+                    "video_session": {},
+                    "user_session": {"non_personalised_ads": True},
+                },
+                timeout=5,
+            )
+            if r.status_code == 404:
+                return None, 404, None
+            if r.status_code == 403:
+                return None, 403, None
+            if r.status_code == 200:
+                data = r.json()
+                playback_urls = data.get("playback_url") or {}
+                m3u8_url = playback_urls.get("vod") or playback_urls.get("live")
+                vs = data.get("video_session") or {}
+                raw_title = vs.get("video_title") or vs.get("title") or None
+                if m3u8_url:
+                    return m3u8_url, 200, raw_title
+                return None, "missing_playback_url", raw_title
+            return None, r.status_code, None
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt == 0:
+                continue
+            break
+
+    if last_exc is not None:
+        exc_str = str(last_exc).lower()
+        if "timeout" in exc_str or "timed out" in exc_str:
+            return None, "timeout", None
+        return None, "connection_error", None
+
+    return None, None, None
+
+
+
+def _fetch_kick_video_metadata(uuid: str, headers: dict[str, str]) -> dict[str, Any]:
+    """
+    Kick metadata endpoint'inden başlık/kanal/süre/thumbnail alır.
+    Başarısız olursa boş dict döner (indirme akışını durdurmaz).
+    """
+    try:
+        from curl_cffi import requests as cffi_requests
+
+        r = cffi_requests.get(
+            f"https://kick.com/api/v2/videos/{uuid}",
+            impersonate="chrome120",
+            headers=headers,
+            timeout=3,
+        )
+        if r.status_code != 200:
+            return {}
+        raw = r.json()
+        if not isinstance(raw, dict):
+            return {}
+        return raw
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _extract_formats_from_m3u8(m3u8_url: str, headers: dict[str, str] | None = None) -> dict[str, Any]:
+    """
+    m3u8 adresinden format bilgilerini çıkarır.
+    Önce m3u8 metninden çözünürlükleri anında alır;
+    istek takılırsa varsayılan Kick kalitelerini hızlıca döner.
+    """
+    formats: list[dict[str, Any]] = []
+    try:
+        from curl_cffi import requests as cffi_requests
+
+        r = cffi_requests.get(m3u8_url, headers=headers or {}, impersonate="chrome120", timeout=3)
+        if r.status_code == 200 and r.text:
+            matches = re.findall(r"RESOLUTION=\d+x(\d+)", r.text, re.IGNORECASE)
+            if matches:
+                heights = sorted({int(m) for m in matches if int(m) > 0}, reverse=True)
+                for h in heights:
+                    formats.append({
+                        "vcodec": "avc1.4d401f",
+                        "acodec": "mp4a.40.2",
+                        "height": h,
+                        "url": m3u8_url,
+                        "format_id": f"{h}p",
+                    })
+                return {
+                    "formats": formats,
+                    "height": heights[0],
+                    "vcodec": "avc1.4d401f",
+                    "acodec": "mp4a.40.2",
+                }
+    except Exception:  # noqa: BLE001, S110
+        pass
+
+    # Akış engeli/zaman aşımı durumunda varsayılan Kick VOD kalite kümesini dön
+    for h in [1080, 720, 480, 360, 160]:
+        formats.append({
+            "vcodec": "avc1.4d401f",
+            "acodec": "mp4a.40.2",
+            "height": h,
+            "url": m3u8_url,
+            "format_id": f"{h}p",
+        })
+    return {
+        "formats": formats,
+        "height": 1080,
+        "vcodec": "avc1.4d401f",
+        "acodec": "mp4a.40.2",
+    }
+
+
+def _extract_kick_vod(
+    url: str,
+    requested_quality: str,
+    media_type: str,
+) -> MediaMetadata:
+    """
+    Kick VOD metadata extraction.
+
+    Akış:
+    1. Önce standart yt-dlp Kick extractor dene.
+    2. Hata verirse veya format boşsa yeni playback endpoint'e düş.
+    3. Playback endpoint'ten m3u8 al, yt-dlp Generic/HLS ile formatları parse et.
+    4. Metadata (başlık/kanal/süre) için ayrı API endpoint'ini dene.
+    5. successful_request_url = orijinal URL (signed m3u8 DEĞİL).
+    """
     match = re.search(r"kick\.com/([^/]+)/videos/([a-f0-9\-]{8,})", url, re.IGNORECASE)
     if not match:
         raise ValueError("Geçersiz Kick VOD bağlantısı.")
@@ -41,101 +183,114 @@ def _extract_kick_vod(url: str, requested_quality: str, media_type: str) -> Medi
     uuid = match.group(2)
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": HTTP_USER_AGENT,
         "Referer": "https://kick.com/",
         "Origin": "https://kick.com",
     }
 
-    title = f"Kick VOD ({channel})"
-    thumbnail = ""
-    m3u8_url = None
-    duration_sec = None
+    info_dict: dict[str, Any] = {}
 
-    # Try fetching channel videos list first for stream.kick.com URL & exact metadata
-    try:
-        from curl_cffi import requests
 
-        r_api = requests.get(
-            f"https://kick.com/api/v2/channels/{channel}/videos",
-            impersonate="chrome110",
-            headers=headers,
-            timeout=6,
-        )
-        if r_api.status_code == 200:
-            for v in r_api.json():
-                v_obj = v.get("video") or {}
-                if v_obj.get("uuid") == uuid or v.get("slug") == uuid or str(v.get("id")) == uuid:
-                    m3u8_url = v.get("source")
-                    if v.get("session_title"):
-                        title = v.get("session_title")
-                    if isinstance(v.get("thumbnail"), dict) and v["thumbnail"].get("src"):
-                        thumbnail = v["thumbnail"]["src"]
-                    elif isinstance(v.get("thumbnail"), str):
-                        thumbnail = v["thumbnail"]
-                    if v.get("duration"):
-                        duration_sec = float(v["duration"]) / 1000.0
-                    break
-    except Exception:  # noqa: BLE001, S110
-        pass
+    # --- Adım 1: Güncel Kick playback-url endpoint'i ---
+    m3u8_url, http_code, raw_title_from_playback = _fetch_kick_playback_m3u8(uuid, headers)
 
-    # Fetch webpage HTML via curl_cffi for fallback / title
-    try:
-        from curl_cffi import requests
+    if m3u8_url:
+        info_dict = _extract_formats_from_m3u8(m3u8_url, headers)
+        _placeholder_titles = {"manifest", ""}
+        _ydlp_title = info_dict.get("title") or ""
+        if raw_title_from_playback and _ydlp_title in _placeholder_titles:
+            info_dict["_kick_title"] = raw_title_from_playback
+        if not info_dict.get("uploader"):
+            info_dict["_kick_channel"] = channel
+    else:
+        # Playback endpoint başarısızsa yt-dlp native extractor'ı dene
+        try:
+            ydl_opts = {
+                "quiet": True,
+                "socket_timeout": 3,
+                "http_headers": headers,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                raw = ydl.extract_info(url, download=False)
+                if isinstance(raw, dict) and raw.get("formats"):
+                    info_dict = raw
+        except Exception:  # noqa: BLE001, S110
+            pass
 
-        r_page = requests.get(url, impersonate="chrome110", headers=headers, timeout=6)
-        if r_page.status_code == 404 and not m3u8_url:
-            raise ValueError("Bu Kick videosu artık mevcut olmayabilir.")
-        if r_page.status_code == 403 and not m3u8_url:
-            raise ValueError("Kick video bilgilerine erişilemedi. Tarayıcı oturumu veya güncel yt-dlp gerekebilir.")
-        if r_page.status_code == 200:
-            html = r_page.text
-            title_match = re.search(r'<meta[^>]*property=["\']og:title["\'][^>]*content=["\'](.*?)["\']', html)
-            desc_match = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\'](.*?)["\']', html)
-            thumb_match = re.search(r'<meta[^>]*property=["\']og:image["\'][^>]*content=["\'](.*?)["\']', html)
-
-            if not thumbnail and thumb_match:
-                thumbnail = thumb_match.group(1)
-
-            if not title or title.startswith("Kick VOD"):
-                raw_t = title_match.group(1) if title_match else ""
-                if raw_t.endswith("- Watch the VOD on Kick"):
-                    raw_t = raw_t[:-len("- Watch the VOD on Kick")].strip()
-                desc_t = desc_match.group(1) if desc_match else ""
-                title = desc_t or raw_t or f"Kick VOD {uuid}"
-
-            if not m3u8_url:
-                vod_m3u8s = re.findall(
-                    r'https?://[^\s\"\',\\<>]*(?:stream\.kick\.com|media/hls/master\.m3u8)[^\s\"\',\\<>]*',
-                    html,
+        if not info_dict or not info_dict.get("formats"):
+            if http_code == 404:
+                raise ValueError(
+                    "Kick video bilgilerine ulaşılamadı. "
+                    "Video kaldırılmış veya bağlantı yapısı değişmiş olabilir."
                 )
-                if vod_m3u8s:
-                    m3u8_url = vod_m3u8s[0]
-    except Exception:
-        if not m3u8_url:
-            raise
+            elif http_code == 403:
+                raise ValueError("Kick video akışına erişim reddedildi. Erişim bağlantısı yenilenemedi.")
+            elif http_code == "timeout" or http_code is None:
+                raise ValueError("Kick sunucusu zamanında yanıt vermedi.")
+            elif http_code == "missing_playback_url":
+                raise ValueError("Kick oynatma bağlantısı (playback_url) bulunamadı.")
+            elif http_code == "connection_error":
+                raise ValueError("Kick sunucusuna bağlanılamadı.")
+            else:
+                raise ValueError("Kick video akış adresi alınamadı.")
 
-    if not m3u8_url:
-        raise ValueError("Kick video akış adresi (m3u8) bulunamadı.")
 
-    # Extract formats from m3u8 using yt-dlp
-    ydl_opts = {
-        "quiet": True,
-        "http_headers": headers,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(m3u8_url, download=False)
+    # --- Adım 3: Metadata endpoint (gerekirse başlık/kanal/süre) ---
+    meta_raw: dict[str, Any] = {}
+    has_title = bool(info_dict.get("title") or info_dict.get("_kick_title"))
+    if not has_title:
+        meta_raw = _fetch_kick_video_metadata(uuid, headers)
 
-    info_dict = info if isinstance(info, dict) else {}
-    if not duration_sec and info_dict.get("duration"):
-        duration_sec = float(info_dict["duration"])
-
+    # --- Format listesini çıkar ---
     from src.utils import extract_available_formats
 
     available_heights, valid_formats = extract_available_formats(info_dict)
 
+    if not valid_formats and not available_heights:
+        raise ValueError("Kick video akışında indirilebilir kalite bulunamadı.")
+
+    # --- Başlık çözümleme ---
+    # yt-dlp Generic/HLS extractor bazen "manifest" veya boş başlık döner; bunları atla.
+    _USELESS_TITLES = {"manifest", ""}
+    _raw_title = info_dict.get("title") or ""
+    title = (
+        (_raw_title if _raw_title not in _USELESS_TITLES else "")
+        or (info_dict.get("_kick_title") or "")
+        or (meta_raw.get("title") or "")
+        or (meta_raw.get("session_title") or "")
+        or "Kick Videosu"
+    )
+
+    # --- Kanal çözümleme ---
+    uploader = (
+        info_dict.get("uploader")
+        or info_dict.get("_kick_channel")
+        or meta_raw.get("channel", {}).get("slug") if isinstance(meta_raw.get("channel"), dict) else None
+        or meta_raw.get("creator", {}).get("username") if isinstance(meta_raw.get("creator"), dict) else None
+        or channel
+    )
+
+    # --- Süre çözümleme ---
+    duration_sec: float | None = None
+    if info_dict.get("duration"):
+        duration_sec = float(info_dict["duration"])
+    elif meta_raw.get("duration"):
+        # Kick metadata endpoint bazen ms, bazen sn döner; >10000 ise ms
+        raw_dur = meta_raw["duration"]
+        if isinstance(raw_dur, (int, float)):
+            duration_sec = float(raw_dur) / 1000.0 if float(raw_dur) > 10000 else float(raw_dur)
+
+    # --- Thumbnail çözümleme ---
+    thumbnail = (
+        info_dict.get("thumbnail")
+        or (meta_raw.get("thumbnail", {}).get("src") if isinstance(meta_raw.get("thumbnail"), dict) else None)
+        or (meta_raw.get("thumbnail") if isinstance(meta_raw.get("thumbnail"), str) else None)
+        or ""
+    )
+
     max_height = max(available_heights) if available_heights else None
     requested_limit = QUALITY_HEIGHTS.get(requested_quality)
-    selected_height = None
+    selected_height: int | None = None
     if max_height is not None:
         if requested_limit is None:
             selected_height = max_height
@@ -147,7 +302,7 @@ def _extract_kick_vod(url: str, requested_quality: str, media_type: str) -> Medi
 
     return MediaMetadata(
         title=title,
-        uploader=channel,
+        uploader=uploader or channel,
         source_name="Kick",
         duration_seconds=duration_sec,
         duration_text=format_duration(duration_sec),
@@ -162,10 +317,13 @@ def _extract_kick_vod(url: str, requested_quality: str, media_type: str) -> Medi
         video_codec=vcodec,
         audio_codec=acodec,
         platform_type=PlatformType.KICK_VIDEO,
-        successful_request_url=m3u8_url,
+        # Önemli: signed m3u8 kaydetme — indirme sırasında yeniden alınacak
+        successful_request_url=url,
         available_heights=available_heights,
         available_formats=valid_formats,
     )
+
+
 
 
 def _parse_max_height(formats: list[dict[str, Any]]) -> int | None:
@@ -249,6 +407,7 @@ class MetadataWorker(QObject):
         browser: str | None = "auto",
         preferred_browser: str | None = None,
         preferred_profile: tuple[str, str] | None = None,
+        settings: dict[str, Any] | None = None,
     ) -> None:
         super().__init__()
         self.url = url
@@ -257,6 +416,7 @@ class MetadataWorker(QObject):
         self.browser = browser
         self.preferred_browser = preferred_browser
         self.preferred_profile = preferred_profile
+        self.settings = settings or {}
         self._cancel_requested = False
 
     @Slot()
@@ -306,7 +466,11 @@ class MetadataWorker(QObject):
             self.log.emit("Kick VOD bağlantısı algılandı")
             self.log.emit("Kick metadata isteği başlatıldı")
             try:
-                meta = _extract_kick_vod(self.url, self.requested_quality, self.media_type)
+                meta = _extract_kick_vod(
+                    self.url,
+                    self.requested_quality,
+                    self.media_type,
+                )
                 self.log.emit("Kick metadata bilgileri alındı")
                 if not self._cancel_requested:
                     self.metadata_ready.emit(meta)
@@ -325,12 +489,14 @@ class MetadataWorker(QObject):
                         pass
                 return
             except Exception as exc:  # noqa: BLE001
-                self.log.emit("Standart bağlantı denemesi başarısız oldu")
-                self.log.emit("Tarayıcı uyumluluk yöntemi deneniyor")
-                err_clean = clean_log_message(str(exc))
-                err_msg = translate_social_error(err_clean, self.url)
+                self.log.emit("Kick bağlantı denemesi tamamlanamadı")
+                err_raw = str(exc)
+                # _extract_kick_vod zaten anlaşılır Türkçe hata üretiyor;
+                # doğrudan iletilebilir (translate_social_error ile çift işleme yapma)
+                err_msg = err_raw if err_raw else "Kick video bilgisi alınamadı."
                 self.failed.emit(err_msg)
                 return
+
         is_tiktok = platform in (
             PlatformType.TIKTOK_VIDEO,
             PlatformType.TIKTOK_SHORT_LINK,

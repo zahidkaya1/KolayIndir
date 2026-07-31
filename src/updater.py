@@ -63,3 +63,29 @@ class UpdateWorker(QObject):
         finally:
             self.finished.emit()
 
+
+def check_ytdlp_update_available() -> tuple[bool, str | None]:
+    """
+    yt-dlp için yeni bir sürüm olup olmadığını kontrol eder.
+    Returns: (is_update_available, new_version_tag)
+    """
+    try:
+        import yt_dlp
+
+        current_ver = getattr(yt_dlp.version, "__version__", "")
+        endpoint = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
+        request = Request(
+            endpoint,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": HTTP_USER_AGENT,
+            },
+        )
+        with urlopen(request, timeout=4) as response:
+            payload = json.load(response)
+        latest_tag = str(payload.get("tag_name", "")).strip()
+        if latest_tag and current_ver and latest_tag > current_ver:
+            return True, latest_tag
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return False, None
