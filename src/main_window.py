@@ -705,6 +705,9 @@ class MainWindow(QMainWindow):
             self.thumbnail_label.setPixmap(scaled)
 
     def _on_metadata_failed(self, error: str) -> None:
+        self._current_metadata = None
+        self.preview_frame.hide()
+        self._update_download_button_state()
         self.status_label.setText("İçerik önizleme bilgisi alınamadı.")
         self._append_log(f"İnceleme Uyarısı: {error}")
 
@@ -1018,6 +1021,7 @@ class MainWindow(QMainWindow):
             successful_request_url=download_url,
             convert_hevc_to_h264=self.settings.get("convert_hevc_to_h264", True),
             target_final_path=target_override,
+            expected_duration=self._current_metadata.duration_seconds if self._current_metadata else None,
         )
 
         self._set_ui_downloading(True)

@@ -200,6 +200,7 @@ class DownloadRequest:
     convert_hevc_to_h264: bool = True
     job_id: str = ""
     target_final_path: Path | None = None
+    expected_duration: float | None = None
 
 
 @dataclass

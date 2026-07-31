@@ -82,6 +82,87 @@ def is_valid_kick_manifest_url(url: str | None) -> bool:
     return ".m3u8" in u_lower and not ("web.kick.com" in u_lower and "manifest.m3u8" in u_lower)
 
 
+def parse_m3u8_duration(m3u8_text: str) -> float:
+    """m3u8 içeriğindeki tüm #EXTINF segment sürelerini toplar."""
+    if not m3u8_text:
+        return 0.0
+    total = 0.0
+    for line in m3u8_text.splitlines():
+        line = line.strip()
+        if line.startswith("#EXTINF:"):
+            try:
+                seg_dur = float(line.split(":")[1].split(",")[0])
+                if seg_dur > 0:
+                    total += seg_dur
+            except Exception:  # noqa: BLE001, S110
+                pass
+    return total
+
+
+def parse_kick_duration(val: Any) -> float | None:
+    """
+    Kick API'sinden gelen duration değerini veri tipine uygun şekilde parse eder.
+    - int/float: val > 100000 ise ms (val/1000.0), aksi halde saniye
+    - str (numeric): float parse edilebilir.
+    - str (HH:MM:SS / MM:SS): parça hesaplama
+    - str (ISO-8601 e.g. PT1H2M3S): isodate/regex parse
+    """
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        f_val = float(val)
+        return f_val / 1000.0 if f_val > 100000 else f_val
+    if isinstance(val, str):
+        s_val = val.strip()
+        if not s_val:
+            return None
+        # HH:MM:SS veya MM:SS kontrolü
+        if ":" in s_val:
+            parts = s_val.split(":")
+            try:
+                if len(parts) == 3:
+                    return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+                elif len(parts) == 2:
+                    return float(parts[0]) * 60 + float(parts[1])
+            except ValueError:
+                return None
+        # ISO-8601 PT1H2M3S kontrolü
+        if s_val.startswith(("PT", "P")):
+            m = re.match(r"^P(?:T(?:(\d+)H)?(?:(\d+)M)?(?:([\d\.]+)S)?)?$", s_val, re.IGNORECASE)
+            if m:
+                h = float(m.group(1) or 0)
+                m_min = float(m.group(2) or 0)
+                sec = float(m.group(3) or 0)
+                return h * 3600 + m_min * 60 + sec
+        # numeric string
+        try:
+            f_val = float(s_val)
+            return f_val / 1000.0 if f_val > 100000 else f_val
+        except ValueError:
+            return None
+    return None
+
+
+def is_valid_kick_vod_duration(expected_duration: float | None, actual_duration: float | None) -> bool:
+    """
+    Beklenen VOD süresi ile manifest / final MP4 süresini karşılaştırır.
+    - expected_duration yoksa veya <= 0 ise True döner
+    - actual_duration yoksa veya <= 0 ise False döner
+    - Süre farkı <= max(30.0, expected_duration * 0.05) olmalıdır
+    - Oran (actual_duration / expected_duration) >= 0.85 olmalıdır
+    """
+    if expected_duration is None or expected_duration <= 0:
+        return True
+    if actual_duration is None or actual_duration <= 0:
+        return False
+
+    diff = abs(actual_duration - expected_duration)
+    tol = max(30.0, expected_duration * 0.05)
+    ratio = actual_duration / expected_duration
+
+    return diff <= tol and ratio >= 0.85
+
+
 def set_combo_value(combo: QComboBox, value: str) -> None:
     """QComboBox içinde verilen metni arar; bulunursa seçer, bulunamazsa index 0 seçer."""
     index = combo.findText(value)

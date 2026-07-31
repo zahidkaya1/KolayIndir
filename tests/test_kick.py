@@ -207,7 +207,7 @@ class TestExtractKickVodFallback:
 
     @patch("src.metadata_worker._fetch_kick_video_metadata")
     @patch("src.metadata_worker._extract_formats_from_m3u8")
-    @patch("src.metadata_worker._fetch_kick_playback_m3u8")
+    @patch("src.metadata_worker._fetch_kick_playback_details")
     @patch("yt_dlp.YoutubeDL")
     def test_falls_back_to_playback_endpoint_when_ytdlp_fails(
         self, mock_ydl, mock_playback, mock_extract_m3u8, mock_meta
@@ -218,7 +218,12 @@ class TestExtractKickVodFallback:
         mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("404 Not Found")
 
         # Playback endpoint çalışıyor
-        mock_playback.return_value = ("https://example.m3u8", 200, "Test Başlık")
+        mock_playback.return_value = (
+            "https://stream.kick.com/test/master.m3u8",
+            200,
+            "Test Başlık",
+            {"video_session": {"video_id": "019fa488-5d20-71c0-a869-8716cf8e8189", "video_duration": 1000}},
+        )
 
         # m3u8 formatları
         mock_extract_m3u8.return_value = {
@@ -229,13 +234,24 @@ class TestExtractKickVodFallback:
         }
         mock_meta.return_value = {}
 
-        meta = _extract_kick_vod(
-            "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189",
-            "720p'ye kadar",
-            "Video (MP4)",
-        )
+        mock_ch_resp = MagicMock(status_code=200)
+        mock_ch_resp.json.return_value = [
+            {"id": "019fa488-5d20-71c0-a869-8716cf8e8189", "session_title": "Test Başlık", "source": "https://stream.kick.com/test/master.m3u8", "duration": 1000000}
+        ]
+        mock_m3u8_resp = MagicMock(status_code=200, text="#EXTINF:1000.0,\nsegment.ts")
 
-        assert mock_playback.called
+        def side_effect_get(url, *args, **kwargs):
+            if "channels/" in url:
+                return mock_ch_resp
+            return mock_m3u8_resp
+
+        with patch("curl_cffi.requests.Session.get", side_effect=side_effect_get):
+            meta = _extract_kick_vod(
+                "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189",
+                "720p'ye kadar",
+                "Video (MP4)",
+            )
+
         assert meta.platform_type == PlatformType.KICK_VIDEO
         assert meta.selected_height == 720
         assert 1080 in meta.available_heights
@@ -243,7 +259,7 @@ class TestExtractKickVodFallback:
 
     @patch("src.metadata_worker._fetch_kick_video_metadata")
     @patch("src.metadata_worker._extract_formats_from_m3u8")
-    @patch("src.metadata_worker._fetch_kick_playback_m3u8")
+    @patch("src.metadata_worker._fetch_kick_playback_details")
     @patch("yt_dlp.YoutubeDL")
     def test_title_from_playback_when_manifest_title(
         self, mock_ydl, mock_playback, mock_extract_m3u8, mock_meta
@@ -251,28 +267,34 @@ class TestExtractKickVodFallback:
         from src.metadata_worker import _extract_kick_vod
 
         mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("404")
-        mock_playback.return_value = ("https://example.m3u8", 200, "Gerçek Video Başlığı")
+        mock_playback.return_value = ("https://stream.kick.com/test/master.m3u8", 200, "Gerçek Video Başlığı", {})
         mock_extract_m3u8.return_value = {
             "title": "manifest",
             "formats": [{"height": 720, "vcodec": "h264", "acodec": "aac"}],
         }
         mock_meta.return_value = {}
 
-        meta = _extract_kick_vod(
-            "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189",
-            "En iyi kullanılabilir kalite",
-            "Video (MP4)",
-        )
+        mock_ch_resp = MagicMock(status_code=200)
+        mock_ch_resp.json.return_value = [
+            {"id": "019fa488-5d20-71c0-a869-8716cf8e8189", "session_title": "Gerçek Video Başlığı", "source": "https://stream.kick.com/test/master.m3u8"}
+        ]
+
+        with patch("curl_cffi.requests.Session.get", return_value=mock_ch_resp):
+            meta = _extract_kick_vod(
+                "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189",
+                "En iyi kullanılabilir kalite",
+                "Video (MP4)",
+            )
 
         assert meta.title == "Gerçek Video Başlığı"
 
-    @patch("src.metadata_worker._fetch_kick_playback_m3u8")
+    @patch("src.metadata_worker._fetch_kick_playback_details")
     @patch("yt_dlp.YoutubeDL")
     def test_raises_proper_error_on_404_from_playback(self, mock_ydl, mock_playback):
         from src.metadata_worker import _extract_kick_vod
 
         mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("404")
-        mock_playback.return_value = (None, 404, None)
+        mock_playback.return_value = (None, 404, None, None)
 
         with pytest.raises(ValueError, match="Video kaldırılmış veya bağlantı yapısı değişmiş"):
             _extract_kick_vod(
@@ -281,13 +303,13 @@ class TestExtractKickVodFallback:
                 "Video (MP4)",
             )
 
-    @patch("src.metadata_worker._fetch_kick_playback_m3u8")
+    @patch("src.metadata_worker._fetch_kick_playback_details")
     @patch("yt_dlp.YoutubeDL")
     def test_raises_proper_error_on_403_from_playback(self, mock_ydl, mock_playback):
         from src.metadata_worker import _extract_kick_vod
 
         mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("500")
-        mock_playback.return_value = (None, 403, None)
+        mock_playback.return_value = (None, 403, None, None)
 
         with pytest.raises(ValueError, match="erişim reddedildi"):
             _extract_kick_vod(
@@ -296,13 +318,13 @@ class TestExtractKickVodFallback:
                 "Video (MP4)",
             )
 
-    @patch("src.metadata_worker._fetch_kick_playback_m3u8")
+    @patch("src.metadata_worker._fetch_kick_playback_details")
     @patch("yt_dlp.YoutubeDL")
     def test_raises_proper_error_on_timeout(self, mock_ydl, mock_playback):
         from src.metadata_worker import _extract_kick_vod
 
         mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("network")
-        mock_playback.return_value = (None, "timeout", None)
+        mock_playback.return_value = (None, "timeout", None, None)
 
         with pytest.raises(ValueError, match="zamanında yanıt vermedi"):
             _extract_kick_vod(
@@ -310,6 +332,53 @@ class TestExtractKickVodFallback:
                 "En iyi kullanılabilir kalite",
                 "Video (MP4)",
             )
+
+    @patch("src.metadata_worker._fetch_kick_video_metadata")
+    @patch("src.metadata_worker._extract_formats_from_m3u8")
+    @patch("src.metadata_worker._fetch_kick_playback_details")
+    @patch("yt_dlp.YoutubeDL")
+    def test_metadata_endpoint_used_for_missing_info(
+        self, mock_ydl, mock_playback, mock_extract_m3u8, mock_meta
+    ):
+        from src.metadata_worker import _extract_kick_vod
+
+        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("404")
+        mock_playback.return_value = (
+            "https://stream.kick.com/test/master.m3u8",
+            200,
+            "Metadata'dan Başlık",
+            {"video_session": {"video_id": "019fa488-5d20-71c0-a869-8716cf8e8189", "video_duration": 3600}},
+        )
+        mock_extract_m3u8.return_value = {
+            "formats": [{"height": 720, "vcodec": "h264", "acodec": "aac"}],
+        }
+        mock_meta.return_value = {
+            "title": "Metadata'dan Başlık",
+            "duration": 3600,
+        }
+
+        mock_ch_resp = MagicMock(status_code=200)
+        mock_ch_resp.json.return_value = [
+            {"id": "019fa488-5d20-71c0-a869-8716cf8e8189", "session_title": "Metadata'dan Başlık", "source": "https://stream.kick.com/test/master.m3u8", "duration": 3600000}
+        ]
+        mock_m3u8_resp = MagicMock(status_code=200, text="#EXTINF:3600.0,\nsegment.ts")
+
+        def side_effect_get(url, *args, **kwargs):
+            if "channels/" in url:
+                return mock_ch_resp
+            return mock_m3u8_resp
+
+        with patch("curl_cffi.requests.Session") as mock_session_cls:
+            mock_session_inst = MagicMock()
+            mock_session_cls.return_value = mock_session_inst
+            mock_session_inst.get.side_effect = side_effect_get
+            meta = _extract_kick_vod(
+                "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189",
+                "En iyi kullanılabilir kalite",
+                "Video (MP4)",
+            )
+
+        assert "Metadata'dan Başlık" in meta.title
 
     @patch("src.metadata_worker._fetch_kick_video_metadata")
     @patch("src.metadata_worker._extract_formats_from_m3u8")
@@ -356,34 +425,7 @@ class TestExtractKickVodFallback:
         assert meta.successful_request_url == kick_url
         assert "secret123" not in (meta.successful_request_url or "")
 
-    @patch("src.metadata_worker._fetch_kick_video_metadata")
-    @patch("src.metadata_worker._extract_formats_from_m3u8")
-    @patch("src.metadata_worker._fetch_kick_playback_m3u8")
-    @patch("yt_dlp.YoutubeDL")
-    def test_metadata_endpoint_used_for_missing_info(
-        self, mock_ydl, mock_playback, mock_extract_m3u8, mock_meta
-    ):
-        """Başlık/kanal yoksa metadata endpoint devreye giriyor mu?"""
-        from src.metadata_worker import _extract_kick_vod
 
-        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("404")
-        mock_playback.return_value = ("https://example.m3u8", 200, None)  # başlık yok
-        mock_extract_m3u8.return_value = {
-            "formats": [{"height": 720, "vcodec": "h264", "acodec": "aac"}],
-        }
-        mock_meta.return_value = {
-            "title": "Metadata'dan Başlık",
-            "duration": 3600,
-        }
-
-        meta = _extract_kick_vod(
-            "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189",
-            "En iyi kullanılabilir kalite",
-            "Video (MP4)",
-        )
-
-        assert mock_meta.called
-        assert "Metadata'dan Başlık" in meta.title
 
 
 # ---------------------------------------------------------------------------
@@ -1383,7 +1425,24 @@ class TestKickProgressAndStallWatchdog:
 
         assert not succeeded_emitted
         assert mock_save_history.call_count == 0
-        assert "Kick tarafından döndürülen akışın orijinal VOD olduğu doğrulanamadı." in failed_msg
+        assert "Kick’in orijinal yayın akışı doğrulanamadı." in failed_msg
+
+    def test_is_valid_kick_vod_duration_strict_tolerance_and_ratio(self):
+        from src.utils import is_valid_kick_vod_duration
+
+        # 4 saat (14400s) metadata, 14350s manifest -> KABUL
+        assert is_valid_kick_vod_duration(14400.0, 14350.0)
+
+        # 4 saat (14400s) metadata, 30s manifest/reklam -> REDDEDİLİR
+        assert not is_valid_kick_vod_duration(14400.0, 30.0)
+
+        # %95 oranının altında kalan süre -> REDDEDİLİR (%90)
+        assert not is_valid_kick_vod_duration(1000.0, 900.0)
+
+        # Yok veya geçersiz süreler -> Güvenli kontrol
+        assert is_valid_kick_vod_duration(None, 30.0)
+        assert not is_valid_kick_vod_duration(1000.0, None)
+        assert not is_valid_kick_vod_duration(1000.0, 0.0)
 
     def test_is_valid_kick_manifest_url_rejects_ssai_and_invalid_urls(self):
         from src.utils import is_valid_kick_manifest_url
@@ -1460,3 +1519,74 @@ class TestKickProgressAndStallWatchdog:
             worker._run_kick_download(req.url)
 
         assert "Kick’in gerçek VOD bağlantısı alınamadı." in failed_msg
+
+    def test_exact_vod_uuid_match_selected_from_channel_list(self):
+        from src.metadata_worker import _extract_kick_vod
+
+        mock_pb = (
+            "https://d26yk4zpyhjeeq.cloudfront.net/v1/master/manifest.m3u8",
+            200,
+            "irl deneme [NPC Esnaf🔴]",
+            {
+                "video_session": {
+                    "video_id": "019faef9-eeb8-755e-a9b3-fb974cc7769e",
+                    "video_title": "irl deneme [NPC Esnaf🔴]",
+                    "video_duration": 236,
+                }
+            },
+        )
+
+        mock_ch_videos = [
+            {"id": "wrong_1", "title": "Diğer Yayın", "source": "https://stream.kick.com/wrong1/master.m3u8", "duration": 1000},
+            {"id": "019faef9-eeb8-755e-a9b3-fb974cc7769e", "session_title": "irl deneme [NPC Esnaf🔴]", "source": "https://stream.kick.com/correct/master.m3u8", "duration": 236000},
+        ]
+
+        mock_ch_resp = MagicMock(status_code=200)
+        mock_ch_resp.json.return_value = mock_ch_videos
+
+        mock_m3u8_resp = MagicMock(status_code=200, text="#EXTINF:233.3,\nsegment.ts")
+
+        with patch("src.metadata_worker._fetch_kick_playback_details", return_value=mock_pb), \
+             patch("curl_cffi.requests.Session.get", side_effect=[mock_ch_resp, mock_m3u8_resp, mock_m3u8_resp, mock_m3u8_resp]):
+            meta = _extract_kick_vod(
+                "https://kick.com/konsoloyun/videos/019faef9-eeb8-755e-a9b3-fb974cc7769e",
+                "En iyi kullanılabilir kalite",
+                "Video (MP4)",
+            )
+
+        assert meta.title == "irl deneme [NPC Esnaf🔴]"
+        assert meta.duration_seconds == 236.0
+
+    def test_first_video_wrong_uuid_is_rejected_fail_closed(self):
+        from src.metadata_worker import _extract_kick_vod
+
+        mock_pb = (
+            None,
+            200,
+            "Farklı Başlık",
+            {
+                "video_session": {
+                    "video_id": "019faef9-eeb8-755e-a9b3-fb974cc7769e",
+                    "video_title": "İstenen Yayın",
+                    "video_duration": 500,
+                }
+            },
+        )
+
+        mock_ch_videos = [
+            {"id": "another_uuid_999", "session_title": "Tamamen Farklı Video", "source": "https://stream.kick.com/wrong/master.m3u8", "duration": 100},
+        ]
+
+        mock_ch_resp = MagicMock(status_code=200)
+        mock_ch_resp.json.return_value = mock_ch_videos
+
+        with patch("src.metadata_worker._fetch_kick_playback_details", return_value=mock_pb), \
+             patch("curl_cffi.requests.Session.get", return_value=mock_ch_resp), \
+             pytest.raises(ValueError) as exc_info:
+            _extract_kick_vod(
+                "https://kick.com/konsoloyun/videos/019faef9-eeb8-755e-a9b3-fb974cc7769e",
+                "En iyi kullanılabilir kalite",
+                "Video (MP4)",
+            )
+
+        assert "Kick video kaydı kanal listesindeki kaynakla eşleştirilemedi" in str(exc_info.value)

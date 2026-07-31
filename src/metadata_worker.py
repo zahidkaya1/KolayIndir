@@ -32,35 +32,55 @@ from src.models import (
 from src.utils import clean_log_message, clean_tiktok_url
 
 
-def _fetch_kick_playback_m3u8(uuid: str, headers: dict[str, str]) -> tuple[str | None, int | str | None, str | None]:
+def _fetch_kick_playback_details(
+    uuid: str,
+    headers: dict[str, str],
+    session: Any = None,
+) -> tuple[str | None, int | str | None, str | None, dict[str, Any] | None]:
     """
-    Kick yeni playback endpoint'ine POST isteği gönderir.
-    En fazla 2 deneme yapar; her denemede 15 sn timeout kullanır.
-    Returns: (m3u8_url, status_code_or_reason, raw_title)
+    Kick playback endpoint'ine POST isteği gönderir ve ham JSON yanıtını döner.
+    Returns: (m3u8_url, status_code_or_reason, raw_title, full_data)
     """
     from curl_cffi import requests as cffi_requests
 
     last_exc: Exception | None = None
+
     for attempt in range(2):
         try:
-            r = cffi_requests.post(
-                f"https://web.kick.com/api/v1/stream/{uuid}/playback",
-                impersonate="chrome120",
-                headers={
-                    **headers,
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "video_player": {"player": {}},
-                    "video_session": {},
-                    "user_session": {"non_personalised_ads": True},
-                },
-                timeout=5,
-            )
+            if session is not None:
+                r = session.post(
+                    f"https://web.kick.com/api/v1/stream/{uuid}/playback",
+                    headers={
+                        **headers,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "video_player": {"player": {}},
+                        "video_session": {},
+                        "user_session": {"non_personalised_ads": True},
+                    },
+                    timeout=5,
+                )
+            else:
+                r = cffi_requests.post(
+                    f"https://web.kick.com/api/v1/stream/{uuid}/playback",
+                    impersonate="chrome120",
+                    headers={
+                        **headers,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "video_player": {"player": {}},
+                        "video_session": {},
+                        "user_session": {"non_personalised_ads": True},
+                    },
+                    timeout=5,
+                )
+
             if r.status_code == 404:
-                return None, 404, None
+                return None, 404, None, None
             if r.status_code == 403:
-                return None, 403, None
+                return None, 403, None, None
             if r.status_code == 200:
                 data = r.json()
                 playback_urls = data.get("playback_url") or {}
@@ -68,21 +88,23 @@ def _fetch_kick_playback_m3u8(uuid: str, headers: dict[str, str]) -> tuple[str |
                 vs = data.get("video_session") or {}
                 raw_title = vs.get("video_title") or vs.get("title") or None
 
-                # YALNIZCA vod_session GET isteği ile gelen gerçek IVS VOD Master Manifest adresi kabul edilir.
-                # playback_url.vod (MediaTailor SSAI reklam manifesti) KESİNLİKLE fallback olarak kullanılmaz.
                 if vod_session_url:
                     try:
-                        vs_resp = cffi_requests.get(vod_session_url, impersonate="chrome120", headers=headers, timeout=5)
+                        if session is not None:
+                            vs_resp = session.get(vod_session_url, headers=headers, timeout=5)
+                        else:
+                            vs_resp = cffi_requests.get(vod_session_url, impersonate="chrome120", headers=headers, timeout=5)
+
                         if vs_resp.status_code == 200 and isinstance(vs_resp.json(), dict):
                             candidate_url = vs_resp.json().get("manifestUrl")
                             from src.utils import is_valid_kick_manifest_url
                             if is_valid_kick_manifest_url(candidate_url):
-                                return candidate_url, 200, raw_title
+                                return candidate_url, 200, raw_title, data
                     except Exception:  # noqa: BLE001, S110
                         pass
 
-                return None, "unverified_vod_stream", raw_title
-            return None, r.status_code, None
+                return None, "unverified_vod_stream", raw_title, data
+            return None, r.status_code, None, None
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
             if attempt == 0:
@@ -92,27 +114,39 @@ def _fetch_kick_playback_m3u8(uuid: str, headers: dict[str, str]) -> tuple[str |
     if last_exc is not None:
         exc_str = str(last_exc).lower()
         if "timeout" in exc_str or "timed out" in exc_str:
-            return None, "timeout", None
-        return None, "connection_error", None
+            return None, "timeout", None, None
+        return None, "connection_error", None, None
 
-    return None, None, None
+    return None, None, None, None
 
 
+def _fetch_kick_playback_m3u8(
+    uuid: str,
+    headers: dict[str, str],
+    session: Any = None,
+) -> tuple[str | None, int | str | None, str | None]:
+    url, code, title, _data = _fetch_kick_playback_details(uuid, headers, session)
+    return url, code, title
 
-def _fetch_kick_video_metadata(uuid: str, headers: dict[str, str]) -> dict[str, Any]:
+
+def _fetch_kick_video_metadata(uuid: str, headers: dict[str, str], session: Any = None) -> dict[str, Any]:
     """
     Kick metadata endpoint'inden başlık/kanal/süre/thumbnail alır.
-    Başarısız olursa boş dict döner (indirme akışını durdurmaz).
+    Başarısız olursa boş dict döner.
     """
     try:
         from curl_cffi import requests as cffi_requests
 
-        r = cffi_requests.get(
-            f"https://kick.com/api/v2/videos/{uuid}",
-            impersonate="chrome120",
-            headers=headers,
-            timeout=3,
-        )
+        if session is not None:
+            r = session.get(f"https://kick.com/api/v2/videos/{uuid}", headers=headers, timeout=3)
+        else:
+            r = cffi_requests.get(
+                f"https://kick.com/api/v2/videos/{uuid}",
+                impersonate="chrome120",
+                headers=headers,
+                timeout=3,
+            )
+
         if r.status_code != 200:
             return {}
         raw = r.json()
@@ -123,17 +157,19 @@ def _fetch_kick_video_metadata(uuid: str, headers: dict[str, str]) -> dict[str, 
         return {}
 
 
-def _extract_formats_from_m3u8(m3u8_url: str, headers: dict[str, str] | None = None) -> dict[str, Any]:
+def _extract_formats_from_m3u8(m3u8_url: str, headers: dict[str, str] | None = None, session: Any = None) -> dict[str, Any]:
     """
     m3u8 adresinden format bilgilerini çıkarır.
-    Önce m3u8 metninden çözünürlükleri anında alır;
-    istek takılırsa varsayılan Kick kalitelerini hızlıca döner.
     """
     formats: list[dict[str, Any]] = []
     try:
         from curl_cffi import requests as cffi_requests
 
-        r = cffi_requests.get(m3u8_url, headers=headers or {}, impersonate="chrome120", timeout=3)
+        if session is not None:
+            r = session.get(m3u8_url, headers=headers or {}, timeout=3)
+        else:
+            r = cffi_requests.get(m3u8_url, headers=headers or {}, impersonate="chrome120", timeout=3)
+
         if r.status_code == 200 and r.text:
             matches = re.findall(r"RESOLUTION=\d+x(\d+)", r.text, re.IGNORECASE)
             if matches:
@@ -155,7 +191,6 @@ def _extract_formats_from_m3u8(m3u8_url: str, headers: dict[str, str] | None = N
     except Exception:  # noqa: BLE001, S110
         pass
 
-    # Akış engeli/zaman aşımı durumunda varsayılan Kick VOD kalite kümesini dön
     for h in [1080, 720, 480, 360, 160]:
         formats.append({
             "vcodec": "avc1.4d401f",
@@ -179,14 +214,20 @@ def _extract_kick_vod(
 ) -> MediaMetadata:
     """
     Kick VOD metadata extraction.
-
-    Akış:
-    1. Önce standart yt-dlp Kick extractor dene.
-    2. Hata verirse veya format boşsa yeni playback endpoint'e düş.
-    3. Playback endpoint'ten m3u8 al, yt-dlp Generic/HLS ile formatları parse et.
-    4. Metadata (başlık/kanal/süre) için ayrı API endpoint'ini dene.
-    5. successful_request_url = orijinal URL (signed m3u8 DEĞİL).
+    - Sıkı süre doğrulaması
+    - Tek bir curl_cffi Session kullanımı
+    - Fail-Closed güvenlik mantığı
     """
+    from urllib.parse import urljoin
+
+    from curl_cffi import requests as cffi_requests
+
+    from src.utils import (
+        is_valid_kick_vod_duration,
+        parse_kick_duration,
+        parse_m3u8_duration,
+    )
+
     match = re.search(r"kick\.com/([^/]+)/videos/([a-f0-9\-]{8,})", url, re.IGNORECASE)
     if not match:
         raise ValueError("Geçersiz Kick VOD bağlantısı.")
@@ -200,41 +241,128 @@ def _extract_kick_vod(
         "Origin": "https://kick.com",
     }
 
-    info_dict: dict[str, Any] = {}
+    session = cffi_requests.Session(impersonate="chrome120")
+    expected_duration: float | None = None
+    m3u8_url: str | None = None
+    api_title: str | None = None
+    meta_raw: dict[str, Any] = {}
 
-
-    # --- Adım 1: Güncel Kick playback-url endpoint'i ---
-    m3u8_url, http_code, raw_title_from_playback = _fetch_kick_playback_m3u8(uuid, headers)
-
-    if m3u8_url:
-        info_dict = _extract_formats_from_m3u8(m3u8_url, headers)
-        _placeholder_titles = {"manifest", ""}
-        _ydlp_title = info_dict.get("title") or ""
-        if raw_title_from_playback and _ydlp_title in _placeholder_titles:
-            info_dict["_kick_title"] = raw_title_from_playback
-        if not info_dict.get("uploader"):
-            info_dict["_kick_channel"] = channel
-    else:
+    # --- Adım 1: Playback POST ile Video Oturumu ve Kimliği ---
+    pb_url, http_code, raw_title_from_pb, pb_data = _fetch_kick_playback_details(uuid, headers, session)
+    if not pb_url and http_code in (404, 403, "timeout", "connection_error"):
         if http_code == 404:
-            raise ValueError(
-                "Kick video bilgilerine ulaşılamadı. "
-                "Video kaldırılmış veya bağlantı yapısı değişmiş olabilir."
-            )
+            raise ValueError("Kick video bilgilerine ulaşılamadı. Video kaldırılmış veya bağlantı yapısı değişmiş olabilir.")
         elif http_code == 403:
             raise ValueError("Kick video akışına erişim reddedildi. Erişim bağlantısı yenilenemedi.")
         elif http_code == "timeout":
             raise ValueError("Kick sunucusu zamanında yanıt vermedi.")
         elif http_code == "connection_error":
             raise ValueError("Kick sunucusuna bağlanılamadı.")
-        else:
-            raise ValueError("Kick’in gerçek VOD bağlantısı alınamadı. Reklam akışının indirilmesini önlemek için işlem durduruldu.")
 
+    vs_info = (pb_data.get("video_session") or {}) if pb_data else {}
+    pb_video_id = str(vs_info.get("video_id") or "").strip()
+    pb_title = str(vs_info.get("video_title") or raw_title_from_pb or "").strip()
+    raw_pb_dur = vs_info.get("video_duration")
 
-    # --- Adım 3: Metadata endpoint (gerekirse başlık/kanal/süre) ---
-    meta_raw: dict[str, Any] = {}
-    has_title = bool(info_dict.get("title") or info_dict.get("_kick_title"))
-    if not has_title:
-        meta_raw = _fetch_kick_video_metadata(uuid, headers)
+    if pb_video_id and pb_video_id.lower() != uuid.lower():
+        raise ValueError("Kick video kaydı kanal listesindeki kaynakla eşleştirilemedi. Yanlış içeriğin indirilmesini önlemek için işlem durduruldu.")
+
+    if isinstance(raw_pb_dur, (int, float, str)):
+        expected_duration = parse_kick_duration(raw_pb_dur)
+
+    # --- Adım 2: Kanal VOD Listesinden Sayfalı Exact Eşleşen Source Adresini Çek (Pagination) ---
+    page = 1
+    max_pages = 10
+    found_in_channel = False
+
+    while page <= max_pages and not found_in_channel:
+        try:
+            ch_resp = session.get(
+                f"https://kick.com/api/v2/channels/{channel}/videos?page={page}",
+                headers=headers,
+                timeout=4,
+            )
+            if ch_resp.status_code == 200:
+                resp_json = ch_resp.json()
+                v_list = []
+                if isinstance(resp_json, list):
+                    v_list = resp_json
+                elif isinstance(resp_json, dict):
+                    v_list = resp_json.get("videos") or resp_json.get("data") or []
+
+                if not v_list:
+                    break
+
+                for v in v_list:
+                    v_id = str(v.get("id") or "").strip()
+                    v_uuid = str(v.get("uuid") or "").strip()
+                    v_slug = str(v.get("slug") or "").strip()
+                    v_title = str(v.get("session_title") or v.get("title") or "").strip()
+
+                    v_dur_sec = parse_kick_duration(v.get("duration"))
+
+                    # 1. Doğrudan UUID / ID eşleşmesi
+                    direct_match = uuid in (v_uuid, v_id, v_slug)
+                    # 2. Title ve Süre eşleşmesi
+                    title_dur_match = (
+                        bool(pb_title and v_title and pb_title == v_title)
+                        and bool(expected_duration and v_dur_sec and abs(expected_duration - v_dur_sec) <= 15.0)
+                    )
+
+                    if direct_match or title_dur_match:
+                        meta_raw = v
+                        source_cand = v.get("source")
+                        api_title = v_title or pb_title
+                        if v_dur_sec and not expected_duration:
+                            expected_duration = v_dur_sec
+                        if source_cand and "stream.kick.com" in source_cand:
+                            m3u8_url = source_cand
+                        found_in_channel = True
+                        break
+        except Exception:  # noqa: BLE001, S110
+            pass
+
+        page += 1
+
+    # Playback POST endpoint'i video_id exact UUID eşleşmesi sağladıysa ve signed stream verdiyse:
+    if not m3u8_url and pb_url and pb_video_id and pb_video_id.lower() == uuid.lower():
+        m3u8_url = pb_url
+        if pb_title:
+            api_title = pb_title
+
+    # Source adresi bulunamadıysa veya UUID doğrulanamadıysa reklam/ssai akışlarına fallback KESİNLİKLE YASAK
+    if not m3u8_url:
+        raise ValueError("Kick video kaydı kanal listesindeki kaynakla eşleştirilemedi. Yanlış içeriğin indirilmesini önlemek için işlem durduruldu.")
+
+    # --- Adım 3: Manifest Playlist Süresini İncele ---
+    manifest_duration: float = 0.0
+    try:
+        m_resp = session.get(m3u8_url, headers=headers, timeout=4)
+        if m_resp.status_code == 200:
+            lines = m_resp.text.splitlines()
+            variant_url = None
+            for line in lines:
+                line = line.strip()
+                if not line.startswith("#") and line:
+                    variant_url = urljoin(m3u8_url, line)
+                    break
+            target_m3u8 = variant_url or m3u8_url
+            v_resp = session.get(target_m3u8, headers=headers, timeout=4)
+            if v_resp.status_code == 200:
+                manifest_duration = parse_m3u8_duration(v_resp.text)
+    except Exception:  # noqa: BLE001, S110
+        pass
+
+    # --- Adım 4: Süre ve İçerik Doğrulaması (Fail-Closed) ---
+    if expected_duration and expected_duration > 0 and not is_valid_kick_vod_duration(expected_duration, manifest_duration):
+        raise ValueError("Kick’in orijinal yayın akışı doğrulanamadı. Reklam videosunun indirilmesini önlemek için işlem durduruldu.")
+
+    info_dict: dict[str, Any] = _extract_formats_from_m3u8(m3u8_url, headers, session)
+    if api_title:
+        info_dict["_kick_title"] = api_title
+    elif raw_title_from_pb:
+        info_dict["_kick_title"] = raw_title_from_pb
+    info_dict["_kick_channel"] = channel
 
     # --- Format listesini çıkar ---
     from src.utils import extract_available_formats
@@ -244,13 +372,11 @@ def _extract_kick_vod(
     if not valid_formats and not available_heights:
         raise ValueError("Kick video akışında indirilebilir kalite bulunamadı.")
 
-    # --- Başlık çözümleme ---
-    # yt-dlp Generic/HLS extractor bazen "manifest" veya boş başlık döner; bunları atla.
     _USELESS_TITLES = {"manifest", ""}
     _raw_title = info_dict.get("title") or ""
     title = (
-        (_raw_title if _raw_title not in _USELESS_TITLES else "")
-        or (info_dict.get("_kick_title") or "")
+        (info_dict.get("_kick_title") or "")
+        or (_raw_title if _raw_title not in _USELESS_TITLES else "")
         or (meta_raw.get("title") or "")
         or (meta_raw.get("session_title") or "")
         or "Kick Videosu"
@@ -260,8 +386,8 @@ def _extract_kick_vod(
     uploader = (
         info_dict.get("uploader")
         or info_dict.get("_kick_channel")
-        or meta_raw.get("channel", {}).get("slug") if isinstance(meta_raw.get("channel"), dict) else None
-        or meta_raw.get("creator", {}).get("username") if isinstance(meta_raw.get("creator"), dict) else None
+        or (meta_raw.get("channel", {}).get("slug") if isinstance(meta_raw.get("channel"), dict) else None)
+        or (meta_raw.get("creator", {}).get("username") if isinstance(meta_raw.get("creator"), dict) else None)
         or channel
     )
 

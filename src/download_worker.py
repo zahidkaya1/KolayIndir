@@ -666,13 +666,20 @@ class DownloadWorker(QObject):
                 self.failed.emit("Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin.")
                 return
 
-        if self._cancel_requested:
-            self.cancelled.emit()
-            return
-
-        # 4. Sıkı FFprobe Doğrulaması
+        # 4. Sıkı FFprobe ve Süre Doğrulaması (Fail-Closed)
         self.status.emit("MP4 doğrulanıyor…")
         valid, val_reason = validate_final_download(target_final_path, is_audio_mode=is_audio)
+
+        probe_final = probe_media_codecs(target_final_path)
+        final_duration = float(probe_final.get("duration") or 0.0)
+
+        from src.utils import is_valid_kick_vod_duration
+        expected_dur = getattr(self.request, "expected_duration", None)
+
+        if expected_dur and expected_dur > 0 and not is_valid_kick_vod_duration(expected_dur, final_duration):
+            valid = False
+            val_reason = f"Final MP4 süresi ({final_duration:.1f}s) beklenen VOD süresi ({expected_dur:.1f}s) ile uyuşmuyor"
+
         if not valid:
             self.log.emit(f"Hata: Final Kick dosyası doğrulamadan geçemedi: {val_reason}")
             if target_final_path.exists():
@@ -680,7 +687,7 @@ class DownloadWorker(QObject):
                     target_final_path.unlink()
                 except OSError:
                     pass
-            self.failed.emit("Kick tarafından döndürülen akışın orijinal VOD olduğu doğrulanamadı. Reklam akışının kaydedilmesini önlemek için indirme durduruldu.")
+            self.failed.emit("Kick’in orijinal yayın akışı doğrulanamadı. Reklam videosunun indirilmesini önlemek için işlem durduruldu.")
             return
 
         # HEVC dönüştürme kontrolü
@@ -697,7 +704,7 @@ class DownloadWorker(QObject):
                     target_final_path.unlink()
                 except OSError:
                     pass
-            self.failed.emit("Kick tarafından döndürülen akışın orijinal VOD olduğu doğrulanamadı. Reklam akışının kaydedilmesini önlemek için indirme durduruldu.")
+            self.failed.emit("Kick’in orijinal yayın akışı doğrulanamadı. Reklam videosunun indirilmesini önlemek için işlem durduruldu.")
             return
 
         # 5. Başarılı Tamamlama
