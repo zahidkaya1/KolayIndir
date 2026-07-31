@@ -64,12 +64,24 @@ def _fetch_kick_playback_m3u8(uuid: str, headers: dict[str, str]) -> tuple[str |
             if r.status_code == 200:
                 data = r.json()
                 playback_urls = data.get("playback_url") or {}
-                m3u8_url = playback_urls.get("vod") or playback_urls.get("live")
+                vod_session_url = playback_urls.get("vod_session")
                 vs = data.get("video_session") or {}
                 raw_title = vs.get("video_title") or vs.get("title") or None
-                if m3u8_url:
-                    return m3u8_url, 200, raw_title
-                return None, "missing_playback_url", raw_title
+
+                # YALNIZCA vod_session GET isteği ile gelen gerçek IVS VOD Master Manifest adresi kabul edilir.
+                # playback_url.vod (MediaTailor SSAI reklam manifesti) KESİNLİKLE fallback olarak kullanılmaz.
+                if vod_session_url:
+                    try:
+                        vs_resp = cffi_requests.get(vod_session_url, impersonate="chrome120", headers=headers, timeout=5)
+                        if vs_resp.status_code == 200 and isinstance(vs_resp.json(), dict):
+                            candidate_url = vs_resp.json().get("manifestUrl")
+                            from src.utils import is_valid_kick_manifest_url
+                            if is_valid_kick_manifest_url(candidate_url):
+                                return candidate_url, 200, raw_title
+                    except Exception:  # noqa: BLE001, S110
+                        pass
+
+                return None, "unverified_vod_stream", raw_title
             return None, r.status_code, None
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
@@ -203,36 +215,19 @@ def _extract_kick_vod(
         if not info_dict.get("uploader"):
             info_dict["_kick_channel"] = channel
     else:
-        # Playback endpoint başarısızsa yt-dlp native extractor'ı dene
-        try:
-            ydl_opts = {
-                "quiet": True,
-                "socket_timeout": 3,
-                "http_headers": headers,
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                raw = ydl.extract_info(url, download=False)
-                if isinstance(raw, dict) and raw.get("formats"):
-                    info_dict = raw
-        except Exception:  # noqa: BLE001, S110
-            pass
-
-        if not info_dict or not info_dict.get("formats"):
-            if http_code == 404:
-                raise ValueError(
-                    "Kick video bilgilerine ulaşılamadı. "
-                    "Video kaldırılmış veya bağlantı yapısı değişmiş olabilir."
-                )
-            elif http_code == 403:
-                raise ValueError("Kick video akışına erişim reddedildi. Erişim bağlantısı yenilenemedi.")
-            elif http_code == "timeout" or http_code is None:
-                raise ValueError("Kick sunucusu zamanında yanıt vermedi.")
-            elif http_code == "missing_playback_url":
-                raise ValueError("Kick oynatma bağlantısı (playback_url) bulunamadı.")
-            elif http_code == "connection_error":
-                raise ValueError("Kick sunucusuna bağlanılamadı.")
-            else:
-                raise ValueError("Kick video akış adresi alınamadı.")
+        if http_code == 404:
+            raise ValueError(
+                "Kick video bilgilerine ulaşılamadı. "
+                "Video kaldırılmış veya bağlantı yapısı değişmiş olabilir."
+            )
+        elif http_code == 403:
+            raise ValueError("Kick video akışına erişim reddedildi. Erişim bağlantısı yenilenemedi.")
+        elif http_code == "timeout":
+            raise ValueError("Kick sunucusu zamanında yanıt vermedi.")
+        elif http_code == "connection_error":
+            raise ValueError("Kick sunucusuna bağlanılamadı.")
+        else:
+            raise ValueError("Kick’in gerçek VOD bağlantısı alınamadı. Reklam akışının indirilmesini önlemek için işlem durduruldu.")
 
 
     # --- Adım 3: Metadata endpoint (gerekirse başlık/kanal/süre) ---

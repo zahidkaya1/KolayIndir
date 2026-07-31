@@ -344,8 +344,19 @@ class DownloadWorker(QObject):
                         return None
                     data = r.json()
                     playback_urls = data.get("playback_url") or {}
-                    m3u8 = playback_urls.get("vod") or playback_urls.get("live")
-                    return m3u8 or None
+                    vod_session_url = playback_urls.get("vod_session")
+                    if vod_session_url:
+                        try:
+                            vs_resp = cffi_requests.get(vod_session_url, impersonate="chrome120", headers=headers, timeout=5)
+                            if vs_resp.status_code == 200 and isinstance(vs_resp.json(), dict):
+                                candidate_url = vs_resp.json().get("manifestUrl")
+                                from src.utils import is_valid_kick_manifest_url
+                                if is_valid_kick_manifest_url(candidate_url):
+                                    return candidate_url
+                        except Exception:  # noqa: BLE001, S110
+                            pass
+
+                    return None
                 except Exception:  # noqa: BLE001
                     if attempt == 0:
                         continue
@@ -366,7 +377,7 @@ class DownloadWorker(QObject):
         from yt_dlp.networking.impersonate import ImpersonateTarget
 
         from src.history import get_unique_filepath, sanitize_filename
-        from src.utils import validate_final_download
+        from src.utils import is_valid_kick_manifest_url, validate_final_download
 
         is_audio = "MP3" in self.request.media_type or "Ses" in self.request.media_type
         ext = "mp3" if is_audio else "mp4"
@@ -382,7 +393,12 @@ class DownloadWorker(QObject):
         self.status.emit("Kick oynatma bağlantısı alınıyor…")
         self.request.output_dir.mkdir(parents=True, exist_ok=True)
 
-        m3u8_url = self._kick_m3u8
+        # İndirme başlarken vod_session üzerinden güncel ve geçerli manifestUrl alınır
+        m3u8_url = self._resolve_kick_playback_url(self.request.url) or self._kick_m3u8
+        if not is_valid_kick_manifest_url(m3u8_url):
+            self.failed.emit("Kick’in gerçek VOD bağlantısı alınamadı. Reklam akışının indirilmesini önlemek için işlem durduruldu.")
+            return
+
         retry_count = 0
         max_retries = 1
         last_error: Exception | str | None = None
@@ -664,7 +680,7 @@ class DownloadWorker(QObject):
                     target_final_path.unlink()
                 except OSError:
                     pass
-            self.failed.emit(f"Kick indirme doğrulaması başarısız: {val_reason}")
+            self.failed.emit("Kick tarafından döndürülen akışın orijinal VOD olduğu doğrulanamadı. Reklam akışının kaydedilmesini önlemek için indirme durduruldu.")
             return
 
         # HEVC dönüştürme kontrolü
@@ -676,7 +692,12 @@ class DownloadWorker(QObject):
         # Transcode sonrası 2. doğrulama
         valid, val_reason = validate_final_download(target_final_path, is_audio_mode=is_audio)
         if not valid:
-            self.failed.emit(f"Kick indirme doğrulaması başarısız: {val_reason}")
+            if target_final_path.exists():
+                try:
+                    target_final_path.unlink()
+                except OSError:
+                    pass
+            self.failed.emit("Kick tarafından döndürülen akışın orijinal VOD olduğu doğrulanamadı. Reklam akışının kaydedilmesini önlemek için indirme durduruldu.")
             return
 
         # 5. Başarılı Tamamlama

@@ -78,17 +78,25 @@ class TestFetchKickPlaybackM3u8:
     def test_post_request_correct_url(self):
         from src.metadata_worker import _fetch_kick_playback_m3u8
 
-        with patch("curl_cffi.requests.post") as mock_post:
+        with patch("curl_cffi.requests.post") as mock_post, \
+             patch("curl_cffi.requests.get") as mock_get:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
             mock_resp.json.return_value = {
                 "playback_url": {
                     "vod": "https://example.com/master.m3u8",
-                    "live": "",
+                    "vod_session": "https://web.kick.com/api/v1/stream/vod_session",
                 },
                 "video_session": {"video_title": "Test Başlık"},
             }
             mock_post.return_value = mock_resp
+
+            mock_vs_resp = MagicMock()
+            mock_vs_resp.status_code = 200
+            mock_vs_resp.json.return_value = {
+                "manifestUrl": "https://example.com/master.m3u8"
+            }
+            mock_get.return_value = mock_vs_resp
 
             m3u8, code, title = _fetch_kick_playback_m3u8(
                 "019fa488-5d20-71c0-a869-8716cf8e8189",
@@ -187,7 +195,7 @@ class TestFetchKickPlaybackM3u8:
             m3u8, code, _title = _fetch_kick_playback_m3u8("test-uuid", {})
 
         assert m3u8 is None
-        assert code == "missing_playback_url"
+        assert code == "unverified_vod_stream"
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +302,7 @@ class TestExtractKickVodFallback:
         from src.metadata_worker import _extract_kick_vod
 
         mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("network")
-        mock_playback.return_value = (None, None, None)
+        mock_playback.return_value = (None, "timeout", None)
 
         with pytest.raises(ValueError, match="zamanında yanıt vermedi"):
             _extract_kick_vod(
@@ -527,13 +535,24 @@ class TestKickDownloadWorkerPlaybackRefresh:
              patch("src.download_worker.DownloadWorker._cleanup_job_files"):
             pass  # sınıfı import etmek yeterli
 
-        with patch("curl_cffi.requests.post") as mock_post:
+        with patch("curl_cffi.requests.post") as mock_post, \
+             patch("curl_cffi.requests.get") as mock_get:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
             mock_resp.json.return_value = {
-                "playback_url": {"vod": "https://fresh.m3u8"}
+                "playback_url": {
+                    "vod": "https://fresh.m3u8",
+                    "vod_session": "https://web.kick.com/api/v1/stream/vod_session",
+                }
             }
             mock_post.return_value = mock_resp
+
+            mock_vs_resp = MagicMock()
+            mock_vs_resp.status_code = 200
+            mock_vs_resp.json.return_value = {
+                "manifestUrl": "https://fresh.m3u8"
+            }
+            mock_get.return_value = mock_vs_resp
 
             import tempfile
             from pathlib import Path
@@ -961,7 +980,7 @@ class TestPlaybackErrorReasonPreservation:
             m3u8, reason, _title = _fetch_kick_playback_m3u8("test-uuid", {})
 
         assert m3u8 is None
-        assert reason == "missing_playback_url"
+        assert reason == "unverified_vod_stream"
 
 
 # ---------------------------------------------------------------------------
@@ -1283,7 +1302,161 @@ class TestKickProgressAndStallWatchdog:
             mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = mock_extract
             worker._run_kick_download(req.url)
 
-        # 1 ana deneme + 1 retry = 2 indirme denemesi yapılmalı
+        # 1 baslangic cozümleme + 1 stall retry = 2 resolve cagirisi
         assert extract_calls == 2
-        assert mock_resolve.call_count == 1
+        assert mock_resolve.call_count == 2
         assert "Kick indirmesi sırasında veri akışı durdu." in failed_msg
+
+    def test_vod_session_manifest_url_retrieval(self):
+        from src.metadata_worker import _fetch_kick_playback_m3u8
+
+        mock_pb_resp = MagicMock()
+        mock_pb_resp.status_code = 200
+        mock_pb_resp.json.return_value = {
+            "playback_url": {
+                "vod": "https://web.kick.com/api/v1/stream/manifest.m3u8",
+                "vod_session": "https://web.kick.com/api/v1/stream/vod_session",
+            },
+            "video_session": {"video_title": "Test Kick Stream"},
+        }
+
+        mock_vs_resp = MagicMock()
+        mock_vs_resp.status_code = 200
+        mock_vs_resp.json.return_value = {
+            "manifestUrl": "https://d26yk4zpyhjeeq.cloudfront.net/v1/master/real_ivs_master.m3u8"
+        }
+
+        def mock_cffi_get(url, **kwargs):
+            if "vod_session" in url:
+                return mock_vs_resp
+            return MagicMock(status_code=404)
+
+        with patch("curl_cffi.requests.post", return_value=mock_pb_resp), \
+             patch("curl_cffi.requests.get", side_effect=mock_cffi_get):
+            m3u8_url, status, title = _fetch_kick_playback_m3u8("019faef9-eeb8-755e-a9b3-fb974cc7769e", {})
+
+        assert m3u8_url == "https://d26yk4zpyhjeeq.cloudfront.net/v1/master/real_ivs_master.m3u8"
+        assert status == 200
+        assert title == "Test Kick Stream"
+
+    def test_invalid_content_rejection_emits_unverified_turkish_error(self, tmp_path):
+        from src.download_worker import DownloadWorker
+        from src.models import DownloadRequest
+
+        req = DownloadRequest(
+            url="https://kick.com/konsoloyun/videos/019faef9-eeb8-755e-a9b3-fb974cc7769e",
+            output_dir=tmp_path,
+            media_type="Video (MP4)",
+            quality="360p'ye kadar",
+            playlist=False,
+        )
+        worker = DownloadWorker(req)
+        worker._kick_m3u8 = "https://example.com/stream.m3u8"
+
+        failed_msg = ""
+        succeeded_emitted = False
+
+        worker.failed.connect(lambda err: nonlocal_failed(err))
+        worker.succeeded.connect(lambda p: nonlocal_succeeded())
+
+        def nonlocal_failed(err):
+            nonlocal failed_msg
+            failed_msg = err
+
+        def nonlocal_succeeded():
+            nonlocal succeeded_emitted
+            succeeded_emitted = True
+
+        fake_ts = tmp_path / f".kolayindir_{worker.job_id}_kick.ts"
+        fake_ts.write_bytes(b"dummy ts data")
+
+        with patch("yt_dlp.YoutubeDL"), \
+             patch("subprocess.Popen") as mock_popen, \
+             patch("src.download_worker.validate_final_download", return_value=(False, "Geçersiz içerik veya reklam akışı")), \
+             patch.object(worker, "_save_completed_record") as mock_save_history:
+            mock_proc = MagicMock()
+            mock_proc.returncode = 0
+            mock_proc.stdout.readline.side_effect = ["", ""]
+            mock_popen.return_value = mock_proc
+
+            worker._run_kick_download(req.url)
+
+        assert not succeeded_emitted
+        assert mock_save_history.call_count == 0
+        assert "Kick tarafından döndürülen akışın orijinal VOD olduğu doğrulanamadı." in failed_msg
+
+    def test_is_valid_kick_manifest_url_rejects_ssai_and_invalid_urls(self):
+        from src.utils import is_valid_kick_manifest_url
+
+        assert is_valid_kick_manifest_url("https://d26yk4zpyhjeeq.cloudfront.net/v1/master/stream.m3u8")
+        assert not is_valid_kick_manifest_url("https://web.kick.com/api/v1/stream/manifest.m3u8")
+        assert not is_valid_kick_manifest_url("https://example.com/stream.mp4")
+        assert not is_valid_kick_manifest_url("not_a_url")
+        assert not is_valid_kick_manifest_url("")
+        assert not is_valid_kick_manifest_url(None)
+
+    def test_fetch_kick_playback_m3u8_rejects_playback_url_vod_fallback(self):
+        from src.metadata_worker import _fetch_kick_playback_m3u8
+
+        mock_pb_resp = MagicMock()
+        mock_pb_resp.status_code = 200
+        mock_pb_resp.json.return_value = {
+            "playback_url": {
+                "vod": "https://web.kick.com/api/v1/stream/manifest.m3u8",
+            },
+            "video_session": {"video_title": "Test Kick Stream"},
+        }
+
+        with patch("curl_cffi.requests.post", return_value=mock_pb_resp):
+            m3u8_url, status, title = _fetch_kick_playback_m3u8("019faef9-eeb8-755e-a9b3-fb974cc7769e", {})
+
+        assert m3u8_url is None
+        assert status == "unverified_vod_stream"
+        assert title == "Test Kick Stream"
+
+    def test_fetch_kick_playback_m3u8_handles_vod_session_403_and_timeout(self):
+        from src.metadata_worker import _fetch_kick_playback_m3u8
+
+        mock_pb_resp = MagicMock()
+        mock_pb_resp.status_code = 200
+        mock_pb_resp.json.return_value = {
+            "playback_url": {
+                "vod": "https://web.kick.com/api/v1/stream/manifest.m3u8",
+                "vod_session": "https://web.kick.com/api/v1/stream/vod_session",
+            },
+        }
+
+        mock_vs_resp = MagicMock(status_code=403)
+
+        with patch("curl_cffi.requests.post", return_value=mock_pb_resp), \
+             patch("curl_cffi.requests.get", return_value=mock_vs_resp):
+            m3u8_url, status, _title = _fetch_kick_playback_m3u8("019faef9-eeb8-755e-a9b3-fb974cc7769e", {})
+
+        assert m3u8_url is None
+        assert status == "unverified_vod_stream"
+
+    def test_download_worker_start_gets_fresh_manifest_and_fails_if_unverified(self, tmp_path):
+        from src.download_worker import DownloadWorker
+        from src.models import DownloadRequest
+
+        req = DownloadRequest(
+            url="https://kick.com/konsoloyun/videos/019faef9-eeb8-755e-a9b3-fb974cc7769e",
+            output_dir=tmp_path,
+            media_type="Video (MP4)",
+            quality="360p'ye kadar",
+            playlist=False,
+        )
+        worker = DownloadWorker(req)
+        worker._kick_m3u8 = "https://web.kick.com/api/v1/stream/manifest.m3u8"
+
+        failed_msg = ""
+        worker.failed.connect(lambda err: nonlocal_failed(err))
+
+        def nonlocal_failed(err):
+            nonlocal failed_msg
+            failed_msg = err
+
+        with patch.object(worker, "_resolve_kick_playback_url", return_value=None):
+            worker._run_kick_download(req.url)
+
+        assert "Kick’in gerçek VOD bağlantısı alınamadı." in failed_msg

@@ -52,14 +52,34 @@ def configure_combo_box(combo: QComboBox) -> None:
         QPalette.ColorGroup.Disabled, QPalette.ColorRole.Base, QColor("#F2F4F7")
     )
     palette.setColor(
-        QPalette.ColorGroup.Disabled, QPalette.ColorRole.Window, QColor("#F2F4F7")
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.Window,
+        QColor("#F2F4F7"),
+    )
+    palette.setColor(
+        QPalette.ColorGroup.Disabled,
+        QPalette.ColorRole.Button,
+        QColor("#F2F4F7"),
     )
 
     combo.setPalette(palette)
-    view = combo.view()
-    if view:
-        view.setPalette(palette)
-        view.setMinimumWidth(max(combo.width(), 180))
+
+
+def is_valid_kick_manifest_url(url: str | None) -> bool:
+    """
+    Kick VOD manifestUrl adresinin geçerli orijinal VOD adresi olduğunu doğrular.
+    - None veya boş olamaz
+    - http:// veya https:// ile başlamalıdır
+    - Path veya query içinde .m3u8 barındırmalıdır
+    - MediaTailor SSAI reklam manifesti (web.kick.com/.../manifest.m3u8) kesinlikle olmamalıdır
+    """
+    if not url or not isinstance(url, str):
+        return False
+    u = url.strip()
+    if not u.startswith(("http://", "https://")):
+        return False
+    u_lower = u.lower()
+    return ".m3u8" in u_lower and not ("web.kick.com" in u_lower and "manifest.m3u8" in u_lower)
 
 
 def set_combo_value(combo: QComboBox, value: str) -> None:
