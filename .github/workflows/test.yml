@@ -1,0 +1,30 @@
+name: Python kontrolleri
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONFAULTHANDLER: "1"
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+      - name: Python 3.12 kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Bağımlılıkları kur
+        run: pip install -r requirements-dev.txt
+      - name: Sözdizimini kontrol et
+        run: python -m compileall -q app.py src tests
+      - name: Testleri çalıştır
+        timeout-minutes: 15
+        run: python -X faulthandler -m pytest -vv -s -m "not live and not qt_integration and not kick_experimental" --durations=30 --timeout=60 --timeout-method=thread

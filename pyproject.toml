@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "live: marks tests as live internet network tests (deselect with '-m \"not live\"')",
+    "qt_integration: marks tests as real Qt thread integration tests (deselect with '-m \"not qt_integration\"')",
+    "kick_experimental: marks disabled experimental Kick implementation tests (deselect with '-m \"not kick_experimental\"')",
+]
+
+[tool.ruff]
+exclude = ["scratch/", ".venv/", ".venv-kick-test/"]
