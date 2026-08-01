@@ -60,6 +60,7 @@ from src.dialogs import (
 from src.download_worker import DownloadWorker
 from src.history import (
     HistoryValidationWorker,
+    get_unique_directory_path,
     get_unique_filepath,
     sanitize_filename,
 )
@@ -113,6 +114,7 @@ class MainWindow(QMainWindow):
         self._cancel_requested: bool = False
         self._pending_close: bool = False
         self._shutdown_in_progress: bool = False
+        self._is_closing: bool = False
         self._force_close_timer: QTimer | None = None
 
         self._close_dialog_open: bool = False
@@ -138,7 +140,11 @@ class MainWindow(QMainWindow):
         self._center_on_screen()
         self._build_ui()
         self._restore_settings()
-        QTimer.singleShot(250, self._show_dependency_status)
+        self._dep_timer = QTimer(self)
+        self._dep_timer.setSingleShot(True)
+        self._dep_timer.setInterval(250)
+        self._dep_timer.timeout.connect(self._show_dependency_status)
+        self._dep_timer.start()
 
 
     def _center_on_screen(self) -> None:
@@ -933,6 +939,10 @@ class MainWindow(QMainWindow):
             return False
 
     def _show_dependency_status(self) -> None:
+        from shiboken6 import isValid
+        if getattr(self, '_is_closing', False) or not isValid(self):
+            return
+
         for line in get_environment_log_lines():
             self._append_log(line)
         warnings = dependency_warnings()
@@ -1034,8 +1044,11 @@ class MainWindow(QMainWindow):
         self._append_log(f"Hedef klasör doğrulandı: {output_dir}")
 
         if self._current_metadata and self._current_metadata.is_playlist and playlist:
-            # Playlist: yt-dlp manages its own file naming per item
-            target_override: Path | None = None
+            playlist_name = clean_title
+            if not playlist_name or playlist_name.lower() in {"video", "kick videosu", "manifest", "master", "playlist", "index", "chunklist"}:
+                playlist_name = "Playlist"
+
+            target_override = get_unique_directory_path(output_dir / playlist_name)
         else:
             # Single video: always compute unique path to avoid overwriting completed files.
             # If the initial path doesn't exist, get_unique_filepath returns it unchanged.
@@ -1451,7 +1464,7 @@ class MainWindow(QMainWindow):
                 parent=self
             ).exec()
             return
-            
+
         self.url_input.setText(url)
         self.analyze_url()
 
@@ -1531,6 +1544,14 @@ class MainWindow(QMainWindow):
                 setattr(self, attr, None)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        self._is_closing = True
+        if hasattr(self, '_dep_timer') and self._dep_timer and self._dep_timer.isActive():
+            self._dep_timer.stop()
+            try:
+                self._dep_timer.timeout.disconnect()
+            except RuntimeError:
+                pass
+
         if self._download_thread is None and self._metadata_thread is None:
             self._save_current_settings()
             self._stop_all_threads()

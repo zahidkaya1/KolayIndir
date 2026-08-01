@@ -117,8 +117,10 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
         PlatformType.TIKTOK_SLIDESHOW,
     )
 
-    if request.target_final_path:
+    if request.target_final_path and not request.playlist:
         outtmpl_str = str(request.target_final_path.with_suffix("")) + ".%(ext)s"
+    elif request.target_final_path and request.playlist:
+        outtmpl_str = str(request.target_final_path / "%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s")
     elif is_tiktok:
         outtmpl_str = str(request.output_dir / "TikTok - %(uploader,uploader_id,channel|TikTok_Kullanicisi)s - %(title,id)s [%(id)s].%(ext)s")
     elif request.playlist:

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -56,52 +57,60 @@ def _parse_completed_at(value: str):
         return None
 
 
-def _get_platform_display_name(platform: str | None) -> str:
-    value = str(platform or "").strip()
-    p = value.lower()
+def _canonical_platform(platform: str | None) -> str:
+    value = str(platform or "").strip().lower()
     
     if not value:
-        return "Bilinmiyor"
+        return "unknown"
         
-    if "youtube_playlist" in p:
-        return "YouTube Oynatma Listesi"
-    if "youtube" in p:
-        return "YouTube"
-    if "instagram_reel" in p:
-        return "Instagram Reels"
-    if "instagram_post" in p:
-        return "Instagram Gönderisi"
-    if "instagram" in p:
-        return "Instagram"
-    if "twitter" in p or p == "x" or "x_com" in p or "x / twitter" in p:
-        return "X / Twitter"
-    if "tiktok" in p:
-        return "TikTok"
-    if "kick" in p:
-        return "Kick"
-    return value.capitalize()
+    if "youtube" in value or "youtu_be" in value:
+        return "youtube"
+    
+    if "instagram" in value:
+        return "instagram"
+        
+    if "twitter" in value or value == "x" or "x_com" in value or "x / twitter" in value:
+        return "x_twitter"
+        
+    if "tiktok" in value:
+        return "tiktok"
+        
+    if "kick" in value:
+        return "kick"
+        
+    return value
 
+def _get_platform_display_name(platform: str | None) -> str:
+    canon = _canonical_platform(platform)
+    
+    if canon == "youtube": return "YouTube"
+    if canon == "instagram": return "Instagram"
+    if canon == "x_twitter": return "X / Twitter"
+    if canon == "tiktok": return "TikTok"
+    if canon == "kick": return "Kick"
+    if canon == "unknown": return "Bilinmiyor"
+    
+    value = str(platform or "").strip()
+    return value.capitalize()
 
 def _get_platform_badge_style(
     platform: str | None,
     media_type: str | None,
 ) -> str:
-    p = str(platform or "").lower()
     media = str(media_type or "").lower()
-    
     if "mp3" in media or "ses" in media:
-        # Green / cyan for audio
         return "background-color: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;"
-    if "youtube_playlist" in p:
-        return "background-color: #faf5ff; color: #9333ea; border: 1px solid #e9d5ff;"
-    if "youtube" in p:
+        
+    canon = _canonical_platform(platform)
+    if canon == "youtube":
         return "background-color: #fef2f2; color: #dc2626; border: 1px solid #fecaca;"
-    if "instagram" in p:
+    if canon == "instagram":
         return "background-color: #fdf4ff; color: #c026d3; border: 1px solid #f5d0fe;"
-    if "twitter" in p or p == "x" or "x_com" in p or "x / twitter" in p:
+    if canon == "x_twitter":
         return "background-color: #f0f9ff; color: #0284c7; border: 1px solid #bae6fd;"
-    if "tiktok" in p:
+    if canon == "tiktok":
         return "background-color: #f0fdfa; color: #0d9488; border: 1px solid #ccfbf1;"
+        
     return "background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;"
 
 
@@ -117,11 +126,19 @@ class HistoryCard(QFrame):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(8)
 
+        def _apply_overflow_policy(label: QLabel) -> None:
+            label.setWordWrap(True)
+            label.setMinimumWidth(0)
+            label.setSizePolicy(
+                QSizePolicy.Policy.Ignored,
+                QSizePolicy.Policy.Preferred,
+            )
+
         # Üst Kısım: Başlık ve Durum
         top_row = QHBoxLayout()
         title_label = QLabel(self.record.display_description())
         title_label.setObjectName("historyTitle")
-        title_label.setWordWrap(True)
+        _apply_overflow_policy(title_label)
         top_row.addWidget(title_label, 1)
 
         path_text = str(self.record.final_path or "").strip()
@@ -183,12 +200,12 @@ class HistoryCard(QFrame):
 
         l1 = QLabel(details_1)
         l1.setObjectName("historyDetail")
-        l1.setWordWrap(True)
+        _apply_overflow_policy(l1)
         details_layout.addWidget(l1)
 
         l2 = QLabel(details_2)
         l2.setObjectName("historyDetail")
-        l2.setWordWrap(True)
+        _apply_overflow_policy(l2)
         details_layout.addWidget(l2)
 
         layout.addLayout(details_layout)
@@ -286,8 +303,10 @@ class HistoryDialog(QDialog):
             QDialog#historyDialog {
                 background-color: #F7F9FC;
             }
-            QScrollArea {
-                background-color: transparent;
+            QScrollArea#historyScrollArea,
+            QWidget#historyScrollViewport,
+            QWidget#historyScrollContent {
+                background-color: #F7F9FC;
                 border: none;
             }
             QFrame#historyCard {
@@ -431,12 +450,17 @@ class HistoryDialog(QDialog):
 
         # Liste Alanı
         self.scroll_area = QScrollArea()
+        self.scroll_area.setObjectName("historyScrollArea")
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
 
         self.scroll_content = QWidget()
+        self.scroll_content.setObjectName("historyScrollContent")
+        self.scroll_area.viewport().setObjectName("historyScrollViewport")
+        self.scroll_content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.scroll_area.viewport().setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.scroll_layout = QVBoxLayout(self.scroll_content)
         self.scroll_layout.setContentsMargins(0, 0, 8, 0)
         self.scroll_layout.setSpacing(12)
@@ -533,11 +557,9 @@ class HistoryDialog(QDialog):
                 continue
 
             if p_filter != "Tüm Platformlar":
-                rec_plat = _get_platform_display_name(rec.platform)
-                if p_filter == "X / Twitter":
-                    if rec_plat not in ["X / Twitter", "Twitter", "X"]:
-                        continue
-                elif p_filter != rec_plat:
+                canon = _canonical_platform(rec.platform)
+                canon_filter = _canonical_platform(p_filter)
+                if canon_filter != "unknown" and canon != canon_filter:
                     continue
 
             if t_filter != "Tüm Türler":
@@ -576,21 +598,37 @@ class HistoryDialog(QDialog):
 
             filtered_records.append(rec)
 
-        valid_dates = []
-        invalid_dates = []
-        for r in filtered_records:
-            ts = _parse_completed_at(r.completed_at)
-            if ts is not None:
-                valid_dates.append((ts, r))
-            else:
-                invalid_dates.append(r)
-
-        if sort_f == "En Eski":
-            valid_dates.sort(key=lambda item: item[0])
-            filtered_records = [r for _, r in valid_dates] + invalid_dates
-        elif sort_f == "En Yeni":
-            valid_dates.sort(key=lambda item: item[0], reverse=True)
-            filtered_records = [r for _, r in valid_dates] + invalid_dates
+        indexed_records = list(enumerate(filtered_records))
+        
+        if sort_f == "En Yeni":
+            valid_dates = []
+            invalid_dates = []
+            for idx, r in indexed_records:
+                ts = _parse_completed_at(r.completed_at)
+                if ts is not None:
+                    valid_dates.append((ts, idx, r))
+                else:
+                    invalid_dates.append((idx, r))
+            # Tarih büyükten küçüğe, eşitse index büyükten küçüğe
+            valid_dates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+            # Tarihsiz kayıtlar kendi aralarında son eklenen önce (index reverse)
+            invalid_dates.sort(key=lambda item: item[0], reverse=True)
+            filtered_records = [r for _, _, r in valid_dates] + [r for _, r in invalid_dates]
+            
+        elif sort_f == "En Eski":
+            valid_dates = []
+            invalid_dates = []
+            for idx, r in indexed_records:
+                ts = _parse_completed_at(r.completed_at)
+                if ts is not None:
+                    valid_dates.append((ts, idx, r))
+                else:
+                    invalid_dates.append((idx, r))
+            # Tarih küçükten büyüğe, eşitse index küçükten büyüğe
+            valid_dates.sort(key=lambda item: (item[0], item[1]))
+            # Tarihsiz kayıtlar sonda, indeks küçükten büyüğe
+            invalid_dates.sort(key=lambda item: item[0])
+            filtered_records = [r for _, _, r in valid_dates] + [r for _, r in invalid_dates]
         elif sort_f == "Başlık A-Z":
             valid_titles = []
             empty_titles = []

@@ -529,3 +529,36 @@ def clear_history() -> None:
                 temp_file.unlink()
             except OSError:
                 pass
+
+def get_unique_directory_path(target_dir: Path) -> Path:
+    """
+    Oynatma listeleri için benzersiz klasör adı üretir.
+    Örnek:
+    - İlk indirme: Python Dersleri
+    - İkinci indirme: Python Dersleri (1)
+    - Üçüncü indirme: Python Dersleri (2)
+    """
+    directory = target_dir.parent
+    original_name = target_dir.name
+
+    import re
+
+    match = re.match(r"^(.*?)\s*\((\d+)\)$", original_name)
+    if match:
+        base_name = match.group(1).strip()
+    else:
+        base_name = original_name
+
+    base_name = sanitize_filename(base_name, max_length=150)
+
+    candidate = directory / base_name
+    if not candidate.exists():
+        return candidate
+
+    counter = 1
+    while True:
+        candidate = directory / f"{base_name} ({counter})"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
