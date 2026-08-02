@@ -105,6 +105,7 @@ class MainWindow(QMainWindow):
         self._last_log_message: str | None = None
         self._download_succeeded_result: str | None = None
         self._download_succeeded_path: str = ""
+        self._last_failed_request = None
         self._log_history: list[str] = []
         self._current_metadata: MediaMetadata | None = None
         self._preferred_browser: str | None = None
@@ -505,6 +506,7 @@ class MainWindow(QMainWindow):
             self.cancel_button.setEnabled(False)
 
     def _on_url_changed(self) -> None:
+        self._last_failed_request = None
         url = self.url_input.text().strip()
         if self._current_metadata is not None:
             self._current_metadata = None
@@ -1149,6 +1151,66 @@ class MainWindow(QMainWindow):
             self.status_label.setText("İndirme iptal ediliyor…")
             self._download_worker.cancel()
 
+    def _retry_download(self) -> None:
+        if self._download_worker is not None or self._metadata_worker is not None:
+            self.status_label.setText("Devam eden işlem tamamlanmadan yeniden deneme başlatılamaz.")
+            return
+
+        if not self._last_failed_request:
+            return
+
+        req = self._last_failed_request
+        self.url_input.setText(req.url)
+        self.media_combo.setCurrentText(req.media_type)
+        self.quality_combo.setCurrentText(req.quality)
+        self.playlist_checkbox.setChecked(req.playlist)
+        self.folder_input.setText(str(req.output_dir))
+
+        self.start_download()
+
+    def _retry_with_session(self) -> None:
+        if self._download_worker is not None or self._metadata_worker is not None:
+            self.status_label.setText("Devam eden işlem tamamlanmadan yeniden deneme başlatılamaz.")
+            return
+
+        if not self._last_failed_request:
+            return
+
+        if self._last_failed_request.browser == "auto":
+            self.status_label.setText("Kullanılabilir bir tarayıcı oturumu bulunamadı veya oturum doğrulanamadı.")
+            AppMessageDialog(
+                "Oturum Hatası",
+                "Kullanılabilir bir tarayıcı oturumu bulunamadı veya oturum doğrulanamadı.",
+                "error",
+                self
+            ).exec()
+            return
+
+        for i in range(self.browser_combo.count()):
+            if self.browser_combo.itemData(i) == "auto":
+                self.browser_combo.setCurrentIndex(i)
+                break
+
+        self._preferred_profile = None
+        self._preferred_browser = None
+
+        self._retry_download()
+
+    def _edit_url_after_failure(self) -> None:
+        if not self._last_failed_request:
+            return
+
+        req = self._last_failed_request
+        self.url_input.setText(req.url)
+        self.url_input.setEnabled(True)
+        self.url_input.setFocus()
+        self.url_input.selectAll()
+
+        self._current_metadata = None
+        self.preview_frame.hide()
+        self._update_download_button_state()
+        self._last_failed_request = None
+
         if self._metadata_worker is not None:
             self.status_label.setText("İnceleme iptal ediliyor…")
             self._metadata_worker.cancel()
@@ -1218,6 +1280,7 @@ class MainWindow(QMainWindow):
             self.stats_label.setText(f"Hız: {speed} • Kalan: {eta}")
 
     def _on_download_succeeded(self, filename: str) -> None:
+        self._last_failed_request = None
         if filename.lower() in {"manifest", "master", "playlist", "index", "chunklist"}:
             filename = "Kick Videosu.mp4"
         self._download_succeeded_result = filename
@@ -1231,6 +1294,9 @@ class MainWindow(QMainWindow):
         self.stats_label.setText("")
         self._set_ui_downloading(False)
         self._append_log(error_msg if error_msg.startswith("Hata:") else f"Hata: {error_msg}")
+
+        if self._download_worker:
+            self._last_failed_request = self._download_worker.request
 
         if is_rehydration_error(error_msg):
             dlg = AppMessageDialog(
@@ -1278,12 +1344,26 @@ class MainWindow(QMainWindow):
                     save_settings(self.settings)
             return
 
-        AppMessageDialog(
+        dlg = AppMessageDialog(
             "İndirme Başarısız",
-            f"İndirme işlemi tamamlanamadı:\n\n{error_msg}",
+            f"İndirme tamamlanamadı. İşlemi tekrar deneyebilir veya bağlantıyı düzenleyebilirsiniz.\n\n{error_msg}",
             "error",
             self,
-        ).exec()
+            [
+                ("retry", "Tekrar Dene", True),
+                ("retry_session", "Oturumla Tekrar Dene", False),
+                ("edit_url", "Bağlantıyı Düzenle", False),
+                ("close", "Kapat", False),
+            ]
+        )
+        dlg.exec()
+
+        if dlg.clicked_button_id == "retry":
+            self._retry_download()
+        elif dlg.clicked_button_id == "retry_session":
+            self._retry_with_session()
+        elif dlg.clicked_button_id == "edit_url":
+            self._edit_url_after_failure()
 
     def _prompt_install_firefox(self) -> None:
         """Kullanıcı onayından sonra Windows Terminal'de Firefox kurulum komutunu başlatır."""

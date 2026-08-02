@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -254,8 +255,13 @@ class AppMessageDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("appMessageDialog")
         self.setWindowTitle(title)
-        self.setMinimumWidth(380)
-        self.setMaximumWidth(560)
+        if custom_buttons and len(custom_buttons) >= 4:
+            self.setMinimumWidth(760)
+            self.setMaximumWidth(840)
+        else:
+            self.setMinimumWidth(380)
+            self.setMaximumWidth(560)
+
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
@@ -276,12 +282,21 @@ class AppMessageDialog(QDialog):
         self.clicked_button_id: str | None = None
 
         if custom_buttons:
+            from src.utils import apply_pointing_hand_cursor
+
             for btn_id, label, is_primary in custom_buttons:
                 btn = QPushButton(label)
                 if is_primary:
                     btn.setObjectName("dialogPrimaryButton")
                 else:
                     btn.setObjectName("dialogSecondaryButton")
+
+                btn.setMinimumHeight(44)
+                btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                min_w = btn.fontMetrics().horizontalAdvance(label) + 32
+                btn.setMinimumWidth(min_w)
+                apply_pointing_hand_cursor(btn)
+
                 btn.clicked.connect(lambda _, b_id=btn_id: self._on_button_click(b_id))
                 btn_row.addWidget(btn)
         else:
