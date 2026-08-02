@@ -832,7 +832,7 @@ def test_button_heights_and_overflow(qapp, tmp_path, monkeypatch):
     qapp.processEvents()
 
     from PySide6.QtWidgets import QPushButton
-    paste_btn = next((b for b in win.findChildren(QPushButton) if b.text() == "Yapıştır"), None)
+    paste_btn = next((b for b in win.findChildren(QPushButton) if b.text() == "Panodan Yapıştır"), None)
 
     assert paste_btn is not None
     assert paste_btn.height() == win.analyze_button.height()

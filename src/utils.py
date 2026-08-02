@@ -563,3 +563,31 @@ def apply_pointing_hand_cursor(widget: QWidget) -> None:
     widget.installEventFilter(_hand_event_filter)
 
 
+def extract_supported_url_from_text(text: str) -> str | None:
+    """Metin içerisinden desteklenen ilk URL'yi çıkarır ve temizler."""
+    if not text:
+        return None
+
+    import re
+
+    from src.models import (
+        PlatformType,
+        detect_platform_type,
+        is_platform_temporarily_disabled,
+    )
+
+    # HTTP veya HTTPS ile başlayan URL adaylarını bul
+    url_pattern = re.compile(r'https?://[^\s]+')
+    matches = url_pattern.findall(text)
+
+    for match in matches:
+        # URL sonuna yapışan noktalama işaretlerini temizle
+        cleaned = re.sub(r'[\.\,\)\'\"\;\:\]]+$', '', match)
+
+        platform = detect_platform_type(cleaned)
+        if platform != PlatformType.UNKNOWN and not is_platform_temporarily_disabled(
+            platform, cleaned
+        ):
+            return cleaned
+
+    return None

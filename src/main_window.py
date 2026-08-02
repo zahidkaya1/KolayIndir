@@ -145,7 +145,7 @@ class MainWindow(QMainWindow):
         self._dep_timer.setInterval(250)
         self._dep_timer.timeout.connect(self._show_dependency_status)
         self._dep_timer.start()
-
+        self._check_clipboard_on_startup()
 
     def _center_on_screen(self) -> None:
         screen = QApplication.primaryScreen()
@@ -206,13 +206,12 @@ class MainWindow(QMainWindow):
         )
         self.url_input.textChanged.connect(self._on_url_changed)
         self.url_input.returnPressed.connect(self.analyze_url)
-
-        paste_button = QPushButton("Yapıştır")
-        paste_button.setObjectName("secondaryButton")
-        paste_button.setProperty("actionRowButton", True)
-        paste_button.setMinimumWidth(90)
-        paste_button.setMaximumWidth(120)
-        paste_button.clicked.connect(self._paste_url)
+        self.paste_button = QPushButton("Panodan Yapıştır")
+        self.paste_button.setObjectName("secondaryButton")
+        self.paste_button.setProperty("actionRowButton", True)
+        self.paste_button.setMinimumWidth(110)
+        self.paste_button.setMaximumWidth(150)
+        self.paste_button.clicked.connect(self._paste_url)
 
         self.analyze_button = QPushButton("İncele")
         self.analyze_button.setObjectName("primaryButton")
@@ -222,7 +221,7 @@ class MainWindow(QMainWindow):
         url_row = QHBoxLayout()
         url_row.setSpacing(6)
         url_row.addWidget(self.url_input, 1)
-        url_row.addWidget(paste_button)
+        url_row.addWidget(self.paste_button)
         url_row.addWidget(self.analyze_button)
         content_layout.addLayout(url_row)
 
@@ -466,7 +465,7 @@ class MainWindow(QMainWindow):
 
         # El imleci (PointingHandCursor) uygulamasını tüm tıklanabilir bileşenlerde etkinleştir
         for w in (
-            paste_button,
+            self.paste_button,
             self.analyze_button,
             self.download_button,
             self.cancel_button,
@@ -925,11 +924,42 @@ class MainWindow(QMainWindow):
             self._update_preview_quality_display()
 
     def _paste_url(self) -> None:
+        if not self.url_input.isEnabled():
+            self.status_label.setText("Devam eden işlem tamamlanmadan bağlantı değiştirilemez.")
+            return
+
+        import re
+
+        from src.utils import extract_supported_url_from_text
+
         clipboard = QApplication.clipboard()
         text = clipboard.text().strip()
-        if text and self._is_valid_url(text):
-            self.url_input.setText(text)
-            self.analyze_url()
+
+        if not text:
+            self.status_label.setText("Panoda bir bağlantı bulunamadı.")
+            return
+
+        url = extract_supported_url_from_text(text)
+        if url:
+            self.url_input.setText(url)
+            self.status_label.setText("Bağlantı panodan yapıştırıldı.")
+        else:
+            url_pattern = re.compile(r'https?://[^\s]+')
+            if url_pattern.search(text):
+                self.status_label.setText("Bu bağlantı henüz desteklenmiyor.")
+            else:
+                self.status_label.setText("Panoda desteklenen bir bağlantı bulunamadı.")
+
+    def _check_clipboard_on_startup(self) -> None:
+        from src.utils import extract_supported_url_from_text
+        clipboard = QApplication.clipboard()
+        text = clipboard.text().strip()
+        if not text:
+            return
+
+        url = extract_supported_url_from_text(text)
+        if url:
+            self.status_label.setText("Panoda desteklenen bir bağlantı bulundu.")
 
     def _is_valid_url(self, url: str) -> bool:
         try:
