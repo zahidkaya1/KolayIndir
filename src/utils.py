@@ -591,3 +591,38 @@ def extract_supported_url_from_text(text: str) -> str | None:
             return cleaned
 
     return None
+
+
+def extract_supported_urls_from_text(text: str | None) -> list[str]:
+    """Metin içerisinden desteklenen tüm URL'leri çıkarır, tekrarları atar ve sırayı korur."""
+    if not text:
+        return []
+
+    import re
+
+    from src.models import (
+        PlatformType,
+        detect_platform_type,
+        is_platform_temporarily_disabled,
+    )
+
+    url_pattern = re.compile(r'https?://[^\s]+')
+    matches = url_pattern.findall(text)
+
+    seen = set()
+    result = []
+
+    for match in matches:
+        cleaned = re.sub(r'[\.\,\)\'\"\;\:\]]+$', '', match)
+
+        if cleaned in seen:
+            continue
+
+        platform = detect_platform_type(cleaned)
+        if platform != PlatformType.UNKNOWN and not is_platform_temporarily_disabled(
+            platform, cleaned
+        ):
+            seen.add(cleaned)
+            result.append(cleaned)
+
+    return result

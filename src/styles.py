@@ -263,9 +263,87 @@ QMenu#folderMenu::separator, QMenu::separator {
 }
 
 /* QDialog & Özel Popup Pencere Stilleri */
-QDialog#downloadCompletedDialog, QDialog#updateDialog, QDialog#appMessageDialog, QDialog, QMessageBox {
+QDialog#downloadCompletedDialog, QDialog#updateDialog, QDialog#appMessageDialog, QDialog#downloadQueueDialog, QDialog, QMessageBox {
     background-color: #ffffff;
     color: #172033;
+}
+
+QDialog#downloadQueueDialog, QDialog#queueEditDialog {
+    background-color: #f7f9fc;
+    color: #172033;
+}
+
+QFrame#queueSettingsCard {
+    background-color: #ffffff;
+    border: 1px solid #dce2ec;
+    border-radius: 8px;
+}
+
+QTextEdit#queueInput {
+    background-color: #ffffff;
+    color: #172033;
+    border: 1px solid #cfd6e2;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+QTableWidget#queueTable {
+    background-color: #ffffff;
+    color: #172033;
+    border: 1px solid #cfd6e2;
+    border-radius: 8px;
+    gridline-color: #f1f5f9;
+}
+
+QTableWidget#queueTable QHeaderView::section {
+    background-color: #f1f5f9;
+    color: #334155;
+    font-weight: 600;
+    padding: 6px 10px;
+    border: none;
+    border-bottom: 1px solid #cfd6e2;
+}
+
+QHeaderView#queueVerticalHeader,
+QHeaderView#queueVerticalHeader viewport {
+    background-color: #ffffff;
+    color: #172033;
+}
+
+QHeaderView#queueVerticalHeader::section {
+    background-color: #f8fafc;
+    color: #475569;
+    font-size: 12px;
+    padding: 4px;
+    border: none;
+    border-right: 1px solid #e2e8f0;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+QTableWidget#queueTable QTableCornerButton::section {
+    background-color: #f1f5f9;
+    border: 1px solid #e2e8f0;
+}
+
+QTableWidget#queueTable viewport {
+    background-color: #ffffff;
+    color: #172033;
+}
+
+QTableWidget#queueTable::item {
+    padding: 4px 8px;
+    color: #172033;
+}
+
+QTableWidget#queueTable::item:selected {
+    background-color: #e8f0fe;
+    color: #174ea6;
+}
+
+QLabel#queueSummary {
+    color: #475569;
+    font-weight: 600;
+    font-size: 13px;
 }
 
 QLabel#dialogTitleLabel, QLabel#updateDialogTitle {

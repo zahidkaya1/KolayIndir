@@ -198,6 +198,23 @@ class DownloadRequest:
     target_final_path: Path | None = None
 
 
+@dataclass(slots=True)
+class QueueItem:
+    id: str
+    url: str
+    platform: str
+    title: str = "Video"
+    media_type: str = "Video (MP4)"
+    quality: str = "1080p'ye kadar"
+    playlist: bool = False
+    output_dir: Path | None = None
+    browser: str | None = None
+    status: str = "Bekliyor"
+    error_msg: str = ""
+    progress_percent: int = 0
+    progress_text: str = ""
+
+
 @dataclass
 class MediaMetadata:
     title: str = ""

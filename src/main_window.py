@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from PySide6.QtCore import Qt, QThread, QTimer, QUrl
+from PySide6.QtCore import Qt, QThread, QTimer, QUrl, Slot
 from PySide6.QtGui import (
     QCloseEvent,
     QDesktopServices,
@@ -72,6 +72,7 @@ from src.models import (
     DownloadRequest,
     MediaMetadata,
     PlatformType,
+    QueueItem,
     detect_platform_type,
     format_bytes,
     get_platform_badge_text,
@@ -106,6 +107,11 @@ class MainWindow(QMainWindow):
         self._download_succeeded_result: str | None = None
         self._download_succeeded_path: str = ""
         self._last_failed_request = None
+        self._queue_items = []
+        self._is_queue_active = False
+        self._queue_dialog = None
+        self._pending_queue_download_item_id: str | None = None
+        self._pending_queue_metadata: MediaMetadata | None = None
         self._log_history: list[str] = []
         self._current_metadata: MediaMetadata | None = None
         self._preferred_browser: str | None = None
@@ -219,10 +225,16 @@ class MainWindow(QMainWindow):
         self.analyze_button.setProperty("actionRowButton", True)
         self.analyze_button.clicked.connect(self.analyze_url)
 
+        self.queue_button = QPushButton("İndirme Kuyruğu")
+        self.queue_button.setObjectName("secondaryButton")
+        self.queue_button.setProperty("actionRowButton", True)
+        self.queue_button.clicked.connect(self._open_queue_dialog)
+
         url_row = QHBoxLayout()
         url_row.setSpacing(6)
         url_row.addWidget(self.url_input, 1)
         url_row.addWidget(self.paste_button)
+        url_row.addWidget(self.queue_button)
         url_row.addWidget(self.analyze_button)
         content_layout.addLayout(url_row)
 
@@ -523,6 +535,15 @@ class MainWindow(QMainWindow):
         self._update_download_button_state()
 
     def analyze_url(self) -> None:
+        if self._is_queue_active:
+            AppMessageDialog(
+                "Kuyruk Aktif",
+                "Kuyruk aktifken yeni inceleme başlatılamaz.",
+                "warning",
+                self,
+            ).exec()
+            return
+
         if self._metadata_thread is not None:
             return
 
@@ -811,6 +832,16 @@ class MainWindow(QMainWindow):
         self.analyze_button.setText("İncele")
         if self._close_requested or self._pending_close or self._shutdown_in_progress:
             self._try_finish_close()
+            return
+
+        if getattr(self, "_is_queue_active", False) and getattr(self, "_pending_queue_download_item_id", None):
+            item_id = self._pending_queue_download_item_id
+            meta = self._pending_queue_metadata
+            self._pending_queue_download_item_id = None
+            self._pending_queue_metadata = None
+            item = next((x for x in self._queue_items if x.id == item_id), None)
+            if item and meta:
+                self._start_queue_download(item, meta)
 
 
     def _on_quality_changed(self) -> None:
@@ -987,6 +1018,15 @@ class MainWindow(QMainWindow):
             ).exec()
 
     def start_download(self) -> None:
+        if self._is_queue_active:
+            AppMessageDialog(
+                "Kuyruk Aktif",
+                "Kuyruk aktifken yeni indirme başlatılamaz.",
+                "warning",
+                self,
+            ).exec()
+            return
+
         if self._download_thread is not None:
             return
 
@@ -1652,6 +1692,411 @@ class MainWindow(QMainWindow):
                 except Exception:  # noqa: BLE001, S110
                     pass
                 setattr(self, attr, None)
+
+    def _open_queue_dialog(self) -> None:
+        if not self._queue_dialog:
+            from src.queue_dialog import DownloadQueueDialog
+
+            default_folder = Path(self.folder_input.text().strip()) if self.folder_input.text().strip() else Path.home() / "Downloads"
+            self._queue_dialog = DownloadQueueDialog(default_folder=default_folder, parent=self)
+            self._queue_dialog.urls_added.connect(self._on_queue_urls_added)
+            self._queue_dialog.current_url_added.connect(self._on_queue_current_url_added)
+            self._queue_dialog.start_queue_requested.connect(self._start_queue)
+            self._queue_dialog.stop_queue_requested.connect(self._stop_queue)
+            self._queue_dialog.delete_selected_requested.connect(self._delete_queue_item)
+            self._queue_dialog.clear_completed_requested.connect(self._clear_completed_queue)
+            self._queue_dialog.retry_failed_requested.connect(self._retry_failed_queue)
+
+        self._queue_dialog.refresh_table(self._queue_items)
+        self._queue_dialog.show()
+        self._queue_dialog.raise_()
+        self._queue_dialog.activateWindow()
+
+    def _on_queue_urls_added(
+        self,
+        urls: list[str],
+        media_type: str | None = None,
+        quality: str | None = None,
+        playlist: bool | None = None,
+        output_dir: Path | None = None,
+    ) -> None:
+        added_count = 0
+        media_type = media_type or self.media_combo.currentText()
+        quality = quality or self.quality_combo.currentText()
+        playlist = playlist if playlist is not None else self.playlist_checkbox.isChecked()
+        output_dir = output_dir or (Path(self.folder_input.text().strip()) if self.folder_input.text().strip() else Path.home() / "Downloads")
+        browser = self.browser_combo.currentData()
+
+        import uuid
+
+        for u in urls:
+            is_dup = any(
+                item.url == u
+                and item.media_type == media_type
+                and item.quality == quality
+                and item.playlist == playlist
+                and item.output_dir == output_dir
+                for item in self._queue_items
+            )
+            if is_dup:
+                continue
+
+            platform = detect_platform_type(u)
+            if platform == PlatformType.UNKNOWN:
+                continue
+
+            q_item = QueueItem(
+                id=str(uuid.uuid4()),
+                url=u,
+                platform=platform.value,
+                media_type=media_type,
+                quality=quality,
+                playlist=playlist,
+                output_dir=output_dir,
+                browser=browser,
+            )
+            self._queue_items.append(q_item)
+            added_count += 1
+
+        if self._queue_dialog:
+            self._queue_dialog.refresh_table(self._queue_items)
+
+        if added_count == 0 and urls:
+            AppMessageDialog("Bilgi", "Bu bağlantı aynı ayarlarla zaten kuyrukta bulunuyor.", "info", self._queue_dialog or self).exec()
+        elif added_count == 0:
+            AppMessageDialog("Hata", "Desteklenen bir bağlantı bulunamadı.", "error", self._queue_dialog or self).exec()
+        elif added_count < len(urls):
+            AppMessageDialog("Bilgi", f"{added_count} bağlantı kuyruğa eklendi. {len(urls) - added_count} bağlantı atlandı veya desteklenmedi.", "info", self._queue_dialog or self).exec()
+
+    def _on_queue_current_url_added(
+        self,
+        media_type: str | None = None,
+        quality: str | None = None,
+        playlist: bool | None = None,
+        output_dir: Path | None = None,
+    ) -> None:
+        url = self.url_input.text().strip()
+        if not url:
+            return
+
+        from src.utils import extract_supported_urls_from_text
+
+        valid = extract_supported_urls_from_text(url)
+        if valid:
+            self._on_queue_urls_added(
+                valid,
+                media_type=media_type,
+                quality=quality,
+                playlist=playlist,
+                output_dir=output_dir,
+            )
+        else:
+            AppMessageDialog("Hata", "Desteklenen bir bağlantı bulunamadı.", "error", self._queue_dialog or self).exec()
+
+    def _start_queue(self) -> None:
+        if self._download_thread is not None or self._metadata_thread is not None:
+            if not self._is_queue_active:
+                AppMessageDialog("Hata", "Devam eden indirme tamamlanmadan kuyruk başlatılamaz.", "error", self._queue_dialog or self).exec()
+            return
+
+        waiting = any(item.status == "Bekliyor" for item in self._queue_items)
+        if not waiting:
+            AppMessageDialog("Bilgi", "Kuyrukta indirilecek bağlantı bulunmuyor.", "info", self._queue_dialog or self).exec()
+            return
+
+        self._is_queue_active = True
+        self._process_next_queue_item()
+
+    def _process_next_queue_item(self) -> None:
+        if not self._is_queue_active:
+            return
+
+        if self._download_thread is not None or self._metadata_thread is not None:
+            return
+
+        active_item = None
+        for item in self._queue_items:
+            if item.status == "Bekliyor":
+                active_item = item
+                break
+
+        if not active_item:
+            self._is_queue_active = False
+            self._on_queue_finished()
+            return
+
+        active_item.status = "Analiz ediliyor"
+        active_item.progress_text = "Başlatılıyor..."
+        if self._queue_dialog:
+            self._queue_dialog.refresh_table(self._queue_items)
+
+        self._start_queue_metadata(active_item)
+
+    def _start_queue_metadata(self, item: QueueItem) -> None:
+        self._active_queue_item_id = item.id
+        self.status_label.setText(f"Kuyruk: {item.url} inceleniyor…")
+
+        thread = QThread(self)
+        worker = MetadataWorker(
+            url=item.url,
+            requested_quality=item.quality,
+            media_type=item.media_type,
+            browser=item.browser,
+            preferred_browser=item.browser,
+            preferred_profile=None,
+            settings=dict(self.settings),
+        )
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.metadata_ready.connect(self._on_queue_metadata_ready)
+        worker.failed.connect(self._on_queue_metadata_failed)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._on_metadata_finished)
+
+        self._metadata_thread = thread
+        self._metadata_worker = worker
+        thread.start()
+
+    @Slot(object)
+    def _on_queue_metadata_ready(self, meta: MediaMetadata) -> None:
+        item = self._get_active_queue_item()
+        if not item:
+            return
+        self._current_metadata = meta
+        if meta.title:
+            item.title = meta.title
+        item.progress_text = "Analiz tamamlandı..."
+        self._pending_queue_download_item_id = item.id
+        self._pending_queue_metadata = meta
+        if self._queue_dialog:
+            self._queue_dialog.refresh_table(self._queue_items)
+
+    @Slot(str)
+    def _on_queue_metadata_failed(self, error_msg: str) -> None:
+        item = self._get_active_queue_item()
+        self._pending_queue_download_item_id = None
+        self._pending_queue_metadata = None
+        if item:
+            item.status = "Başarısız"
+            item.error_msg = clean_log_message(error_msg).split("\n")[0] if error_msg else "Bilinmeyen Hata"
+            if self._queue_dialog:
+                self._queue_dialog.refresh_table(self._queue_items)
+
+    def _start_queue_download(self, item: QueueItem, meta: MediaMetadata) -> None:
+        try:
+            from src.history import (
+                get_unique_directory_path,
+                get_unique_filepath,
+                sanitize_filename,
+            )
+
+            download_url = item.url
+            if meta and meta.successful_request_url:
+                download_url = meta.successful_request_url
+            elif meta and meta.webpage_url and detect_platform_type(meta.webpage_url) != PlatformType.UNKNOWN:
+                download_url = meta.webpage_url
+
+            ext = "mp3" if ("MP3" in item.media_type or "Ses" in item.media_type) else "mp4"
+            raw_title = meta.title if meta and meta.title else "Video"
+            clean_title = sanitize_filename(raw_title)
+            if clean_title.lower() in {"manifest", "master", "playlist", "index", "chunklist", ""}:
+                clean_title = "Video"
+
+            initial_target_path = item.output_dir / f"{clean_title}.{ext}"
+
+            if meta and meta.is_playlist and item.playlist:
+                playlist_name = clean_title
+                if not playlist_name or playlist_name.lower() in {"video", "manifest", "master", "playlist", "index", "chunklist"}:
+                    playlist_name = "Playlist"
+                target_override = get_unique_directory_path(item.output_dir / playlist_name)
+            else:
+                target_override = get_unique_filepath(initial_target_path)
+
+            request = DownloadRequest(
+                url=download_url,
+                output_dir=item.output_dir,
+                media_type=item.media_type,
+                quality=item.quality,
+                playlist=item.playlist,
+                browser=item.browser,
+                preferred_browser=item.browser,
+                preferred_profile=None,
+                preferred_impersonation=None,
+                successful_request_url=download_url,
+                convert_hevc_to_h264=self.settings.get("convert_hevc_to_h264", True),
+                target_final_path=target_override,
+            )
+
+            self._download_succeeded_result = None
+            self._download_succeeded_path = ""
+
+            thread = QThread(self)
+            worker = DownloadWorker(request)
+            worker.moveToThread(thread)
+
+            thread.started.connect(worker.run)
+            worker.progress.connect(self._on_queue_progress)
+            worker.progress_details.connect(self._on_queue_progress_details)
+            worker.succeeded.connect(self._on_queue_download_succeeded)
+            worker.failed.connect(self._on_queue_download_failed)
+            worker.cancelled.connect(self._on_queue_download_cancelled)
+            worker.finished.connect(thread.quit)
+            worker.finished.connect(worker.deleteLater)
+            thread.finished.connect(thread.deleteLater)
+            thread.finished.connect(self._on_queue_download_thread_finished)
+
+            item.status = "İndiriliyor"
+            item.progress_text = "İndirme başlatılıyor…"
+            if self._queue_dialog:
+                self._queue_dialog.refresh_table(self._queue_items)
+
+            self.status_label.setText(f"Kuyruk: {item.title} indiriliyor…")
+
+            self._download_thread = thread
+            self._download_worker = worker
+            thread.start()
+        except Exception as exc:  # noqa: BLE001
+            self._append_log(f"Kuyruk indirme başlatma hatası: {exc}")
+            item.status = "Başarısız"
+            item.error_msg = clean_log_message(str(exc)).split("\n")[0] if str(exc) else "Başatılama hatası"
+            item.progress_percent = 0
+            item.progress_text = ""
+            if self._queue_dialog:
+                self._queue_dialog.refresh_table(self._queue_items)
+
+            self._download_thread = None
+            self._download_worker = None
+            self._active_queue_item_id = None
+            if self._is_queue_active:
+                self._process_next_queue_item()
+
+    @Slot(int)
+    def _on_queue_progress(self, percent: int) -> None:
+        item = self._get_active_queue_item()
+        if not item:
+            return
+        item.progress_percent = percent
+        if self._queue_dialog:
+            self._queue_dialog.update_item_progress(item.id, percent=percent)
+
+    @Slot(str)
+    def _on_queue_progress_details(self, details: str) -> None:
+        item = self._get_active_queue_item()
+        if not item:
+            return
+        item.progress_text = details
+        if self._queue_dialog:
+            self._queue_dialog.update_item_progress(item.id, text=details)
+
+    @Slot(str)
+    def _on_queue_download_succeeded(self, filename: str) -> None:
+        try:
+            item = self._get_active_queue_item()
+            if item:
+                item.status = "Tamamlandı"
+                item.progress_percent = 100
+                item.progress_text = "Başarılı"
+                item.error_msg = ""
+                if self._queue_dialog:
+                    self._queue_dialog.refresh_table(self._queue_items)
+        except Exception as exc:  # noqa: BLE001
+            self._append_log(f"Kuyruk indirme başarı işleme hatası: {exc}")
+
+    @Slot(str)
+    def _on_queue_download_failed(self, error_msg: str) -> None:
+        item = self._get_active_queue_item()
+        if item:
+            item.status = "Başarısız"
+            item.error_msg = clean_log_message(error_msg).split("\n")[0] if error_msg else "Bilinmeyen Hata"
+            if self._queue_dialog:
+                self._queue_dialog.refresh_table(self._queue_items)
+
+    @Slot()
+    def _on_queue_download_cancelled(self) -> None:
+        item = self._get_active_queue_item()
+        if item:
+            item.status = "İptal edildi"
+            item.progress_text = "Kullanıcı iptal etti"
+        if self._queue_dialog:
+            self._queue_dialog.refresh_table(self._queue_items)
+
+        self._is_queue_active = False
+
+    @Slot()
+    def _on_queue_download_thread_finished(self) -> None:
+        self._download_thread = None
+        self._download_worker = None
+        self._set_ui_downloading(False)
+        self._cancel_requested = False
+        self._active_queue_item_id = None
+
+        if self._close_requested or self._pending_close or self._shutdown_in_progress:
+            self._try_finish_close()
+            return
+
+        if self._is_queue_active:
+            self._process_next_queue_item()
+
+    def _get_active_queue_item(self) -> QueueItem | None:
+        if getattr(self, "_active_queue_item_id", None):
+            for item in self._queue_items:
+                if item.id == self._active_queue_item_id and item.status in ("Analiz ediliyor", "İndiriliyor"):
+                    return item
+        for item in self._queue_items:
+            if item.status in ("Analiz ediliyor", "İndiriliyor"):
+                return item
+        return None
+
+    def _stop_queue(self) -> None:
+        if not self._is_queue_active:
+            return
+
+        self._is_queue_active = False
+
+        if self._download_worker:
+            self._download_worker.cancel()
+        if self._metadata_worker:
+            self._metadata_worker.cancel()
+
+    def _delete_queue_item(self, item_id: str) -> None:
+        for i, item in enumerate(self._queue_items):
+            if item.id == item_id:
+                if item.status in ("Analiz ediliyor", "İndiriliyor"):
+                    AppMessageDialog("Hata", "Aktif kuyruk öğesi silinemez. Önce kuyruğu durdurun.", "error", self._queue_dialog or self).exec()
+                    return
+                self._queue_items.pop(i)
+                break
+        if self._queue_dialog:
+            self._queue_dialog.refresh_table(self._queue_items)
+
+    def _clear_completed_queue(self) -> None:
+        self._queue_items = [item for item in self._queue_items if item.status != "Tamamlandı"]
+        if self._queue_dialog:
+            self._queue_dialog.refresh_table(self._queue_items)
+
+    def _retry_failed_queue(self) -> None:
+        for item in self._queue_items:
+            if item.status == "Başarısız":
+                item.status = "Bekliyor"
+                item.error_msg = ""
+                item.progress_text = ""
+                item.progress_percent = 0
+        if self._queue_dialog:
+            self._queue_dialog.refresh_table(self._queue_items)
+
+    def _on_queue_finished(self) -> None:
+        completed = sum(1 for item in self._queue_items if item.status == "Tamamlandı")
+        failed = sum(1 for item in self._queue_items if item.status == "Başarısız")
+
+        AppMessageDialog(
+            "Kuyruk Tamamlandı",
+            f"{completed} bağlantı tamamlandı, {failed} bağlantı başarısız oldu.",
+            "info",
+            self._queue_dialog or self,
+        ).exec()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._is_closing = True
