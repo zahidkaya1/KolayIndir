@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.config import APP_NAME
 from src.dialogs import AppMessageDialog
 from src.models import QueueItem
 from src.utils import apply_pointing_hand_cursor, extract_supported_urls_from_text
@@ -191,7 +192,7 @@ class DownloadQueueDialog(QDialog):
     def __init__(self, default_folder: Path | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("downloadQueueDialog")
-        self.setWindowTitle("İndirme Kuyruğu")
+        self.setWindowTitle(f"{APP_NAME} — İndirme Kuyruğu")
         self.setMinimumSize(940, 640)
 
         # Standart Windows başlık çubuğu ve sağ üst X kapatma düğmesi

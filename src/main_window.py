@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QDesktopServices,
     QDragEnterEvent,
     QDropEvent,
+    QIcon,
     QPixmap,
 )
 from PySide6.QtWidgets import (
@@ -40,6 +41,7 @@ from src.browser_sessions import (
     is_chromium_encryption_error,
 )
 from src.config import (
+    APP_DESCRIPTION,
     APP_NAME,
     APP_VERSION,
 )
@@ -86,6 +88,7 @@ from src.utils import (
     calculate_detailed_format_info,
     clean_log_message,
     configure_combo_box,
+    get_brand_asset_path,
     probe_media_codecs,
     set_combo_value,
 )
@@ -138,6 +141,10 @@ class MainWindow(QMainWindow):
         )
         self.setWindowFlags(flags)
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
+        icon_path = get_brand_asset_path("loadvia.ico")
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
+
         self.resize(710, 650)
         self.setMinimumSize(710, 650)
         self.setAcceptDrops(True)
@@ -169,14 +176,35 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
 
 
-        header_layout = QVBoxLayout()
-        header_layout.setSpacing(2)
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(12)
+
+        symbol_path = get_brand_asset_path("loadvia-symbol.png")
+        if symbol_path.exists():
+            symbol_label = QLabel()
+            pixmap = QPixmap(str(symbol_path))
+            if not pixmap.isNull():
+                scaled_pixmap = pixmap.scaled(
+                    46,
+                    46,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                symbol_label.setPixmap(scaled_pixmap)
+                symbol_label.setFixedSize(46, 46)
+                header_layout.addWidget(symbol_label)
+
+        title_box = QVBoxLayout()
+        title_box.setSpacing(2)
         title = QLabel(APP_NAME)
         title.setObjectName("titleLabel")
-        subtitle = QLabel("Hızlı, Kolay ve Yüksek Kaliteli Medya İndirici")
+        subtitle = QLabel(APP_DESCRIPTION)
         subtitle.setObjectName("subtitleLabel")
-        header_layout.addWidget(title)
-        header_layout.addWidget(subtitle)
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+
+        header_layout.addLayout(title_box)
+        header_layout.addStretch(1)
         layout.addLayout(header_layout)
 
         scroll_area = QScrollArea()

@@ -1,8 +1,7 @@
-# Kolayİndir
+# Loadvia
 
-Kolayİndir; desteklenen web sayfalarındaki video ve ses içeriklerini, bağlantıyı
-uygulamaya yapıştırarak indirmeyi amaçlayan sade bir Windows masaüstü uygulamasıdır.
-Proje adı geçicidir ve GitHub deposu açılırken değiştirilebilir.
+Loadvia; desteklenen web sayfalarındaki video ve ses içeriklerini, bağlantıyı
+uygulamaya yapıştırarak indirmeyi amaçlayan hızlı, kolay ve yüksek kaliteli bir Windows masaüstü uygulamasıdır.
 
 ## İlk sürümde bulunanlar
 

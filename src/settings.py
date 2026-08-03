@@ -7,12 +7,10 @@ import os
 from pathlib import Path
 from typing import Any
 
-from src.config import APP_NAME
-
 
 def _settings_dir() -> Path:
     base = Path(os.getenv("APPDATA") or Path.home())
-    path = base / APP_NAME
+    path = base / "Kolayİndir"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -20,8 +18,16 @@ def _settings_dir() -> Path:
 SETTINGS_FILE = _settings_dir() / "settings.json"
 
 
+def get_default_download_dir() -> str:
+    """Yeni kurulumlar için varsayılan indirme klasörünü döndürür (Downloads/Loadvia)."""
+    old_default = Path.home() / "Downloads" / "Kolayİndir"
+    if old_default.exists() and old_default.is_dir():
+        return str(old_default)
+    return str(Path.home() / "Downloads" / "Loadvia")
+
+
 def load_settings() -> dict[str, Any]:
-    default_dir = str(Path.home() / "Downloads")
+    default_dir = get_default_download_dir()
     if not SETTINGS_FILE.exists():
         return {"output_dir": default_dir, "auto_open_folder": False}
     try:

@@ -104,15 +104,16 @@ def test_browser_and_playlist_settings_not_persisted(tmp_path, monkeypatch):
     assert "playlist" not in reloaded_dict
 
 
-def test_default_folder_is_downloads(tmp_path, monkeypatch):
+def test_default_folder_is_loadvia_downloads(tmp_path, monkeypatch):
     settings_file = tmp_path / "settings.json"
     monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
 
     loaded = load_settings()
-    assert loaded["output_dir"] == str(Path.home() / "Downloads")
+    expected = Path.home() / "Downloads" / "Loadvia"
+    assert loaded["output_dir"] == str(expected)
 
 
-def test_non_existent_folder_falls_back_to_downloads(tmp_path, monkeypatch):
+def test_non_existent_folder_falls_back_to_loadvia_downloads(tmp_path, monkeypatch):
     settings_file = tmp_path / "settings.json"
     monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
 
@@ -123,7 +124,8 @@ def test_non_existent_folder_falls_back_to_downloads(tmp_path, monkeypatch):
     )
 
     loaded = load_settings()
-    assert loaded["output_dir"] == str(Path.home() / "Downloads")
+    expected = Path.home() / "Downloads" / "Loadvia"
+    assert loaded["output_dir"] == str(expected)
 
 
 def test_save_and_load_auto_open_folder(tmp_path, monkeypatch):
@@ -254,7 +256,8 @@ def test_main_window_object_names():
 def test_http_user_agent_ascii_only():
     from src.config import APP_NAME, HTTP_USER_AGENT
 
-    assert APP_NAME == "Kolayİndir"
+    assert APP_NAME == "Loadvia"
+    assert HTTP_USER_AGENT == "Loadvia/1.0.0"
     assert "İ" not in HTTP_USER_AGENT
     assert HTTP_USER_AGENT.isascii() is True
 

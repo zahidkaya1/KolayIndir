@@ -11,13 +11,12 @@ from typing import Any
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from src.config import APP_NAME
 from src.utils import probe_media_codecs
 
 
 def _history_dir() -> Path:
     base = Path(os.getenv("APPDATA") or Path.home())
-    path = base / APP_NAME
+    path = base / "Kolayİndir"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

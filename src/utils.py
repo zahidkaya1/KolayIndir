@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,26 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QComboBox, QSizePolicy
 
 _ANSI_REGEX = re.compile(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]")
+
+
+def get_resource_path(relative_path: str | Path) -> Path:
+    """PyInstaller ve geliştirme ortamıyla uyumlu kaynak dosya yolunu döndürür."""
+    if hasattr(sys, "_MEIPASS"):
+        base_path = Path(sys._MEIPASS)
+    else:
+        base_path = Path(__file__).resolve().parent.parent
+
+    target = base_path / relative_path
+    if not target.exists():
+        dev_target = Path(__file__).resolve().parent.parent / relative_path
+        if dev_target.exists():
+            return dev_target
+    return target
+
+
+def get_brand_asset_path(asset_name: str) -> Path:
+    """assets/Loadvia-Brand-Assets klasöründeki marka dosyasının yolunu döndürür."""
+    return get_resource_path(Path("assets") / "Loadvia-Brand-Assets" / asset_name)
 
 
 def configure_combo_box(combo: QComboBox) -> None:
