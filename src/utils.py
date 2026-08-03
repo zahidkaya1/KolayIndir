@@ -33,6 +33,55 @@ def get_brand_asset_path(asset_name: str) -> Path:
     return get_resource_path(Path("assets") / "Loadvia-Brand-Assets" / asset_name)
 
 
+def setup_environment_paths() -> None:
+    """Paketlenmiş (frozen) ve normal ortamda tools/ klasörünü process PATH başına ekler."""
+    import os
+
+    candidates = []
+
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.append(exe_dir / "tools")
+        candidates.append(exe_dir / "_internal" / "tools")
+
+    candidates.append(get_resource_path("tools"))
+    candidates.append(Path(__file__).resolve().parent.parent / "tools")
+
+    for tools_dir in candidates:
+        if tools_dir.exists() and tools_dir.is_dir():
+            tools_str = str(tools_dir)
+            current_path = os.environ.get("PATH", "")
+            if tools_str not in current_path.split(os.path.pathsep):
+                os.environ["PATH"] = tools_str + os.path.pathsep + current_path
+            break
+
+
+def get_external_tool_path(tool_name: str) -> str | None:
+    """Harici araç yolunu sırasıyla tools/ klasöründe ve PATH içinde arar."""
+    import os
+    import shutil
+
+    ext = ".exe" if sys.platform == "win32" and not tool_name.endswith(".exe") else ""
+    binary = f"{tool_name}{ext}"
+
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        for sub in ["tools", os.path.join("_internal", "tools")]:
+            target = exe_dir / sub / binary
+            if target.exists() and target.is_file():
+                return str(target)
+
+    resource_target = get_resource_path(Path("tools") / binary)
+    if resource_target.exists() and resource_target.is_file():
+        return str(resource_target)
+
+    found = shutil.which(tool_name)
+    if found:
+        return found
+
+    return None
+
+
 def configure_combo_box(combo: QComboBox) -> None:
     """QComboBox ve açılır menüsünün QPalette renklerini ve yükseklik ayarlarını açık temaya sabitler."""
     combo.setEditable(False)

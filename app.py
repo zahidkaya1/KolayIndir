@@ -8,10 +8,12 @@ from PySide6.QtWidgets import QApplication
 from src.config import APP_NAME
 from src.main_window import MainWindow
 from src.styles import APP_STYLE
-from src.utils import get_brand_asset_path
+from src.utils import get_brand_asset_path, setup_environment_paths
 
 
 def main() -> int:
+    setup_environment_paths()
+
     if sys.platform == "win32":
         try:
             import ctypes
