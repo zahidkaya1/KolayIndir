@@ -8,6 +8,8 @@ venv/
 build/
 dist/
 release/
+build/installer/
+installer/Output/
 *.spec
 !packaging/Loadvia.spec
 .vscode/
