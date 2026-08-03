@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from src.config import APP_VERSION
@@ -55,10 +56,46 @@ def test_gitignore_contains_packaging_outputs():
     assert "release/" in content
 
 
-def test_external_tool_resolution():
-    tool_path = get_external_tool_path("ffmpeg")
-    assert tool_path is not None
-    assert Path(tool_path).exists()
+def test_external_tool_resolution_from_tools_dir(tmp_path, monkeypatch):
+    ext = ".exe" if sys.platform == "win32" else ""
+    fake_tools_dir = tmp_path / "tools"
+    fake_tools_dir.mkdir()
+    fake_binary = fake_tools_dir / f"ffmpeg{ext}"
+    fake_binary.write_text("fake binary content", encoding="utf-8")
+
+    def mock_get_resource_path(rel_path):
+        return tmp_path / rel_path
+
+    monkeypatch.setattr("src.utils.get_resource_path", mock_get_resource_path)
+    monkeypatch.setattr("sys.frozen", False, raising=False)
+
+    resolved = get_external_tool_path("ffmpeg")
+    assert resolved == str(fake_binary)
+    assert Path(resolved).exists()
+
+
+def test_external_tool_resolution_from_system_path(tmp_path, monkeypatch):
+    def mock_get_resource_path(rel_path):
+        return tmp_path / rel_path
+
+    monkeypatch.setattr("src.utils.get_resource_path", mock_get_resource_path)
+    monkeypatch.setattr("sys.frozen", False, raising=False)
+    monkeypatch.setattr("shutil.which", lambda cmd: "/system/bin/ffmpeg.exe")
+
+    resolved = get_external_tool_path("ffmpeg")
+    assert resolved == "/system/bin/ffmpeg.exe"
+
+
+def test_external_tool_resolution_not_found(tmp_path, monkeypatch):
+    def mock_get_resource_path(rel_path):
+        return tmp_path / rel_path
+
+    monkeypatch.setattr("src.utils.get_resource_path", mock_get_resource_path)
+    monkeypatch.setattr("sys.frozen", False, raising=False)
+    monkeypatch.setattr("shutil.which", lambda cmd: None)
+
+    resolved = get_external_tool_path("ffmpeg")
+    assert resolved is None
 
 
 def test_setup_environment_paths_in_memory_only():
