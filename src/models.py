@@ -22,6 +22,8 @@ class PlatformType(Enum):
     TIKTOK_LIVE = "tiktok_live"
     TIKTOK_SLIDESHOW = "tiktok_slideshow"
     KICK_VIDEO = "kick_video"
+    FACEBOOK_VIDEO = "facebook_video"
+    FACEBOOK_REEL = "facebook_reel"
     UNKNOWN = "unknown"
 
 
@@ -68,6 +70,97 @@ def detect_platform_type(url: str) -> PlatformType:
             return PlatformType.KICK_VIDEO
         return PlatformType.UNKNOWN
 
+    # Facebook
+    try:
+        from urllib.parse import urlparse
+        url_to_parse = url.strip()
+        if "://" not in url_to_parse:
+            url_to_parse = f"https://{url_to_parse}"
+        parsed = urlparse(url_to_parse)
+        host = (parsed.hostname or "").lower()
+    except (ValueError, TypeError, AttributeError, UnicodeError):
+        host = ""
+        parsed = None
+
+    if parsed and host:
+        is_fb_host = (
+            host in (
+                "facebook.com",
+                "www.facebook.com",
+                "m.facebook.com",
+                "web.facebook.com",
+                "mbasic.facebook.com",
+                "touch.facebook.com",
+                "fb.watch",
+                "www.fb.watch",
+            )
+            or host.endswith((".facebook.com", ".fb.watch"))
+        )
+        if is_fb_host:
+            path = parsed.path.lower().strip("/")
+            query = parsed.query.lower()
+
+            if not path:
+                if "v=" in query:
+                    return PlatformType.FACEBOOK_VIDEO
+                return PlatformType.UNKNOWN
+
+            blocked_pages = (
+                "login",
+                "login.php",
+                "marketplace",
+                "notifications",
+                "messages",
+                "settings",
+                "help",
+                "groups",
+                "pages",
+                "events",
+                "gaming",
+                "friends",
+                "saved",
+                "memories",
+                "recover",
+                "checkpoint",
+            )
+            first_segment = path.split("/")[0]
+            if first_segment in blocked_pages or path in blocked_pages:
+                return PlatformType.UNKNOWN
+
+            if (
+                path.startswith(("reel/", "reels/", "share/r/"))
+                or "/reel/" in path
+                or "/reels/" in path
+            ):
+                return PlatformType.FACEBOOK_REEL
+
+            if path == "watch" or path.startswith("watch/"):
+                return PlatformType.FACEBOOK_VIDEO
+
+            if "fb.watch" in host:
+                return PlatformType.FACEBOOK_VIDEO if path else PlatformType.UNKNOWN
+
+            if path.startswith(("share/v/", "share/p/", "share/")):
+                return PlatformType.FACEBOOK_VIDEO
+
+            if "/videos/" in path or path.startswith("videos/") or path.endswith("/videos"):
+                return PlatformType.FACEBOOK_VIDEO
+
+            if (
+                "/posts/" in path
+                or path.startswith(
+                    ("posts/", "story.php", "permalink.php", "video.php", "photo.php")
+                )
+                or "/photos/" in path
+            ):
+                return PlatformType.FACEBOOK_VIDEO
+
+            segments = [s for s in path.split("/") if s]
+            if len(segments) >= 2:
+                return PlatformType.FACEBOOK_VIDEO
+
+            return PlatformType.UNKNOWN
+
     return PlatformType.UNKNOWN
 
 
@@ -86,6 +179,8 @@ def get_platform_badge_text(platform: PlatformType) -> str:
         PlatformType.TIKTOK_LIVE: "TikTok",
         PlatformType.TIKTOK_SLIDESHOW: "TikTok Slaytı",
         PlatformType.KICK_VIDEO: "Kick — Geçici olarak kullanılamıyor",
+        PlatformType.FACEBOOK_VIDEO: "Facebook",
+        PlatformType.FACEBOOK_REEL: "Facebook",
         PlatformType.UNKNOWN: "Diğer",
     }
     return badge_map.get(platform, "Diğer")
@@ -117,6 +212,22 @@ def translate_social_error(exc_or_msg: Exception | str, url: str) -> str:
 
     if is_platform_temporarily_disabled(platform, url):
         return f"Kick desteği geçici olarak kullanılamıyor\n\n{KICK_DISABLED_MESSAGE}"
+
+    if platform in (PlatformType.FACEBOOK_VIDEO, PlatformType.FACEBOOK_REEL) or "facebook" in url.lower() or "fb.watch" in url.lower():
+        if "cannot parse data" in msg_lower:
+            return "Facebook video bilgileri alınamadı. Facebook sayfa yapısını değiştirmiş olabilir veya bu bağlantı şu anda desteklenmiyor."
+        if any(term in msg_lower for term in ("no video formats", "no video format", "no downloadable video", "there is no video", "there's no video")):
+            return "Bu Facebook bağlantısında indirilebilir video bulunamadı."
+        if any(term in msg_lower for term in ("only photo", "only photos", "photo post", "contains photo", "no media")):
+            return "Bu Facebook gönderisinde indirilebilir bir video bulunamadı."
+        if any(term in msg_lower for term in ("login required", "sign in required", "log in", "registered users", "this content isn't available", "private", "must log in", "cookies required", "authentication required")):
+            return "Bu Facebook içeriğini görüntülemek için tarayıcı oturumu gerekebilir. Oturumla Tekrar Dene seçeneğini kullanabilirsiniz."
+        if any(term in msg_lower for term in ("unavailable", "removed", "deleted", "does not exist", "not found", "404", "content is not available")):
+            return "Facebook videosu kaldırılmış, gizlenmiş veya kullanılamıyor olabilir."
+        if any(term in msg_lower for term in ("rate limit", "429", "too many requests", "temporarily blocked", "temporary block", "ip block", "banned")):
+            return "Facebook isteği geçici olarak sınırlandırdı. Bir süre sonra yeniden deneyin."
+        if any(term in msg_lower for term in ("unable to extract", "extractor")):
+            return "Facebook video bilgileri şu anda alınamadı. Facebook sayfa yapısını değiştirmiş olabilir veya bu bağlantı şu anda desteklenmiyor."
 
     if platform in (
         PlatformType.TIKTOK_VIDEO,

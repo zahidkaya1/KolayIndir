@@ -720,6 +720,8 @@ class MainWindow(QMainWindow):
                 PlatformType.INSTAGRAM_POST,
                 PlatformType.INSTAGRAM_REEL,
                 PlatformType.TWITTER_POST,
+                PlatformType.FACEBOOK_VIDEO,
+                PlatformType.FACEBOOK_REEL,
             )
             and meta.playlist_count
             and meta.playlist_count > 1
@@ -796,6 +798,8 @@ class MainWindow(QMainWindow):
                     PlatformType.INSTAGRAM_POST,
                     PlatformType.INSTAGRAM_REEL,
                     PlatformType.TWITTER_POST,
+                    PlatformType.FACEBOOK_VIDEO,
+                    PlatformType.FACEBOOK_REEL,
                 )
                 and meta.playlist_count
                 and meta.playlist_count > 1

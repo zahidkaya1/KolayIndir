@@ -343,6 +343,7 @@ class SessionFailedDialog(QDialog):
         is_instagram = "instagram" in platform_lower
         is_twitter = "twitter" in platform_lower or "x" in platform_lower
         is_youtube = "youtube" in platform_lower
+        is_facebook = "facebook" in platform_lower or "fb" in platform_lower
 
         # --- Durum tespiti ---
         has_encryption_err = is_chromium_encryption_error(failure_reason)
@@ -385,6 +386,8 @@ class SessionFailedDialog(QDialog):
                     "Instagram hesabının açık olduğu bir tarayıcı oturumu bulunamadı. "
                     "Tarayıcıda Instagram'a giriş yapıp tarayıcıyı tamamen kapatarak yeniden deneyin."
                 )
+        elif is_facebook:
+            main_text = "Facebook hesabınızın açık olduğu bir tarayıcı oturumu seçebilir veya tarayıcıyı tamamen kapatıp yeniden deneyebilirsiniz."
         elif is_twitter:
             main_text = "İçeriği görebildiğiniz hesabın açık olduğu tarayıcıyı kapatıp yeniden deneyin."
         elif is_youtube:

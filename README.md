@@ -12,6 +12,7 @@ uygulamaya yapıştırarak indirmeyi amaçlayan hızlı, kolay ve yüksek kalite
 - Chrome, Edge veya Firefox oturum çerezlerini isteğe bağlı kullanma
 - İndirme ilerlemesi, hız, kalan süre ve işlem günlüğü
 - Ayarlanabilir indirme hızı sınırı
+- Facebook video ve Reels indirme
 - İndirme klasörünü hatırlama
 - İndirmeyi iptal etme
 - GitHub Releases üzerinden güncelleme kontrolü için temel altyapı

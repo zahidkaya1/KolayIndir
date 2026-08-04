@@ -217,6 +217,8 @@ def build_profile_attempt_order(
         PlatformType.TIKTOK_PROFILE,
         PlatformType.TIKTOK_LIVE,
         PlatformType.TIKTOK_SLIDESHOW,
+        PlatformType.FACEBOOK_VIDEO,
+        PlatformType.FACEBOOK_REEL,
     ) or platform_type == PlatformType.TWITTER_POST:
         browser_priority = ["firefox", "edge", "chrome", "brave"]
     elif platform_type in (PlatformType.YOUTUBE_VIDEO, PlatformType.YOUTUBE_PLAYLIST):
@@ -341,6 +343,8 @@ def classify_session_error(message: str, url: str) -> str:
         return SESSION_STATUS_LABELS["profile_not_found"]
 
     if is_authentication_error(message):
+        if "facebook" in url.lower() or "fb.watch" in url.lower():
+            return "Facebook oturumu bulunamadı"
         if "instagram" in url.lower():
             return SESSION_STATUS_LABELS["no_instagram_session"]
         if "twitter" in url.lower() or "x.com" in url.lower():

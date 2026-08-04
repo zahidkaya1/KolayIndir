@@ -331,6 +331,31 @@ def _parse_max_height(formats: list[dict[str, Any]]) -> int | None:
     return max(heights) if heights else None
 
 
+def _has_video_candidate(data: Any) -> bool:
+    """Verilen sözlükte video formatı, URL veya indirilebilir medya verisi olup olmadığını denetler."""
+    if not isinstance(data, dict):
+        return False
+    formats = data.get("formats")
+    if formats and isinstance(formats, list):
+        for f in formats:
+            if isinstance(f, dict):
+                vcodec = str(f.get("vcodec") or "")
+                if vcodec not in ("none", ""):
+                    return True
+                if f.get("url") or f.get("manifest_url"):
+                    return True
+                if f.get("height") or f.get("width"):
+                    return True
+    if data.get("requested_formats") or data.get("requested_downloads"):
+        return True
+    if data.get("url") or data.get("manifest_url"):
+        return True
+    if data.get("_type") in ("url", "url_transparent", "video"):
+        return True
+    h = data.get("height")
+    return bool(isinstance(h, int) and h > 0)
+
+
 def _calculate_estimated_size(info: dict[str, Any]) -> int | None:
     filesize = info.get("filesize") or info.get("filesize_approx")
     if isinstance(filesize, (int, float)) and filesize > 0:
@@ -718,36 +743,44 @@ class MetadataWorker(QObject):
 
     def _build_metadata(self, info: dict[str, Any]) -> MediaMetadata:
         platform_type = detect_platform_type(self.url)
+        info_type = str(info.get("_type") or "").strip().lower()
         raw_entries = info.get("entries")
         entries = list(raw_entries) if raw_entries else []
-        is_playlist = info.get("_type") == "playlist" or bool(entries)
-        playlist_count = len(entries) if is_playlist else None
+        valid_entries = [e for e in entries if isinstance(e, dict)]
+        is_playlist = info_type in ("playlist", "multi_video") or bool(entries)
+        playlist_count = len(valid_entries) if is_playlist and valid_entries else (len(entries) if is_playlist else None)
 
         webpage_url = str(info.get("webpage_url") or info.get("original_url") or self.url).strip()
         if platform_type == PlatformType.TIKTOK_SHORT_LINK and ("/video/" in webpage_url or "tiktok.com" in webpage_url):
             platform_type = PlatformType.TIKTOK_VIDEO
 
-        # Instagram story için özel ID arama
+        # Instagram story veya ilk geçerli entry seçimi
         target_entry: dict[str, Any] | None = None
-        if is_playlist and entries:
+        if is_playlist and valid_entries:
             story_match = re.search(r"instagram\.com/stories/[^/]+/(\d+)", self.url)
             if story_match:
                 target_id = story_match.group(1)
-                for entry in entries:
-                    if isinstance(entry, dict) and str(entry.get("id")) == target_id:
+                for entry in valid_entries:
+                    if str(entry.get("id")) == target_id:
                         target_entry = entry
                         break
-            if target_entry is None and isinstance(entries[0], dict):
-                target_entry = entries[0]
+            if target_entry is None:
+                for entry in valid_entries:
+                    if _has_video_candidate(entry):
+                        target_entry = entry
+                        break
+                if target_entry is None:
+                    target_entry = valid_entries[0]
 
-        title = str(
+        import html
+        title = html.unescape(str(
             (target_entry.get("title") if target_entry else None)
             or info.get("title")
             or info.get("description")
             or info.get("playlist_title")
             or info.get("id")
             or "İçerik"
-        ).strip()
+        ).strip())
         uploader = str(
             (target_entry.get("uploader") if target_entry else None)
             or info.get("uploader")
@@ -765,16 +798,35 @@ class MetadataWorker(QObject):
         thumbnail_url = str(
             (target_entry.get("thumbnail") if target_entry else None) or info.get("thumbnail") or ""
         ).strip()
-        if not thumbnail_url and is_playlist and entries:
-            for e in entries:
-                if isinstance(e, dict) and e.get("thumbnail"):
+        if not thumbnail_url and is_playlist and valid_entries:
+            for e in valid_entries:
+                if e.get("thumbnail"):
                     thumbnail_url = str(e["thumbnail"]).strip()
                     break
 
         media_id = str((target_entry.get("id") if target_entry else None) or info.get("id") or "").strip()
 
-        formats = (target_entry.get("formats") if target_entry else None) or info.get("formats") or []
+        formats = (
+            (target_entry.get("formats") if target_entry else None)
+            or info.get("formats")
+            or (target_entry.get("requested_formats") if target_entry else None)
+            or info.get("requested_formats")
+            or (target_entry.get("requested_downloads") if target_entry else None)
+            or info.get("requested_downloads")
+            or []
+        )
         max_height = _parse_max_height(formats)
+        if max_height is None:
+            h = (target_entry.get("height") if target_entry else None) or info.get("height")
+            if isinstance(h, int) and h > 0:
+                max_height = h
+        if max_height is None:
+            req_fmts = (
+                (target_entry.get("requested_formats") if target_entry else None)
+                or info.get("requested_formats")
+                or []
+            )
+            max_height = _parse_max_height(req_fmts)
 
         is_tiktok = platform_type in (
             PlatformType.TIKTOK_VIDEO,
@@ -783,6 +835,11 @@ class MetadataWorker(QObject):
             PlatformType.TIKTOK_LIVE,
             PlatformType.TIKTOK_SLIDESHOW,
         ) or "tiktok" in self.url.lower()
+
+        is_facebook = platform_type in (
+            PlatformType.FACEBOOK_VIDEO,
+            PlatformType.FACEBOOK_REEL,
+        ) or "facebook" in self.url.lower() or "fb.watch" in self.url.lower()
 
         # Slideshow / photo post tespiti
         is_slideshow = (
@@ -804,14 +861,29 @@ class MetadataWorker(QObject):
             else:
                 self.story_notice_ready.emit("Bu slayt gönderisinin yalnızca ses parçası indirilecek.")
 
+        # Facebook video doğrulaması
+        if is_facebook and info_type not in ("url", "url_transparent"):
+            has_valid_video = False
+            if is_playlist or bool(entries):
+                if (valid_entries and any(_has_video_candidate(e) for e in valid_entries)) or _has_video_candidate(info):
+                    has_valid_video = True
+            elif _has_video_candidate(info):
+                has_valid_video = True
+
+            if not has_valid_video:
+                raise ValueError("Bu Facebook gönderisinde indirilebilir bir video bulunamadı.")
+
         if max_height is None and not is_playlist and not is_slideshow:
             if platform_type in (PlatformType.INSTAGRAM_POST, PlatformType.INSTAGRAM_REEL):
                 raise ValueError("Bu gönderide indirilebilir video bulunamadı. Fotoğraf indirme desteği henüz eklenmedi.")
             if platform_type == PlatformType.TWITTER_POST:
                 raise ValueError("Bu X gönderisinde indirilebilir video bulunamadı.")
 
+        active_info = target_entry if target_entry else info
         from src.utils import extract_available_formats
-        available_heights, valid_formats = extract_available_formats(info)
+        available_heights, valid_formats = extract_available_formats(active_info)
+        if not available_heights and max_height is not None:
+            available_heights = [max_height]
 
         requested_limit = QUALITY_HEIGHTS.get(self.requested_quality)
         selected_height = None
@@ -826,15 +898,23 @@ class MetadataWorker(QObject):
             selected_ext = "mp3"
         else:
             selected_res = f"{selected_height}p" if selected_height else "En iyi"
-            selected_ext = str(info.get("ext") or "mp4").strip()
+            selected_ext = str(active_info.get("ext") or info.get("ext") or "mp4").strip()
 
-        vcodec = str(info.get("vcodec") or "").strip()
-        acodec = str(info.get("acodec") or "").strip()
-        est_size = _calculate_estimated_size(info)
+        vcodec = str(active_info.get("vcodec") or info.get("vcodec") or "").strip()
+        acodec = str(active_info.get("acodec") or info.get("acodec") or "").strip()
+        est_size = _calculate_estimated_size(active_info) or _calculate_estimated_size(info)
 
-        track_name = str(info.get("track") or info.get("track_name") or info.get("music") or "").strip()
-        view_count = info.get("view_count") if isinstance(info.get("view_count"), int) else None
-        like_count = info.get("like_count") if isinstance(info.get("like_count"), int) else None
+        track_name = str(
+            active_info.get("track")
+            or active_info.get("track_name")
+            or active_info.get("music")
+            or info.get("track")
+            or info.get("track_name")
+            or info.get("music")
+            or ""
+        ).strip()
+        view_count = active_info.get("view_count") if isinstance(active_info.get("view_count"), int) else (info.get("view_count") if isinstance(info.get("view_count"), int) else None)
+        like_count = active_info.get("like_count") if isinstance(active_info.get("like_count"), int) else (info.get("like_count") if isinstance(info.get("like_count"), int) else None)
 
         return MediaMetadata(
             title=title,
