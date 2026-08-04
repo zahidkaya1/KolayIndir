@@ -27,16 +27,18 @@ def get_default_download_dir() -> str:
 
 
 def load_settings() -> dict[str, Any]:
+    from src.utils import parse_rate_limit_setting
+
     default_dir = get_default_download_dir()
     if not SETTINGS_FILE.exists():
-        return {"output_dir": default_dir, "auto_open_folder": False}
+        return {"output_dir": default_dir, "auto_open_folder": False, "rate_limit_bps": None}
     try:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {"output_dir": default_dir, "auto_open_folder": False}
+        return {"output_dir": default_dir, "auto_open_folder": False, "rate_limit_bps": None}
 
     if not isinstance(data, dict):
-        return {"output_dir": default_dir, "auto_open_folder": False}
+        return {"output_dir": default_dir, "auto_open_folder": False, "rate_limit_bps": None}
 
     data.pop("browser", None)
     data.pop("playlist", None)
@@ -79,6 +81,8 @@ def load_settings() -> dict[str, Any]:
 
     if "convert_hevc_to_h264" not in data:
         data["convert_hevc_to_h264"] = True
+
+    data["rate_limit_bps"] = parse_rate_limit_setting(data.get("rate_limit_bps"))
 
     return data
 

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -26,7 +27,12 @@ from PySide6.QtWidgets import (
 from src.config import APP_NAME
 from src.dialogs import AppMessageDialog
 from src.models import QueueItem
-from src.utils import apply_pointing_hand_cursor, extract_supported_urls_from_text
+from src.utils import (
+    apply_pointing_hand_cursor,
+    extract_supported_urls_from_text,
+    format_rate_limit,
+    rate_limit_to_bps,
+)
 
 
 def format_folder_display(path: Path | str | None) -> str:
@@ -47,7 +53,7 @@ class QueueItemEditDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("queueEditDialog")
         self.setWindowTitle("Kuyruk Öğesini Düzenle")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(520)
         self.setWindowFlags(
             Qt.WindowType.Dialog
             | Qt.WindowType.WindowTitleHint
@@ -93,6 +99,49 @@ class QueueItemEditDialog(QDialog):
         row1.addWidget(self.quality_combo, 1)
         layout.addLayout(row1)
 
+        # Hız Sınırı
+        row_rate = QHBoxLayout()
+        row_rate.setSpacing(10)
+
+        rate_label = QLabel("Hız Sınırı:")
+        self.rate_limit_combo = QComboBox()
+        self.rate_limit_combo.addItem("Sınırsız", None)
+        self.rate_limit_combo.addItem("512 KB/sn", 524288)
+        self.rate_limit_combo.addItem("1 MB/sn", 1048576)
+        self.rate_limit_combo.addItem("2 MB/sn", 2097152)
+        self.rate_limit_combo.addItem("5 MB/sn", 5242880)
+        self.rate_limit_combo.addItem("10 MB/sn", 10485760)
+        self.rate_limit_combo.addItem("Özel...", "custom")
+
+        self.custom_rate_limit_container = QWidget()
+        custom_layout = QHBoxLayout(self.custom_rate_limit_container)
+        custom_layout.setContentsMargins(0, 0, 0, 0)
+        custom_layout.setSpacing(6)
+
+        self.custom_rate_limit_spin = QDoubleSpinBox()
+        self.custom_rate_limit_spin.setRange(0.06, 100.0)
+        self.custom_rate_limit_spin.setDecimals(2)
+        self.custom_rate_limit_spin.setSingleStep(0.5)
+        self.custom_rate_limit_spin.setValue(2.5)
+
+        self.custom_rate_limit_unit_combo = QComboBox()
+        self.custom_rate_limit_unit_combo.addItems(["MB/sn", "KB/sn"])
+        self.custom_rate_limit_unit_combo.currentTextChanged.connect(self._on_custom_unit_changed)
+
+        custom_layout.addWidget(self.custom_rate_limit_spin)
+        custom_layout.addWidget(self.custom_rate_limit_unit_combo)
+        self.custom_rate_limit_container.setVisible(False)
+
+        self.rate_limit_combo.currentIndexChanged.connect(self._on_rate_limit_changed)
+
+        row_rate.addWidget(rate_label)
+        row_rate.addWidget(self.rate_limit_combo)
+        row_rate.addWidget(self.custom_rate_limit_container, 1)
+        layout.addLayout(row_rate)
+
+        # Mevcut hız sınırını yükle
+        self._init_rate_limit_ui(item.rate_limit_bps)
+
         # İndirme Klasörü
         row2 = QHBoxLayout()
         row2.setSpacing(8)
@@ -134,6 +183,74 @@ class QueueItemEditDialog(QDialog):
         btn_layout.addWidget(self.save_btn)
         layout.addLayout(btn_layout)
 
+    def _init_rate_limit_ui(self, rate_limit_bps: int | None) -> None:
+        if rate_limit_bps is None or rate_limit_bps <= 0:
+            self.rate_limit_combo.setCurrentIndex(0)
+            self.custom_rate_limit_container.setVisible(False)
+            return
+
+        matched = -1
+        for i in range(self.rate_limit_combo.count()):
+            data = self.rate_limit_combo.itemData(i)
+            if isinstance(data, int) and data == rate_limit_bps:
+                matched = i
+                break
+
+        if matched >= 0:
+            self.rate_limit_combo.setCurrentIndex(matched)
+            self.custom_rate_limit_container.setVisible(False)
+        else:
+            for i in range(self.rate_limit_combo.count()):
+                if self.rate_limit_combo.itemData(i) == "custom":
+                    self.rate_limit_combo.setCurrentIndex(i)
+                    break
+            self.custom_rate_limit_container.setVisible(True)
+            if rate_limit_bps >= 1024 * 1024 and (rate_limit_bps % 1024 == 0):
+                mb_val = rate_limit_bps / (1024 * 1024)
+                self.custom_rate_limit_unit_combo.setCurrentText("MB/sn")
+                self.custom_rate_limit_spin.setRange(0.06, 100.0)
+                self.custom_rate_limit_spin.setDecimals(2)
+                self.custom_rate_limit_spin.setValue(round(mb_val, 2))
+            else:
+                kb_val = rate_limit_bps / 1024
+                self.custom_rate_limit_unit_combo.setCurrentText("KB/sn")
+                self.custom_rate_limit_spin.setRange(64.0, 102400.0)
+                self.custom_rate_limit_spin.setDecimals(0)
+                self.custom_rate_limit_spin.setValue(round(kb_val, 0))
+
+    def _on_rate_limit_changed(self, index: int) -> None:
+        is_custom = self.rate_limit_combo.itemData(index) == "custom"
+        self.custom_rate_limit_container.setVisible(is_custom)
+
+    def _on_custom_unit_changed(self, unit: str) -> None:
+        current_val = self.custom_rate_limit_spin.value()
+        self.custom_rate_limit_spin.blockSignals(True)
+        if "MB" in unit:
+            new_val = max(0.06, min(100.0, current_val / 1024.0))
+            self.custom_rate_limit_spin.setRange(0.06, 100.0)
+            self.custom_rate_limit_spin.setDecimals(2)
+            self.custom_rate_limit_spin.setSingleStep(0.5)
+            self.custom_rate_limit_spin.setValue(round(new_val, 2))
+        else:
+            new_val = max(64.0, min(102400.0, current_val * 1024.0))
+            self.custom_rate_limit_spin.setRange(64.0, 102400.0)
+            self.custom_rate_limit_spin.setDecimals(0)
+            self.custom_rate_limit_spin.setSingleStep(64.0)
+            self.custom_rate_limit_spin.setValue(round(new_val, 0))
+        self.custom_rate_limit_spin.blockSignals(False)
+
+    def get_rate_limit_bps(self) -> int | None:
+        data = self.rate_limit_combo.currentData()
+        if data is None:
+            return None
+        if isinstance(data, int):
+            return data if data > 0 else None
+        if data == "custom":
+            val = self.custom_rate_limit_spin.value()
+            unit = self.custom_rate_limit_unit_combo.currentText()
+            return rate_limit_to_bps(val, unit)
+        return None
+
     def _on_media_type_changed(self, media_text: str) -> None:
         self._update_quality_options(media_text)
 
@@ -173,6 +290,7 @@ class QueueItemEditDialog(QDialog):
         self.item.quality = self.quality_combo.currentText()
         self.item.output_dir = Path(folder_text)
         self.item.playlist = self.playlist_checkbox.isChecked()
+        self.item.rate_limit_bps = self.get_rate_limit_bps()
         self.accept()
 
 
@@ -180,8 +298,8 @@ class DownloadQueueDialog(QDialog):
     """Çoklu indirme kuyruğunu görüntüleyen ve yöneten diyalog penceresi."""
 
     # Sinyaller (MainWindow koordinasyonu için)
-    urls_added = Signal(list, str, str, bool, Path)  # urls, media_type, quality, playlist, output_dir
-    current_url_added = Signal(str, str, bool, Path)  # media_type, quality, playlist, output_dir
+    urls_added = Signal(list, str, str, bool, Path, object)  # urls, media_type, quality, playlist, output_dir, rate_limit_bps
+    current_url_added = Signal(str, str, bool, Path, object)  # media_type, quality, playlist, output_dir, rate_limit_bps
     start_queue_requested = Signal()
     stop_queue_requested = Signal()
     delete_selected_requested = Signal(str)
@@ -193,7 +311,7 @@ class DownloadQueueDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("downloadQueueDialog")
         self.setWindowTitle(f"{APP_NAME} — İndirme Kuyruğu")
-        self.setMinimumSize(940, 640)
+        self.setMinimumSize(980, 640)
 
         # Standart Windows başlık çubuğu ve sağ üst X kapatma düğmesi
         self.setWindowFlags(
@@ -223,7 +341,7 @@ class DownloadQueueDialog(QDialog):
         settings_layout.addWidget(settings_title)
 
         row1 = QHBoxLayout()
-        row1.setSpacing(12)
+        row1.setSpacing(10)
 
         media_label = QLabel("Tür:")
         self.media_combo = QComboBox()
@@ -234,12 +352,48 @@ class DownloadQueueDialog(QDialog):
         self.quality_combo = QComboBox()
         self._update_quality_options(self.media_combo.currentText())
 
-        self.playlist_checkbox = QCheckBox("Oynatma listesinin tamamını indir")
+        rate_label = QLabel("Hız Sınırı:")
+        self.rate_limit_combo = QComboBox()
+        self.rate_limit_combo.setObjectName("queueRateLimitCombo")
+        self.rate_limit_combo.addItem("Sınırsız", None)
+        self.rate_limit_combo.addItem("512 KB/sn", 524288)
+        self.rate_limit_combo.addItem("1 MB/sn", 1048576)
+        self.rate_limit_combo.addItem("2 MB/sn", 2097152)
+        self.rate_limit_combo.addItem("5 MB/sn", 5242880)
+        self.rate_limit_combo.addItem("10 MB/sn", 10485760)
+        self.rate_limit_combo.addItem("Özel...", "custom")
+        self.rate_limit_combo.currentIndexChanged.connect(self._on_rate_limit_changed)
+
+        self.custom_rate_limit_container = QWidget()
+        custom_layout = QHBoxLayout(self.custom_rate_limit_container)
+        custom_layout.setContentsMargins(0, 0, 0, 0)
+        custom_layout.setSpacing(4)
+
+        self.custom_rate_limit_spin = QDoubleSpinBox()
+        self.custom_rate_limit_spin.setObjectName("queueCustomRateLimitSpin")
+        self.custom_rate_limit_spin.setRange(0.06, 100.0)
+        self.custom_rate_limit_spin.setDecimals(2)
+        self.custom_rate_limit_spin.setSingleStep(0.5)
+        self.custom_rate_limit_spin.setValue(2.5)
+
+        self.custom_rate_limit_unit_combo = QComboBox()
+        self.custom_rate_limit_unit_combo.setObjectName("queueCustomRateLimitUnitCombo")
+        self.custom_rate_limit_unit_combo.addItems(["MB/sn", "KB/sn"])
+        self.custom_rate_limit_unit_combo.currentTextChanged.connect(self._on_custom_unit_changed)
+
+        custom_layout.addWidget(self.custom_rate_limit_spin)
+        custom_layout.addWidget(self.custom_rate_limit_unit_combo)
+        self.custom_rate_limit_container.setVisible(False)
+
+        self.playlist_checkbox = QCheckBox("Oynatma listesi")
 
         row1.addWidget(media_label)
         row1.addWidget(self.media_combo)
         row1.addWidget(quality_label)
         row1.addWidget(self.quality_combo, 1)
+        row1.addWidget(rate_label)
+        row1.addWidget(self.rate_limit_combo)
+        row1.addWidget(self.custom_rate_limit_container)
         row1.addWidget(self.playlist_checkbox)
         settings_layout.addLayout(row1)
 
@@ -340,15 +494,16 @@ class DownloadQueueDialog(QDialog):
 
         layout.addLayout(control_layout)
 
-        # Tablo (7 Sütun)
+        # Tablo (8 Sütun)
         self.table = QTableWidget()
         self.table.setObjectName("queueTable")
-        self.table.setColumnCount(7)
+        self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels([
             "Başlık / URL",
             "Platform",
             "Tür",
             "Kalite",
+            "Hız Sınırı",
             "Klasör",
             "Durum",
             "İlerleme",
@@ -360,11 +515,12 @@ class DownloadQueueDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
-        self.table.setColumnWidth(4, 140)
-        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(6, 130)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(5, 130)
+        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(7, 130)
         self.table.viewport().setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         v_header = self.table.verticalHeader()
@@ -378,6 +534,39 @@ class DownloadQueueDialog(QDialog):
         self.summary_label = QLabel("0 bekliyor • 0 indiriliyor • 0 tamamlandı • 0 başarısız")
         self.summary_label.setObjectName("queueSummary")
         layout.addWidget(self.summary_label)
+
+    def _on_rate_limit_changed(self, index: int) -> None:
+        is_custom = self.rate_limit_combo.itemData(index) == "custom"
+        self.custom_rate_limit_container.setVisible(is_custom)
+
+    def _on_custom_unit_changed(self, unit: str) -> None:
+        current_val = self.custom_rate_limit_spin.value()
+        self.custom_rate_limit_spin.blockSignals(True)
+        if "MB" in unit:
+            new_val = max(0.06, min(100.0, current_val / 1024.0))
+            self.custom_rate_limit_spin.setRange(0.06, 100.0)
+            self.custom_rate_limit_spin.setDecimals(2)
+            self.custom_rate_limit_spin.setSingleStep(0.5)
+            self.custom_rate_limit_spin.setValue(round(new_val, 2))
+        else:
+            new_val = max(64.0, min(102400.0, current_val * 1024.0))
+            self.custom_rate_limit_spin.setRange(64.0, 102400.0)
+            self.custom_rate_limit_spin.setDecimals(0)
+            self.custom_rate_limit_spin.setSingleStep(64.0)
+            self.custom_rate_limit_spin.setValue(round(new_val, 0))
+        self.custom_rate_limit_spin.blockSignals(False)
+
+    def get_rate_limit_bps(self) -> int | None:
+        data = self.rate_limit_combo.currentData()
+        if data is None:
+            return None
+        if isinstance(data, int):
+            return data if data > 0 else None
+        if data == "custom":
+            val = self.custom_rate_limit_spin.value()
+            unit = self.custom_rate_limit_unit_combo.currentText()
+            return rate_limit_to_bps(val, unit)
+        return None
 
     def _on_media_type_changed(self, media_text: str) -> None:
         self._update_quality_options(media_text)
@@ -410,14 +599,15 @@ class DownloadQueueDialog(QDialog):
         if res:
             self.folder_input.setText(res)
 
-    def get_current_settings(self) -> tuple[str, str, bool, Path]:
+    def get_current_settings(self) -> tuple[str, str, bool, Path, int | None]:
         """Diyalogdaki güncel varsayılan ayarları döndürür."""
         media_type = self.media_combo.currentText()
         quality = self.quality_combo.currentText()
         playlist = self.playlist_checkbox.isChecked()
         folder_text = self.folder_input.text().strip()
         output_dir = Path(folder_text) if folder_text else Path.home() / "Downloads"
-        return media_type, quality, playlist, output_dir
+        rate_limit_bps = self.get_rate_limit_bps()
+        return media_type, quality, playlist, output_dir, rate_limit_bps
 
     def _on_add_urls_clicked(self) -> None:
         text = self.urls_input.toPlainText()
@@ -425,13 +615,13 @@ class DownloadQueueDialog(QDialog):
             return
 
         urls = extract_supported_urls_from_text(text)
-        media_type, quality, playlist, output_dir = self.get_current_settings()
-        self.urls_added.emit(urls, media_type, quality, playlist, output_dir)
+        media_type, quality, playlist, output_dir, rate_limit_bps = self.get_current_settings()
+        self.urls_added.emit(urls, media_type, quality, playlist, output_dir, rate_limit_bps)
         self.urls_input.clear()
 
     def _on_add_current_clicked(self) -> None:
-        media_type, quality, playlist, output_dir = self.get_current_settings()
-        self.current_url_added.emit(media_type, quality, playlist, output_dir)
+        media_type, quality, playlist, output_dir, rate_limit_bps = self.get_current_settings()
+        self.current_url_added.emit(media_type, quality, playlist, output_dir, rate_limit_bps)
 
     def _on_delete_clicked(self) -> None:
         selected_items = self.table.selectedItems()
@@ -458,7 +648,7 @@ class DownloadQueueDialog(QDialog):
         if target_item.status in ("Analiz ediliyor", "İndiriliyor", "Tamamlandı"):
             AppMessageDialog(
                 "Düzenleme Engellendi",
-                "Aktif veya tamamlanmış kuyruk öğesinin ayarları değiştirilemez.",
+                "Yalnızca bekleyen, başarısız veya iptal edilmiş öğeler düzenlenebilir.",
                 "warning",
                 self,
             ).exec()
@@ -485,9 +675,14 @@ class DownloadQueueDialog(QDialog):
             self.table.setItem(i, 2, QTableWidgetItem(item.media_type))
             self.table.setItem(i, 3, QTableWidgetItem(item.quality))
 
+            rate_text = format_rate_limit(item.rate_limit_bps)
+            rate_widget = QTableWidgetItem(rate_text)
+            rate_widget.setToolTip(f"Hız Sınırı: {rate_text}")
+            self.table.setItem(i, 4, rate_widget)
+
             folder_widget = QTableWidgetItem(format_folder_display(item.output_dir))
             folder_widget.setToolTip(str(item.output_dir) if item.output_dir else "")
-            self.table.setItem(i, 4, folder_widget)
+            self.table.setItem(i, 5, folder_widget)
 
             status_text = item.status
             if item.error_msg:
@@ -503,16 +698,16 @@ class DownloadQueueDialog(QDialog):
             elif item.status in ("Analiz ediliyor", "İndiriliyor"):
                 status_widget.setForeground(Qt.GlobalColor.blue)
 
-            self.table.setItem(i, 5, status_widget)
+            self.table.setItem(i, 6, status_widget)
 
             if item.status == "İndiriliyor":
                 progress = QProgressBar()
                 progress.setRange(0, 100)
                 progress.setValue(item.progress_percent)
                 progress.setFormat(f"%p% - {item.progress_text}" if item.progress_text else "%p%")
-                self.table.setCellWidget(i, 6, progress)
+                self.table.setCellWidget(i, 7, progress)
             else:
-                self.table.setItem(i, 6, QTableWidgetItem(item.progress_text))
+                self.table.setItem(i, 7, QTableWidgetItem(item.progress_text))
 
         self._update_summary(queue_items)
 
@@ -521,7 +716,7 @@ class DownloadQueueDialog(QDialog):
         for row in range(self.table.rowCount()):
             item_widget = self.table.item(row, 0)
             if item_widget and item_widget.data(Qt.ItemDataRole.UserRole) == item_id:
-                cell_widget = self.table.cellWidget(row, 6)
+                cell_widget = self.table.cellWidget(row, 7)
                 if isinstance(cell_widget, QProgressBar):
                     if percent is not None:
                         cell_widget.setValue(percent)

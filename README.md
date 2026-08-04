@@ -11,6 +11,7 @@ uygulamaya yapıştırarak indirmeyi amaçlayan hızlı, kolay ve yüksek kalite
 - En iyi kalite, 1080p, 720p ve 480p seçenekleri
 - Chrome, Edge veya Firefox oturum çerezlerini isteğe bağlı kullanma
 - İndirme ilerlemesi, hız, kalan süre ve işlem günlüğü
+- Ayarlanabilir indirme hızı sınırı
 - İndirme klasörünü hatırlama
 - İndirmeyi iptal etme
 - GitHub Releases üzerinden güncelleme kontrolü için temel altyapı

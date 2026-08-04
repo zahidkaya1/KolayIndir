@@ -193,4 +193,7 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
         if imp_target is not None:
             options["impersonate"] = imp_target
 
+    if request.rate_limit_bps and request.rate_limit_bps > 0:
+        options["ratelimit"] = int(request.rate_limit_bps)
+
     return options

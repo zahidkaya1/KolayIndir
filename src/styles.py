@@ -35,19 +35,27 @@ QLabel#statusLabel {
     font-weight: 600;
 }
 
-QLineEdit, QTextEdit {
+QLineEdit, QTextEdit, QDoubleSpinBox, QSpinBox {
     background: #ffffff;
     color: #172033;
     border: 1px solid #cfd6e2;
     border-radius: 8px;
-    padding: 9px;
+    padding: 8px 10px;
+    font-size: 14px;
+    min-height: 20px;
 }
 
-QLineEdit:focus, QTextEdit:focus {
+QLineEdit:focus, QTextEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus {
     border: 1px solid #2563eb;
 }
 
-QComboBox, QComboBox#mediaTypeCombo, QComboBox#qualityCombo, QComboBox#browserCombo {
+QDoubleSpinBox:disabled, QSpinBox:disabled {
+    background-color: #f2f4f7;
+    color: #667085;
+    border-color: #d0d5dd;
+}
+
+QComboBox, QComboBox#mediaTypeCombo, QComboBox#qualityCombo, QComboBox#browserCombo, QComboBox#rateLimitCombo, QComboBox#queueRateLimitCombo {
     min-height: 38px;
     padding: 0px 34px 0px 10px;
     background-color: #ffffff;
@@ -59,12 +67,12 @@ QComboBox, QComboBox#mediaTypeCombo, QComboBox#qualityCombo, QComboBox#browserCo
     selection-color: #174ea6;
 }
 
-QComboBox:focus, QComboBox#mediaTypeCombo:focus, QComboBox#qualityCombo:focus, QComboBox#browserCombo:focus {
+QComboBox:focus, QComboBox#mediaTypeCombo:focus, QComboBox#qualityCombo:focus, QComboBox#browserCombo:focus, QComboBox#rateLimitCombo:focus, QComboBox#queueRateLimitCombo:focus {
     border: 1px solid #2563eb;
     color: #172033;
 }
 
-QComboBox:disabled, QComboBox#mediaTypeCombo:disabled, QComboBox#qualityCombo:disabled, QComboBox#browserCombo:disabled {
+QComboBox:disabled, QComboBox#mediaTypeCombo:disabled, QComboBox#qualityCombo:disabled, QComboBox#browserCombo:disabled, QComboBox#rateLimitCombo:disabled, QComboBox#queueRateLimitCombo:disabled {
     background-color: #f2f4f7;
     color: #667085;
     border-color: #d0d5dd;

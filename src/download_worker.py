@@ -454,6 +454,9 @@ class DownloadWorker(QObject):
                 else:
                     opts["format"] = "bv*+ba/b"
 
+            if self.request.rate_limit_bps and self.request.rate_limit_bps > 0:
+                opts["ratelimit"] = int(self.request.rate_limit_bps)
+
             return opts
 
         self.status.emit("Video kalitesi hazırlanıyor…")
@@ -785,6 +788,7 @@ class DownloadWorker(QObject):
                     convert_hevc_to_h264=self.request.convert_hevc_to_h264,
                     job_id=self.job_id,
                     target_final_path=self.request.target_final_path,
+                    rate_limit_bps=self.request.rate_limit_bps,
                 )
                 pref_options = build_ydl_options(pref_req)
                 pref_options["logger"] = _YtDlpLogger(self.log)
@@ -895,6 +899,7 @@ class DownloadWorker(QObject):
                     convert_hevc_to_h264=self.request.convert_hevc_to_h264,
                     job_id=self.job_id,
                     target_final_path=self.request.target_final_path,
+                    rate_limit_bps=self.request.rate_limit_bps,
                 )
 
                 options = build_ydl_options(req_copy)

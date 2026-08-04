@@ -696,3 +696,96 @@ def extract_supported_urls_from_text(text: str | None) -> list[str]:
             result.append(cleaned)
 
     return result
+
+
+MIN_RATE_LIMIT_BPS = 64 * 1024  # 64 KB/sn = 65,536 bytes/sec
+MAX_RATE_LIMIT_BPS = 100 * 1024 * 1024  # 100 MB/sn = 104,857,600 bytes/sec
+
+RATE_LIMIT_PRESETS: dict[str, int | None] = {
+    "Sınırsız": None,
+    "512 KB/sn": 512 * 1024,
+    "1 MB/sn": 1 * 1024 * 1024,
+    "2 MB/sn": 2 * 1024 * 1024,
+    "5 MB/sn": 5 * 1024 * 1024,
+    "10 MB/sn": 10 * 1024 * 1024,
+}
+
+
+def rate_limit_to_bps(value: float | str | None, unit: str = "KB/sn") -> int | None:
+    """Kullanıcı tarafından girilen hız ve birim bilgisini saniye başına bayt (bps) değerine dönüştürür."""
+    if value is None:
+        return None
+
+    try:
+        if isinstance(value, str):
+            clean_str = value.strip().replace(",", ".")
+            val_float = float(clean_str)
+        else:
+            val_float = float(value)
+    except (ValueError, TypeError):
+        return None
+
+    if val_float <= 0:
+        return None
+
+    unit_normalized = (unit or "").strip()
+    if "MB" in unit_normalized:
+        bps = round(val_float * 1024 * 1024)
+    elif "KB" in unit_normalized:
+        bps = round(val_float * 1024)
+    else:
+        return None
+
+    return max(MIN_RATE_LIMIT_BPS, min(bps, MAX_RATE_LIMIT_BPS))
+
+
+def format_rate_limit(rate_limit_bps: float | None) -> str:
+    """Byte/sn değerini 'Sınırsız', '512 KB/sn', '1 MB/sn', '2,5 MB/sn' gibi kullanıcı dostu metne dönüştürür."""
+    if rate_limit_bps is None:
+        return "Sınırsız"
+
+    try:
+        bps = int(rate_limit_bps)
+    except (ValueError, TypeError):
+        return "Sınırsız"
+
+    if bps <= 0:
+        return "Sınırsız"
+
+    # Bilinen preset tam eşleşmeleri
+    for preset_label, preset_val in RATE_LIMIT_PRESETS.items():
+        if preset_val is not None and bps == preset_val:
+            return preset_label
+
+    if bps < 1024 * 1024:
+        kb = bps / 1024
+        if kb.is_integer():
+            return f"{int(kb)} KB/sn"
+        formatted_kb = f"{kb:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+        return f"{formatted_kb} KB/sn"
+
+    mb = bps / (1024 * 1024)
+    if mb.is_integer():
+        return f"{int(mb)} MB/sn"
+    formatted_mb = f"{mb:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+    return f"{formatted_mb} MB/sn"
+
+
+def parse_rate_limit_setting(raw: Any) -> int | None:
+    """Settings veya kullanıcı girdisinden gelen rate limit değerini doğrular ve int | None döndürür."""
+    if raw is None or raw == "" or raw is False:
+        return None
+
+    try:
+        if isinstance(raw, str):
+            clean_str = raw.strip().replace(",", ".")
+            val = float(clean_str)
+        else:
+            val = float(raw)
+
+        int_val = round(val)
+        if int_val <= 0:
+            return None
+        return int_val
+    except (ValueError, TypeError):
+        return None

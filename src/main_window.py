@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -88,8 +89,10 @@ from src.utils import (
     calculate_detailed_format_info,
     clean_log_message,
     configure_combo_box,
+    format_rate_limit,
     get_brand_asset_path,
     probe_media_codecs,
+    rate_limit_to_bps,
     set_combo_value,
 )
 from src.widgets import NoWheelComboBox, OptionCard
@@ -365,6 +368,47 @@ class MainWindow(QMainWindow):
         self.browser_combo.addItem("Brave oturumu", "brave")
         configure_combo_box(self.browser_combo)
 
+        self.rate_limit_label = QLabel("İndirme hızı sınırı:")
+
+        self.rate_limit_combo = NoWheelComboBox()
+        self.rate_limit_combo.setObjectName("rateLimitCombo")
+        self.rate_limit_combo.addItem("Sınırsız", None)
+        self.rate_limit_combo.addItem("512 KB/sn", 524288)
+        self.rate_limit_combo.addItem("1 MB/sn", 1048576)
+        self.rate_limit_combo.addItem("2 MB/sn", 2097152)
+        self.rate_limit_combo.addItem("5 MB/sn", 5242880)
+        self.rate_limit_combo.addItem("10 MB/sn", 10485760)
+        self.rate_limit_combo.addItem("Özel...", "custom")
+        self.rate_limit_combo.setToolTip(
+            "İndirme sırasında kullanılabilecek azami ağ hızını belirler.\n"
+            "Gerçek hız bağlantıya ve kaynağa göre daha düşük olabilir."
+        )
+        self.rate_limit_combo.currentIndexChanged.connect(self._on_rate_limit_combo_changed)
+        configure_combo_box(self.rate_limit_combo)
+
+        self.custom_rate_limit_container = QWidget()
+        custom_layout = QHBoxLayout(self.custom_rate_limit_container)
+        custom_layout.setContentsMargins(0, 0, 0, 0)
+        custom_layout.setSpacing(6)
+
+        self.custom_rate_limit_spin = QDoubleSpinBox()
+        self.custom_rate_limit_spin.setObjectName("customRateLimitSpin")
+        self.custom_rate_limit_spin.setRange(0.06, 100.0)
+        self.custom_rate_limit_spin.setDecimals(2)
+        self.custom_rate_limit_spin.setSingleStep(0.5)
+        self.custom_rate_limit_spin.setValue(2.5)
+        self.custom_rate_limit_spin.valueChanged.connect(lambda _: self._save_current_settings())
+
+        self.custom_rate_limit_unit_combo = NoWheelComboBox()
+        self.custom_rate_limit_unit_combo.setObjectName("customRateLimitUnitCombo")
+        self.custom_rate_limit_unit_combo.addItems(["MB/sn", "KB/sn"])
+        self.custom_rate_limit_unit_combo.currentTextChanged.connect(self._on_custom_unit_changed)
+        configure_combo_box(self.custom_rate_limit_unit_combo)
+
+        custom_layout.addWidget(self.custom_rate_limit_spin)
+        custom_layout.addWidget(self.custom_rate_limit_unit_combo)
+        self.custom_rate_limit_container.setVisible(False)
+
         self.playlist_checkbox = QCheckBox(
             "Oynatma listesinin tamamını indir"
         )
@@ -388,6 +432,9 @@ class MainWindow(QMainWindow):
         options_grid.addWidget(self.media_combo, 1, 0)
         options_grid.addWidget(self.quality_combo, 1, 1)
         options_grid.addWidget(self.browser_combo, 1, 2)
+        options_grid.addWidget(self.rate_limit_label, 2, 0)
+        options_grid.addWidget(self.rate_limit_combo, 3, 0)
+        options_grid.addWidget(self.custom_rate_limit_container, 3, 1, 1, 2)
         content_layout.addLayout(options_grid)
 
         cards_box = QVBoxLayout()
@@ -947,7 +994,87 @@ class MainWindow(QMainWindow):
             bool(self.settings.get("auto_open_folder", False))
         )
         self.browser_combo.setCurrentIndex(0)
+        self._restore_rate_limit_setting(self.settings.get("rate_limit_bps"))
         self._on_media_type_changed(self.media_combo.currentText())
+
+    def _restore_rate_limit_setting(self, rate_limit_bps: int | None) -> None:
+        if rate_limit_bps is None or rate_limit_bps <= 0:
+            self.rate_limit_combo.setCurrentIndex(0)
+            self.custom_rate_limit_container.setVisible(False)
+            return
+
+        matched_index = -1
+        for i in range(self.rate_limit_combo.count()):
+            data = self.rate_limit_combo.itemData(i)
+            if isinstance(data, int) and data == rate_limit_bps:
+                matched_index = i
+                break
+
+        if matched_index >= 0:
+            self.rate_limit_combo.setCurrentIndex(matched_index)
+            self.custom_rate_limit_container.setVisible(False)
+        else:
+            for i in range(self.rate_limit_combo.count()):
+                if self.rate_limit_combo.itemData(i) == "custom":
+                    self.rate_limit_combo.setCurrentIndex(i)
+                    break
+            self.custom_rate_limit_container.setVisible(True)
+            if rate_limit_bps >= 1024 * 1024 and (rate_limit_bps % 1024 == 0):
+                mb_val = rate_limit_bps / (1024 * 1024)
+                self.custom_rate_limit_unit_combo.setCurrentText("MB/sn")
+                self._update_custom_spin_limits("MB/sn")
+                self.custom_rate_limit_spin.setValue(round(mb_val, 2))
+            else:
+                kb_val = rate_limit_bps / 1024
+                self.custom_rate_limit_unit_combo.setCurrentText("KB/sn")
+                self._update_custom_spin_limits("KB/sn")
+                self.custom_rate_limit_spin.setValue(round(kb_val, 2))
+
+    def _on_rate_limit_combo_changed(self, index: int) -> None:
+        data = self.rate_limit_combo.itemData(index)
+        is_custom = data == "custom"
+        self.custom_rate_limit_container.setVisible(is_custom)
+        if is_custom:
+            self._update_custom_spin_limits(self.custom_rate_limit_unit_combo.currentText())
+        self._save_current_settings()
+
+    def _on_custom_unit_changed(self, unit: str) -> None:
+        current_val = self.custom_rate_limit_spin.value()
+        self.custom_rate_limit_spin.blockSignals(True)
+        if "MB" in unit:
+            new_val = max(0.06, min(100.0, current_val / 1024.0))
+            self._update_custom_spin_limits("MB/sn")
+            self.custom_rate_limit_spin.setValue(round(new_val, 2))
+        else:
+            new_val = max(64.0, min(102400.0, current_val * 1024.0))
+            self._update_custom_spin_limits("KB/sn")
+            self.custom_rate_limit_spin.setValue(round(new_val, 0))
+        self.custom_rate_limit_spin.blockSignals(False)
+        self._save_current_settings()
+
+    def _update_custom_spin_limits(self, unit: str) -> None:
+        self.custom_rate_limit_spin.blockSignals(True)
+        if "MB" in unit:
+            self.custom_rate_limit_spin.setRange(0.06, 100.0)
+            self.custom_rate_limit_spin.setDecimals(2)
+            self.custom_rate_limit_spin.setSingleStep(0.5)
+        else:
+            self.custom_rate_limit_spin.setRange(64.0, 102400.0)
+            self.custom_rate_limit_spin.setDecimals(0)
+            self.custom_rate_limit_spin.setSingleStep(64.0)
+        self.custom_rate_limit_spin.blockSignals(False)
+
+    def get_current_rate_limit_bps(self) -> int | None:
+        data = self.rate_limit_combo.currentData()
+        if data is None:
+            return None
+        if isinstance(data, int):
+            return data if data > 0 else None
+        if data == "custom":
+            val = self.custom_rate_limit_spin.value()
+            unit = self.custom_rate_limit_unit_combo.currentText()
+            return rate_limit_to_bps(val, unit)
+        return None
 
     def _save_current_settings(self) -> None:
         save_settings({
@@ -955,6 +1082,7 @@ class MainWindow(QMainWindow):
             "media_type": self.media_combo.currentText(),
             "quality": self.quality_combo.currentText(),
             "auto_open_folder": self.auto_open_checkbox.isChecked(),
+            "rate_limit_bps": self.get_current_rate_limit_bps(),
         })
 
     def _choose_folder(self) -> None:
@@ -1163,6 +1291,10 @@ class MainWindow(QMainWindow):
 
         self._force_redownload_once = False
 
+        current_rate_limit = self.get_current_rate_limit_bps()
+        if current_rate_limit and current_rate_limit > 0:
+            self._append_log(f"İndirme hızı sınırı: {format_rate_limit(current_rate_limit)}")
+
         request = DownloadRequest(
             url=download_url,
             output_dir=output_dir,
@@ -1176,6 +1308,7 @@ class MainWindow(QMainWindow):
             successful_request_url=download_url,
             convert_hevc_to_h264=self.settings.get("convert_hevc_to_h264", True),
             target_final_path=target_override,
+            rate_limit_bps=current_rate_limit,
         )
 
         self._set_ui_downloading(True)
@@ -1233,6 +1366,7 @@ class MainWindow(QMainWindow):
         self.quality_combo.setCurrentText(req.quality)
         self.playlist_checkbox.setChecked(req.playlist)
         self.folder_input.setText(str(req.output_dir))
+        self._restore_rate_limit_setting(req.rate_limit_bps)
 
         self.start_download()
 
@@ -1270,6 +1404,11 @@ class MainWindow(QMainWindow):
 
         req = self._last_failed_request
         self.url_input.setText(req.url)
+        self.media_combo.setCurrentText(req.media_type)
+        self.quality_combo.setCurrentText(req.quality)
+        self.playlist_checkbox.setChecked(req.playlist)
+        self.folder_input.setText(str(req.output_dir))
+        self._restore_rate_limit_setting(req.rate_limit_bps)
         self.url_input.setEnabled(True)
         self.url_input.setFocus()
         self.url_input.selectAll()
@@ -1747,12 +1886,14 @@ class MainWindow(QMainWindow):
         quality: str | None = None,
         playlist: bool | None = None,
         output_dir: Path | None = None,
+        rate_limit_bps: int | None | object = ...,
     ) -> None:
         added_count = 0
         media_type = media_type or self.media_combo.currentText()
         quality = quality or self.quality_combo.currentText()
         playlist = playlist if playlist is not None else self.playlist_checkbox.isChecked()
         output_dir = output_dir or (Path(self.folder_input.text().strip()) if self.folder_input.text().strip() else Path.home() / "Downloads")
+        rate_limit_bps = self.get_current_rate_limit_bps() if rate_limit_bps is ... else rate_limit_bps
         browser = self.browser_combo.currentData()
 
         import uuid
@@ -1764,6 +1905,7 @@ class MainWindow(QMainWindow):
                 and item.quality == quality
                 and item.playlist == playlist
                 and item.output_dir == output_dir
+                and item.rate_limit_bps == rate_limit_bps
                 for item in self._queue_items
             )
             if is_dup:
@@ -1782,6 +1924,7 @@ class MainWindow(QMainWindow):
                 playlist=playlist,
                 output_dir=output_dir,
                 browser=browser,
+                rate_limit_bps=rate_limit_bps,
             )
             self._queue_items.append(q_item)
             added_count += 1
@@ -1802,6 +1945,7 @@ class MainWindow(QMainWindow):
         quality: str | None = None,
         playlist: bool | None = None,
         output_dir: Path | None = None,
+        rate_limit_bps: int | None | object = ...,
     ) -> None:
         url = self.url_input.text().strip()
         if not url:
@@ -1817,6 +1961,7 @@ class MainWindow(QMainWindow):
                 quality=quality,
                 playlist=playlist,
                 output_dir=output_dir,
+                rate_limit_bps=self.get_current_rate_limit_bps() if rate_limit_bps is ... else rate_limit_bps,
             )
         else:
             AppMessageDialog("Hata", "Desteklenen bir bağlantı bulunamadı.", "error", self._queue_dialog or self).exec()
@@ -1943,6 +2088,9 @@ class MainWindow(QMainWindow):
             else:
                 target_override = get_unique_filepath(initial_target_path)
 
+            if item.rate_limit_bps and item.rate_limit_bps > 0:
+                self._append_log(f"Kuyruk hız sınırı: {format_rate_limit(item.rate_limit_bps)}")
+
             request = DownloadRequest(
                 url=download_url,
                 output_dir=item.output_dir,
@@ -1956,6 +2104,7 @@ class MainWindow(QMainWindow):
                 successful_request_url=download_url,
                 convert_hevc_to_h264=self.settings.get("convert_hevc_to_h264", True),
                 target_final_path=target_override,
+                rate_limit_bps=item.rate_limit_bps,
             )
 
             self._download_succeeded_result = None

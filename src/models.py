@@ -196,6 +196,7 @@ class DownloadRequest:
     convert_hevc_to_h264: bool = True
     job_id: str = ""
     target_final_path: Path | None = None
+    rate_limit_bps: int | None = None
 
 
 @dataclass(slots=True)
@@ -213,6 +214,7 @@ class QueueItem:
     error_msg: str = ""
     progress_percent: int = 0
     progress_text: str = ""
+    rate_limit_bps: int | None = None
 
 
 @dataclass
