@@ -789,3 +789,14 @@ def parse_rate_limit_setting(raw: Any) -> int | None:
         return int_val
     except (ValueError, TypeError):
         return None
+
+
+def create_ytdl(options: dict[str, Any]) -> Any:
+    """Merkezi YoutubeDL oluşturucu. Özel InfoExtractor'ları otomatik kaydeder."""
+    import yt_dlp
+
+    from src.threads_extractor import register_custom_extractors
+
+    downloader = yt_dlp.YoutubeDL(options)
+    register_custom_extractors(downloader)
+    return downloader

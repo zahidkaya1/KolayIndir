@@ -296,7 +296,7 @@ def test_combo_boxes_object_names_and_defaults(tmp_path, monkeypatch):
 
     assert win.media_combo.currentText() == "Video (MP4)"
     assert win.quality_combo.currentText() == "En iyi kullanılabilir kalite"
-    assert win.browser_combo.currentText() == "Otomatik oturum"
+    assert win.browser_combo.currentText() == "Otomatik (Önerilen)"
     win.close()
 
 

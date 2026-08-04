@@ -344,6 +344,7 @@ class SessionFailedDialog(QDialog):
         is_twitter = "twitter" in platform_lower or "x" in platform_lower
         is_youtube = "youtube" in platform_lower
         is_facebook = "facebook" in platform_lower or "fb" in platform_lower
+        is_threads = "threads" in platform_lower
 
         # --- Durum tespiti ---
         has_encryption_err = is_chromium_encryption_error(failure_reason)
@@ -359,10 +360,10 @@ class SessionFailedDialog(QDialog):
         ff_has_session = is_firefox_has_instagram_session() if ff_installed else False
 
         # --- Ana mesaj ---
-        if has_encryption_err and is_instagram:
+        if has_encryption_err:
             main_text = (
-                "Edge veya Chrome oturumu bulundu ancak Windows çerez koruması nedeniyle okunamadı. "
-                "Instagram hikâyeleri için Firefox kullanılması önerilir."
+                "Bu tarayıcının oturum bilgileri Windows güvenlik kısıtlamaları nedeniyle okunamadı. "
+                "Firefox veya çerez dosyası kullanabilirsiniz."
             )
         elif has_lock_err:
             main_text = (
@@ -388,6 +389,8 @@ class SessionFailedDialog(QDialog):
                 )
         elif is_facebook:
             main_text = "Facebook hesabınızın açık olduğu bir tarayıcı oturumu seçebilir veya tarayıcıyı tamamen kapatıp yeniden deneyebilirsiniz."
+        elif is_threads:
+            main_text = "Threads hesabınızın açık olduğu bir tarayıcı oturumu seçebilir veya tarayıcıyı tamamen kapatıp yeniden deneyebilirsiniz."
         elif is_twitter:
             main_text = "İçeriği görebildiğiniz hesabın açık olduğu tarayıcıyı kapatıp yeniden deneyin."
         elif is_youtube:
@@ -459,6 +462,166 @@ class SessionFailedDialog(QDialog):
         self.accept()
 
 
+class SessionRetryDialog(QDialog):
+    """Tarayıcı oturumu veya çerez dosyası ile yeniden deneme diyalogu."""
+
+    def __init__(
+        self,
+        title: str = "Oturum Doğrulaması Gerekebilir",
+        message: str = "",
+        platform_name: str = "",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("sessionRetryDialog")
+        self.setWindowTitle(title)
+        self.setMinimumWidth(440)
+        self.setMaximumWidth(580)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        self.selected_method: str = "auto"
+        self.selected_cookie_file: str | None = None
+        self.clicked_button_id: str = "close"
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("dialogTitleLabel")
+        layout.addWidget(title_label)
+
+        msg_label = QLabel(message if message else "Bu içeriği görüntülemek için tarayıcı oturumu gerekebilir.")
+        msg_label.setObjectName("dialogMessageLabel")
+        msg_label.setWordWrap(True)
+        layout.addWidget(msg_label)
+
+        from src.browser_sessions import is_chromium_encryption_error
+        if is_chromium_encryption_error(message):
+            warn_frame = QFrame()
+            warn_frame.setObjectName("warnFrame")
+            warn_frame.setStyleSheet("QFrame#warnFrame { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 8px; }")
+            warn_layout = QVBoxLayout(warn_frame)
+            warn_layout.setContentsMargins(8, 6, 8, 6)
+            warn_lbl = QLabel("Bu tarayıcının oturum bilgileri Windows güvenlik kısıtlamaları nedeniyle okunamadı. Firefox oturumunu veya bir çerez dosyasını kullanabilirsiniz.")
+            warn_lbl.setStyleSheet("color: #991b1b; font-size: 12px;")
+            warn_lbl.setWordWrap(True)
+            warn_layout.addWidget(warn_lbl)
+            layout.addWidget(warn_frame)
+
+        combo_label = QLabel("Kullanılacak oturum yöntemi:")
+        combo_label.setStyleSheet("color: #334155; font-size: 13px; font-weight: 600;")
+        layout.addWidget(combo_label)
+
+        from PySide6.QtWidgets import QComboBox
+
+        from src.utils import apply_pointing_hand_cursor, configure_combo_box
+
+        self.method_combo = QComboBox()
+        self.method_combo.setObjectName("sessionMethodCombo")
+        self.method_combo.addItem("Otomatik (Önerilen)", "auto")
+        self.method_combo.addItem("Oturumsuz", "none")
+        self.method_combo.addItem("Firefox", "firefox")
+        self.method_combo.addItem("Microsoft Edge", "edge")
+        self.method_combo.addItem("Chrome", "chrome")
+        self.method_combo.addItem("Brave", "brave")
+        self.method_combo.addItem("Çerez dosyası seç...", "cookie_file")
+        configure_combo_box(self.method_combo)
+        layout.addWidget(self.method_combo)
+
+        self.cookie_path_label = QLabel("")
+        self.cookie_path_label.setStyleSheet("color: #0284c7; font-size: 12px;")
+        self.cookie_path_label.setWordWrap(True)
+        self.cookie_path_label.setVisible(False)
+        layout.addWidget(self.cookie_path_label)
+
+        self.method_combo.currentIndexChanged.connect(self._on_method_changed)
+
+        layout.addSpacing(6)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addStretch(1)
+
+        self.close_btn = QPushButton("Kapat")
+        self.close_btn.setObjectName("closeButton")
+        self.close_btn.clicked.connect(lambda: self._choose("close"))
+
+        self.edit_btn = QPushButton("Bağlantıyı Düzenle")
+        self.edit_btn.setObjectName("editUrlButton")
+        self.edit_btn.clicked.connect(lambda: self._choose("edit_url"))
+
+        self.retry_btn = QPushButton("Oturumla İncele")
+        self.retry_btn.setObjectName("threadsSessionRetryButton" if "threads" in platform_name.lower() else "dialogSessionRetryButton")
+        self.retry_btn.clicked.connect(lambda: self._choose("session_retry"))
+
+        apply_pointing_hand_cursor(self.close_btn)
+        apply_pointing_hand_cursor(self.edit_btn)
+        apply_pointing_hand_cursor(self.retry_btn)
+
+        btn_row.addWidget(self.close_btn)
+        btn_row.addWidget(self.edit_btn)
+        btn_row.addWidget(self.retry_btn)
+
+        layout.addLayout(btn_row)
+
+    def _on_method_changed(self, idx: int) -> None:
+        data = self.method_combo.itemData(idx)
+        if data == "cookie_file":
+            from PySide6.QtWidgets import QFileDialog
+
+            from src.browser_sessions import validate_cookie_file
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Çerez Dosyası Seç (Netscape formatı)",
+                "",
+                "Metin Dosyaları (*.txt);;Tüm Dosyalar (*.*)",
+            )
+            if path:
+                is_valid, err_msg = validate_cookie_file(path)
+                if not is_valid:
+                    self.cookie_path_label.setText(f"❌ {err_msg}")
+                    self.cookie_path_label.setStyleSheet("color: #dc2626; font-size: 12px;")
+                    self.cookie_path_label.setVisible(True)
+                    self.selected_cookie_file = None
+                else:
+                    self.selected_cookie_file = path
+                    self.cookie_path_label.setText(f"✓ Seçilen dosya: {Path(path).name}")
+                    self.cookie_path_label.setStyleSheet("color: #16a34a; font-size: 12px;")
+                    self.cookie_path_label.setVisible(True)
+            else:
+                if not self.selected_cookie_file:
+                    self.method_combo.setCurrentIndex(0)
+        else:
+            self.selected_cookie_file = None
+            self.cookie_path_label.setVisible(False)
+
+    def _choose(self, choice: str) -> None:
+        self.clicked_button_id = choice
+        self.selected_method = self.method_combo.currentData() or "auto"
+        if choice == "session_retry" and self.selected_method == "cookie_file" and not self.selected_cookie_file:
+            from PySide6.QtWidgets import QFileDialog
+
+            from src.browser_sessions import validate_cookie_file
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Çerez Dosyası Seç (Netscape formatı)",
+                "",
+                "Metin Dosyaları (*.txt);;Tüm Dosyalar (*.*)",
+            )
+            if path:
+                is_valid, err_msg = validate_cookie_file(path)
+                if is_valid:
+                    self.selected_cookie_file = path
+                else:
+                    self.cookie_path_label.setText(f"❌ {err_msg}")
+                    self.cookie_path_label.setVisible(True)
+                    return
+            else:
+                return
+        self.accept()
+
+
 class AdvancedSessionDialog(QDialog):
     """Gelişmiş oturum tercihlerini ve format tercihlerini ayarlamak için diyalog penceresi."""
 
@@ -490,12 +653,13 @@ class AdvancedSessionDialog(QDialog):
         from src.utils import configure_combo_box
 
         self.combo = QComboBox()
-        self.combo.addItem("Otomatik oturum (Önerilen)", "auto")
-        self.combo.addItem("Oturum kullanma", None)
-        self.combo.addItem("Firefox oturumu", "firefox")
-        self.combo.addItem("Edge oturumu", "edge")
-        self.combo.addItem("Chrome oturumu", "chrome")
-        self.combo.addItem("Brave oturumu", "brave")
+        self.combo.addItem("Otomatik (Önerilen)", "auto")
+        self.combo.addItem("Oturumsuz", "none")
+        self.combo.addItem("Firefox", "firefox")
+        self.combo.addItem("Microsoft Edge", "edge")
+        self.combo.addItem("Chrome", "chrome")
+        self.combo.addItem("Brave", "brave")
+        self.combo.addItem("Çerez dosyası seç...", "cookie_file")
         configure_combo_box(self.combo)
 
         # Set current selection
@@ -514,13 +678,26 @@ class AdvancedSessionDialog(QDialog):
         hevc_desc.setStyleSheet("color: #64748b; font-size: 12px;")
         hevc_desc.setWordWrap(True)
 
+        self.cookie_path_label = QLabel("")
+        self.cookie_path_label.setStyleSheet("color: #0284c7; font-size: 12px;")
+        self.cookie_path_label.setWordWrap(True)
+        self.cookie_path_label.setVisible(False)
+
+        self.cookie_info_label = QLabel("Çerez dosyası, hesap erişim bilgilerini içerir. Lütfen yalnızca güvendiğiniz uygulamalarla paylaşın.")
+        self.cookie_info_label.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.cookie_info_label.setWordWrap(True)
+        self.cookie_info_label.setVisible(False)
+
+        self.selected_cookie_file = None
+        self.combo.currentIndexChanged.connect(self._on_combo_changed)
+
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         btn_row.addStretch(1)
 
         save_btn = QPushButton("Kaydet")
         save_btn.setObjectName("dialogPrimaryButton")
-        save_btn.clicked.connect(self.accept)
+        save_btn.clicked.connect(self._on_save_clicked)
 
         cancel_btn = QPushButton("İptal")
         cancel_btn.setObjectName("dialogSecondaryButton")
@@ -532,14 +709,80 @@ class AdvancedSessionDialog(QDialog):
         layout.addWidget(title)
         layout.addWidget(desc)
         layout.addWidget(self.combo)
+        layout.addWidget(self.cookie_path_label)
+        layout.addWidget(self.cookie_info_label)
         layout.addSpacing(6)
         layout.addWidget(self.convert_hevc_check)
         layout.addWidget(hevc_desc)
         layout.addSpacing(8)
         layout.addLayout(btn_row)
 
+    def _on_combo_changed(self, idx: int) -> None:
+        data = self.combo.itemData(idx)
+        if data == "cookie_file":
+            from PySide6.QtWidgets import QFileDialog
+
+            from src.browser_sessions import validate_cookie_file
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Çerez Dosyası Seç (Netscape formatı)",
+                "",
+                "Metin Dosyaları (*.txt);;Tüm Dosyalar (*.*)",
+            )
+            if path:
+                is_valid, err_msg = validate_cookie_file(path)
+                if not is_valid:
+                    self.cookie_path_label.setText(f"❌ {err_msg}")
+                    self.cookie_path_label.setStyleSheet("color: #dc2626; font-size: 12px;")
+                    self.cookie_path_label.setVisible(True)
+                    self.cookie_info_label.setVisible(False)
+                    self.selected_cookie_file = None
+                else:
+                    self.selected_cookie_file = path
+                    self.cookie_path_label.setText(f"✓ Seçilen dosya: {Path(path).name}")
+                    self.cookie_path_label.setStyleSheet("color: #16a34a; font-size: 12px;")
+                    self.cookie_path_label.setVisible(True)
+                    self.cookie_info_label.setVisible(True)
+            else:
+                if not self.selected_cookie_file:
+                    self.combo.blockSignals(True)
+                    self.combo.setCurrentIndex(0)
+                    self.combo.blockSignals(False)
+        else:
+            self.selected_cookie_file = None
+            self.cookie_path_label.setVisible(False)
+            self.cookie_info_label.setVisible(False)
+
+    def _on_save_clicked(self) -> None:
+        if self.combo.currentData() == "cookie_file" and not self.selected_cookie_file:
+            from PySide6.QtWidgets import QFileDialog
+
+            from src.browser_sessions import validate_cookie_file
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Çerez Dosyası Seç (Netscape formatı)",
+                "",
+                "Metin Dosyaları (*.txt);;Tüm Dosyalar (*.*)",
+            )
+            if path:
+                is_valid, err_msg = validate_cookie_file(path)
+                if is_valid:
+                    self.selected_cookie_file = path
+                else:
+                    self.cookie_path_label.setText(f"❌ {err_msg}")
+                    self.cookie_path_label.setStyleSheet("color: #dc2626; font-size: 12px;")
+                    self.cookie_path_label.setVisible(True)
+                    self.cookie_info_label.setVisible(False)
+                    return
+            else:
+                return
+        self.accept()
+
     def selected_mode(self) -> str | None:
         return self.combo.currentData()
+
+    def get_cookie_file_path(self) -> str | None:
+        return self.selected_cookie_file
 
     def is_convert_hevc_enabled(self) -> bool:
         return self.convert_hevc_check.isChecked()

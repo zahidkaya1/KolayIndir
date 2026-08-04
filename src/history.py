@@ -152,6 +152,8 @@ def normalize_platform(platform: Any) -> str:
         return "instagram"
     if "facebook" in p_str or "fb" in p_str:
         return "facebook"
+    if "threads" in p_str:
+        return "threads"
     if "twitter" in p_str or "x / twitter" in p_str or "x post" in p_str:
         return "twitter"
     return p_str

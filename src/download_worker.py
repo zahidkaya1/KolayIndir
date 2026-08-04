@@ -33,6 +33,7 @@ from src.models import (
 )
 from src.utils import (
     clean_log_message,
+    create_ytdl,
     is_hevc_codec,
     probe_media_codecs,
     validate_final_download,
@@ -473,7 +474,7 @@ class DownloadWorker(QObject):
 
             opts = _build_kick_opts(m3u8_url)  # type: ignore[arg-type]
             try:
-                with yt_dlp.YoutubeDL(opts) as downloader:
+                with create_ytdl(opts) as downloader:
                     result = downloader.extract_info(m3u8_url, download=True)
 
                 if self._cancel_requested:
@@ -789,6 +790,8 @@ class DownloadWorker(QObject):
                     job_id=self.job_id,
                     target_final_path=self.request.target_final_path,
                     rate_limit_bps=self.request.rate_limit_bps,
+                    session_method=self.request.session_method,
+                    cookie_file_path=self.request.cookie_file_path,
                 )
                 pref_options = build_ydl_options(pref_req)
                 pref_options["logger"] = _YtDlpLogger(self.log)
@@ -809,11 +812,13 @@ class DownloadWorker(QObject):
                 elif platform == PlatformType.KICK_VIDEO:
                     self.log.emit("Kick indirme işlemi başladı")
                     self.log.emit("Kick HLS akışı indiriliyor")
+                elif platform == PlatformType.THREADS:
+                    self.log.emit("Threads indirme işlemi başladı")
 
                 self.status.emit(f"{pref_label} oturumuyla indirme başlatılıyor…" if b_name_pref else "İndirme başlatılıyor…")
                 self.log.emit("yt-dlp işlemi başladı.")
                 try:
-                    with yt_dlp.YoutubeDL(pref_options) as downloader:
+                    with create_ytdl(pref_options) as downloader:
                         info = downloader.extract_info(self.request.url, download=False)
                         
                         if self._cancel_requested:
@@ -900,6 +905,8 @@ class DownloadWorker(QObject):
                     job_id=self.job_id,
                     target_final_path=self.request.target_final_path,
                     rate_limit_bps=self.request.rate_limit_bps,
+                    session_method=self.request.session_method,
+                    cookie_file_path=self.request.cookie_file_path,
                 )
 
                 options = build_ydl_options(req_copy)
@@ -920,11 +927,16 @@ class DownloadWorker(QObject):
                         self.status.emit("TikTok sesi indiriliyor…")
                     else:
                         self.status.emit("TikTok videosu indiriliyor…")
+                elif platform == PlatformType.THREADS:
+                    if "MP3" in self.request.media_type or "Ses" in self.request.media_type:
+                        self.status.emit("Threads sesi indiriliyor…")
+                    else:
+                        self.status.emit("Threads videosu indiriliyor…")
                 else:
                     self.status.emit("İndirme başlatılıyor…")
 
                 try:
-                    with yt_dlp.YoutubeDL(options) as downloader:
+                    with create_ytdl(options) as downloader:
                         info = downloader.extract_info(self.request.url, download=False)
                         
                         if self._cancel_requested:

@@ -13,6 +13,7 @@ uygulamaya yapıştırarak indirmeyi amaçlayan hızlı, kolay ve yüksek kalite
 - İndirme ilerlemesi, hız, kalan süre ve işlem günlüğü
 - Ayarlanabilir indirme hızı sınırı
 - Facebook video ve Reels indirme
+- Meta Threads video indirme (deneysel)
 - İndirme klasörünü hatırlama
 - İndirmeyi iptal etme
 - GitHub Releases üzerinden güncelleme kontrolü için temel altyapı

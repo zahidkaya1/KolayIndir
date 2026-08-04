@@ -58,6 +58,7 @@ from src.dialogs import (
     LeftoverJobsDialog,
     LogDialog,
     SessionFailedDialog,
+    SessionRetryDialog,
     UpdateAvailableDialog,
 )
 from src.download_worker import DownloadWorker
@@ -76,6 +77,7 @@ from src.models import (
     MediaMetadata,
     PlatformType,
     QueueItem,
+    SessionMethod,
     detect_platform_type,
     format_bytes,
     get_platform_badge_text,
@@ -123,6 +125,8 @@ class MainWindow(QMainWindow):
         self._preferred_browser: str | None = None
         self._preferred_profile: tuple[str, str] | None = None
         self._preferred_impersonation: str | None = None
+        self._active_session_method: str | SessionMethod = SessionMethod.AUTO
+        self._active_cookie_file_path: str | None = None
         self._close_requested: bool = False
         self._cancel_requested: bool = False
         self._pending_close: bool = False
@@ -360,13 +364,23 @@ class MainWindow(QMainWindow):
 
         self.browser_combo = NoWheelComboBox()
         self.browser_combo.setObjectName("browserCombo")
-        self.browser_combo.addItem("Otomatik oturum", "auto")
-        self.browser_combo.addItem("Oturum kullanma", None)
-        self.browser_combo.addItem("Firefox oturumu", "firefox")
-        self.browser_combo.addItem("Edge oturumu", "edge")
-        self.browser_combo.addItem("Chrome oturumu", "chrome")
-        self.browser_combo.addItem("Brave oturumu", "brave")
+        self.browser_combo.addItem("Otomatik (Önerilen)", "auto")
+        self.browser_combo.addItem("Oturumsuz", "none")
+        self.browser_combo.addItem("Firefox", "firefox")
+        self.browser_combo.addItem("Microsoft Edge", "edge")
+        self.browser_combo.addItem("Chrome", "chrome")
+        self.browser_combo.addItem("Brave", "brave")
+        self.browser_combo.addItem("Çerez dosyası seç...", "cookie_file")
+        self.browser_combo.currentIndexChanged.connect(self._on_browser_combo_changed)
         configure_combo_box(self.browser_combo)
+
+        self.browser_info_label = QLabel(
+            "Bazı Threads, Instagram, Facebook, YouTube, X ve TikTok içerikleri için\n"
+            "tarayıcı oturumu gerekebilir. Loadvia hesap parolanızı istemez."
+        )
+        self.browser_info_label.setWordWrap(True)
+        self.browser_info_label.setStyleSheet("color: #64748b; font-size: 11px;")
+
 
         self.rate_limit_label = QLabel("İndirme hızı sınırı:")
 
@@ -431,7 +445,12 @@ class MainWindow(QMainWindow):
         options_grid.addWidget(self.browser_label, 0, 2)
         options_grid.addWidget(self.media_combo, 1, 0)
         options_grid.addWidget(self.quality_combo, 1, 1)
-        options_grid.addWidget(self.browser_combo, 1, 2)
+
+        browser_vbox = QVBoxLayout()
+        browser_vbox.setSpacing(4)
+        browser_vbox.addWidget(self.browser_combo)
+        browser_vbox.addWidget(self.browser_info_label)
+        options_grid.addLayout(browser_vbox, 1, 2, 2, 1)
         options_grid.addWidget(self.rate_limit_label, 2, 0)
         options_grid.addWidget(self.rate_limit_combo, 3, 0)
         options_grid.addWidget(self.custom_rate_limit_container, 3, 1, 1, 2)
@@ -609,7 +628,12 @@ class MainWindow(QMainWindow):
 
         self._update_download_button_state()
 
-    def analyze_url(self) -> None:
+    def analyze_url(
+        self,
+        force_session: bool = False,
+        session_method: str | SessionMethod = SessionMethod.AUTO,
+        cookie_file_path: str | Path | None = None,
+    ) -> None:
         if self._is_queue_active:
             AppMessageDialog(
                 "Kuyruk Aktif",
@@ -644,7 +668,11 @@ class MainWindow(QMainWindow):
 
         self.analyze_button.setEnabled(False)
         self.analyze_button.setText("İnceleniyor…")
-        if platform in (
+        if cookie_file_path:
+            self.status_label.setText("Çerez dosyası ile inceleniyor…")
+        elif force_session:
+            self.status_label.setText("Tarayıcı oturumu ile inceleniyor…")
+        elif platform in (
             PlatformType.TIKTOK_VIDEO,
             PlatformType.TIKTOK_SHORT_LINK,
             PlatformType.TIKTOK_PROFILE,
@@ -664,6 +692,9 @@ class MainWindow(QMainWindow):
             preferred_browser=self._preferred_browser,
             preferred_profile=self._preferred_profile,
             settings=dict(self.settings),
+            force_session=force_session,
+            session_method=session_method,
+            cookie_file_path=cookie_file_path,
         )
         worker.moveToThread(thread)
 
@@ -688,6 +719,8 @@ class MainWindow(QMainWindow):
         self._preferred_browser = meta.session_browser
         self._preferred_profile = meta.session_profile
         self._preferred_impersonation = meta.preferred_impersonation
+        self._active_session_method = meta.session_method
+        self._active_cookie_file_path = str(meta.cookie_file_path) if meta.cookie_file_path else None
         self.preview_frame.show()
 
         if meta.platform_type in (
@@ -722,6 +755,7 @@ class MainWindow(QMainWindow):
                 PlatformType.TWITTER_POST,
                 PlatformType.FACEBOOK_VIDEO,
                 PlatformType.FACEBOOK_REEL,
+                PlatformType.THREADS,
             )
             and meta.playlist_count
             and meta.playlist_count > 1
@@ -800,6 +834,7 @@ class MainWindow(QMainWindow):
                     PlatformType.TWITTER_POST,
                     PlatformType.FACEBOOK_VIDEO,
                     PlatformType.FACEBOOK_REEL,
+                    PlatformType.THREADS,
                 )
                 and meta.playlist_count
                 and meta.playlist_count > 1
@@ -875,32 +910,40 @@ class MainWindow(QMainWindow):
                 self._check_for_updates(user_initiated=True)
             return
 
+        url = self.url_input.text().strip()
+        platform = detect_platform_type(url)
+        is_auth = (
+            is_authentication_error(error)
+            or is_chromium_encryption_error(error)
+            or "oturum" in (error or "").lower()
+            or "login" in (error or "").lower()
+        )
+
+        if is_auth:
+            dlg = SessionRetryDialog(
+                title="Oturum Doğrulaması Gerekebilir",
+                message=error if error else "Bu içeriği görüntülemek için tarayıcı oturumu gerekebilir.",
+                platform_name=get_platform_badge_text(platform),
+                parent=self,
+            )
+            dlg.exec()
+            if dlg.clicked_button_id == "session_retry":
+                self.analyze_url(
+                    force_session=True,
+                    session_method=dlg.selected_method,
+                    cookie_file_path=dlg.selected_cookie_file,
+                )
+            elif dlg.clicked_button_id == "edit_url":
+                self.url_input.setFocus()
+                self.url_input.selectAll()
+            return
+
         AppMessageDialog(
             "İnceleme Başarısız",
             error if error else "İçerik önizleme bilgisi alınamadı.",
             "error",
             self,
         ).exec()
-
-        if is_authentication_error(error) or is_chromium_encryption_error(error) or "oturum" in error.lower():
-            url = self.url_input.text().strip()
-            platform = detect_platform_type(url)
-            dlg = SessionFailedDialog(platform_name=platform.value, failure_reason=error, parent=self)
-            dlg.exec()
-            if dlg.clicked_button_id == "retry":
-                self._preferred_profile = None
-                self._preferred_browser = None
-                self.analyze_url()
-            elif dlg.clicked_button_id == "install_firefox":
-                self._prompt_install_firefox()
-            elif dlg.clicked_button_id == "settings":
-                adv = AdvancedSessionDialog(current_mode=self.browser_combo.currentData(), parent=self)
-                if adv.exec() == QDialog.DialogCode.Accepted:
-                    new_mode = adv.selected_mode()
-                    for i in range(self.browser_combo.count()):
-                        if self.browser_combo.itemData(i) == new_mode:
-                            self.browser_combo.setCurrentIndex(i)
-                            break
 
 
 
@@ -997,7 +1040,18 @@ class MainWindow(QMainWindow):
         self.auto_open_checkbox.setChecked(
             bool(self.settings.get("auto_open_folder", False))
         )
-        self.browser_combo.setCurrentIndex(0)
+
+        saved_browser = self.settings.get("browser_method", "auto")
+        if saved_browser == "cookie_file":
+            saved_browser = "auto"
+
+        found_idx = 0
+        for i in range(self.browser_combo.count()):
+            if self.browser_combo.itemData(i) == saved_browser:
+                found_idx = i
+                break
+        self.browser_combo.setCurrentIndex(found_idx)
+
         self._restore_rate_limit_setting(self.settings.get("rate_limit_bps"))
         self._on_media_type_changed(self.media_combo.currentText())
 
@@ -1081,12 +1135,19 @@ class MainWindow(QMainWindow):
         return None
 
     def _save_current_settings(self) -> None:
+        browser_method = self.browser_combo.currentData()
+        if browser_method == "cookie_file":
+            # Don't save cookie_file_path or cookie_file as default setting,
+            # to prevent it from being required when the app starts.
+            browser_method = "auto"
+
         save_settings({
             "output_dir": self.folder_input.text().strip(),
             "media_type": self.media_combo.currentText(),
             "quality": self.quality_combo.currentText(),
             "auto_open_folder": self.auto_open_checkbox.isChecked(),
             "rate_limit_bps": self.get_current_rate_limit_bps(),
+            "browser_method": browser_method,
         })
 
     def _choose_folder(self) -> None:
@@ -1313,6 +1374,8 @@ class MainWindow(QMainWindow):
             convert_hevc_to_h264=self.settings.get("convert_hevc_to_h264", True),
             target_final_path=target_override,
             rate_limit_bps=current_rate_limit,
+            session_method=getattr(self, "_active_session_method", SessionMethod.AUTO),
+            cookie_file_path=getattr(self, "_active_cookie_file_path", None),
         )
 
         self._set_ui_downloading(True)
@@ -1490,6 +1553,7 @@ class MainWindow(QMainWindow):
         else:
             self.stats_label.setText(f"Hız: {speed} • Kalan: {eta}")
 
+
     def _on_download_succeeded(self, filename: str) -> None:
         self._last_failed_request = None
         if filename.lower() in {"manifest", "master", "playlist", "index", "chunklist"}:
@@ -1499,6 +1563,52 @@ class MainWindow(QMainWindow):
             self._download_succeeded_path = filename
         else:
             self._download_succeeded_path = str(Path(self.folder_input.text().strip()) / filename)
+
+    def _on_browser_combo_changed(self, index: int) -> None:
+        data = self.browser_combo.itemData(index)
+
+        if data == "cookie_file":
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Çerez Dosyası Seç (Netscape formatı)",
+                "",
+                "Metin Dosyaları (*.txt);;Tüm Dosyalar (*.*)",
+            )
+
+            if path:
+                from src.browser_sessions import validate_cookie_file
+                is_valid, err_msg = validate_cookie_file(path)
+                if not is_valid:
+                    AppMessageDialog(
+                        "Geçersiz Çerez Dosyası",
+                        f"Seçilen dosya doğrulanamadı:\n{err_msg}",
+                        "error",
+                        self
+                    ).exec()
+                    # Revert selection
+                    self.browser_combo.blockSignals(True)
+                    self._restore_previous_browser_combo_selection()
+                    self.browser_combo.blockSignals(False)
+                    return
+                else:
+                    self._active_session_method = SessionMethod.COOKIE_FILE
+                    self._active_cookie_file_path = path
+                    self._save_current_settings()
+            else:
+                self.browser_combo.blockSignals(True)
+                self._restore_previous_browser_combo_selection()
+                self.browser_combo.blockSignals(False)
+        else:
+            self._active_session_method = SessionMethod(data) if data else SessionMethod.NONE
+            self._active_cookie_file_path = None
+            self._save_current_settings()
+
+    def _restore_previous_browser_combo_selection(self) -> None:
+        target = self._active_session_method.value
+        for i in range(self.browser_combo.count()):
+            if self.browser_combo.itemData(i) == target:
+                self.browser_combo.setCurrentIndex(i)
+                break
 
     def _on_download_failed(self, error_msg: str) -> None:
         self.status_label.setText("İndirme başarısız.")
@@ -2109,6 +2219,8 @@ class MainWindow(QMainWindow):
                 convert_hevc_to_h264=self.settings.get("convert_hevc_to_h264", True),
                 target_final_path=target_override,
                 rate_limit_bps=item.rate_limit_bps,
+                session_method=item.session_method,
+                cookie_file_path=item.cookie_file_path,
             )
 
             self._download_succeeded_result = None

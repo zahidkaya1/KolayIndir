@@ -24,6 +24,7 @@ class PlatformType(Enum):
     KICK_VIDEO = "kick_video"
     FACEBOOK_VIDEO = "facebook_video"
     FACEBOOK_REEL = "facebook_reel"
+    THREADS = "threads"
     UNKNOWN = "unknown"
 
 
@@ -70,7 +71,7 @@ def detect_platform_type(url: str) -> PlatformType:
             return PlatformType.KICK_VIDEO
         return PlatformType.UNKNOWN
 
-    # Facebook
+    # URL parse tabanlı kontroller (Facebook, Threads)
     try:
         from urllib.parse import urlparse
         url_to_parse = url.strip()
@@ -83,6 +84,20 @@ def detect_platform_type(url: str) -> PlatformType:
         parsed = None
 
     if parsed and host:
+        # Threads
+        is_threads_host = (
+            host in ("threads.com", "www.threads.com", "threads.net", "www.threads.net")
+            or host.endswith((".threads.com", ".threads.net"))
+        )
+        if is_threads_host:
+            path = parsed.path.strip("/")
+            if re.match(r"^@[a-zA-Z0-9_.]+/post/[a-zA-Z0-9_-]+/?$", path) or re.match(
+                r"^t/[a-zA-Z0-9_-]+/?$", path
+            ):
+                return PlatformType.THREADS
+            return PlatformType.UNKNOWN
+
+        # Facebook
         is_fb_host = (
             host in (
                 "facebook.com",
@@ -181,6 +196,7 @@ def get_platform_badge_text(platform: PlatformType) -> str:
         PlatformType.KICK_VIDEO: "Kick — Geçici olarak kullanılamıyor",
         PlatformType.FACEBOOK_VIDEO: "Facebook",
         PlatformType.FACEBOOK_REEL: "Facebook",
+        PlatformType.THREADS: "Threads",
         PlatformType.UNKNOWN: "Diğer",
     }
     return badge_map.get(platform, "Diğer")
@@ -212,6 +228,24 @@ def translate_social_error(exc_or_msg: Exception | str, url: str) -> str:
 
     if is_platform_temporarily_disabled(platform, url):
         return f"Kick desteği geçici olarak kullanılamıyor\n\n{KICK_DISABLED_MESSAGE}"
+
+    if platform == PlatformType.THREADS or "threads.net" in url.lower() or "threads.com" in url.lower():
+        if "video içermiyor" in msg_lower or "photo post" in msg_lower:
+            return "Bu Threads gönderisi video içermiyor."
+        if any(term in msg_lower for term in ("tarayıcı oturumu", "oturum", "login", "sign in", "authentication", "private", "checkpoint")):
+            return "Bu Threads gönderisini görüntülemek için tarayıcı oturumu gerekebilir."
+        if any(term in msg_lower for term in ("silinmiş", "gizlenmiş", "kullanılamıyor", "not found", "deleted", "unavailable", "404")):
+            return "Threads gönderisi silinmiş, gizlenmiş veya kullanılamıyor olabilir."
+        if any(term in msg_lower for term in ("rate limit", "429", "too many requests", "sınırlandırdı")):
+            return "Threads isteği geçici olarak sınırlandırdı. Bir süre sonra yeniden deneyin."
+        if any(term in msg_lower for term in ("kısıtlama", "age restricted", "region blocked")):
+            return "Bu Threads içeriği hesap, yaş veya bölge kısıtlamasına tabi olabilir."
+        if "video kaynağı alınamadı" in msg_lower:
+            return "Threads gönderisi bulundu ancak video kaynağı alınamadı. Threads sayfa yapısını değiştirmiş olabilir."
+        if any(term in msg_lower for term in ("sayfa yapısını", "video bilgileri alınamadı", "extractor", "unable to extract")):
+            return "Threads video bilgileri alınamadı. Threads sayfa yapısını değiştirmiş olabilir."
+        if any(term in msg_lower for term in ("no downloadable video", "indirilebilir bir video bulunamadı", "there is no video")):
+            return "Bu Threads gönderisinde indirilebilir bir video bulunamadı."
 
     if platform in (PlatformType.FACEBOOK_VIDEO, PlatformType.FACEBOOK_REEL) or "facebook" in url.lower() or "fb.watch" in url.lower():
         if "cannot parse data" in msg_lower:
@@ -292,6 +326,16 @@ def translate_social_error(exc_or_msg: Exception | str, url: str) -> str:
     return msg
 
 
+class SessionMethod(Enum):
+    NONE = "none"
+    AUTO = "auto"
+    FIREFOX = "firefox"
+    CHROME = "chrome"
+    EDGE = "edge"
+    BRAVE = "brave"
+    COOKIE_FILE = "cookie_file"
+
+
 @dataclass(frozen=True, slots=True)
 class DownloadRequest:
     url: str
@@ -308,6 +352,8 @@ class DownloadRequest:
     job_id: str = ""
     target_final_path: Path | None = None
     rate_limit_bps: int | None = None
+    session_method: str | SessionMethod = SessionMethod.AUTO
+    cookie_file_path: str | Path | None = None
 
 
 @dataclass(slots=True)
@@ -326,6 +372,8 @@ class QueueItem:
     progress_percent: int = 0
     progress_text: str = ""
     rate_limit_bps: int | None = None
+    session_method: str = "auto"
+    cookie_file_path: str | Path | None = None
 
 
 @dataclass
@@ -363,6 +411,8 @@ class MediaMetadata:
     selected_vcodec: str = ""
     selected_acodec: str = ""
     selected_fps: float | None = None
+    session_method: str | SessionMethod = SessionMethod.AUTO
+    cookie_file_path: str | Path | None = None
 
 
 def format_bytes(size: float | None) -> str:

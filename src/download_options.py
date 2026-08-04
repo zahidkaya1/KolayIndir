@@ -173,20 +173,23 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
         })
 
     # --- Çerez / oturum seçenekleri ---
-    cookies_tuple: tuple | None = None
+    if request.cookie_file_path:
+        options["cookiefile"] = str(request.cookie_file_path)
+    else:
+        cookies_tuple: tuple | None = None
 
-    if request.preferred_profile:
-        b_name, p_name = request.preferred_profile
-        cookies_tuple = _make_cookies_from_browser(b_name, p_name)
-    elif request.preferred_browser:
-        cookies_tuple = _make_cookies_from_browser(request.preferred_browser, None)
-    elif isinstance(request.browser, tuple):
-        cookies_tuple = request.browser
-    elif request.browser and request.browser not in ("auto", "none", "disabled", "off"):
-        cookies_tuple = _make_cookies_from_browser(request.browser, None)
+        if request.preferred_profile:
+            b_name, p_name = request.preferred_profile
+            cookies_tuple = _make_cookies_from_browser(b_name, p_name)
+        elif request.preferred_browser:
+            cookies_tuple = _make_cookies_from_browser(request.preferred_browser, None)
+        elif isinstance(request.browser, tuple):
+            cookies_tuple = request.browser
+        elif request.browser and request.browser not in ("auto", "none", "disabled", "off", "cookie_file"):
+            cookies_tuple = _make_cookies_from_browser(request.browser, None)
 
-    if cookies_tuple is not None:
-        options["cookiesfrombrowser"] = cookies_tuple
+        if cookies_tuple is not None:
+            options["cookiesfrombrowser"] = cookies_tuple
 
     if request.preferred_impersonation:
         imp_target = _make_impersonate_target(request.preferred_impersonation)

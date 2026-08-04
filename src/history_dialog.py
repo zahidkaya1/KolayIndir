@@ -72,6 +72,9 @@ def _canonical_platform(platform: str | None) -> str:
     if "facebook" in value or "fb" in value:
         return "facebook"
 
+    if "threads" in value:
+        return "threads"
+
     if "twitter" in value or value == "x" or "x_com" in value or "x / twitter" in value:
         return "x_twitter"
         
@@ -89,6 +92,7 @@ def _get_platform_display_name(platform: str | None) -> str:
     if canon == "youtube": return "YouTube"
     if canon == "facebook": return "Facebook"
     if canon == "instagram": return "Instagram"
+    if canon == "threads": return "Threads"
     if canon == "x_twitter": return "X / Twitter"
     if canon == "tiktok": return "TikTok"
     if canon == "kick": return "Kick"
@@ -112,6 +116,8 @@ def _get_platform_badge_style(
         return "background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;"
     if canon == "instagram":
         return "background-color: #fdf4ff; color: #c026d3; border: 1px solid #f5d0fe;"
+    if canon == "threads":
+        return "background-color: #f5f5f5; color: #171717; border: 1px solid #d4d4d4;"
     if canon == "x_twitter":
         return "background-color: #f0f9ff; color: #0284c7; border: 1px solid #bae6fd;"
     if canon == "tiktok":
@@ -423,7 +429,7 @@ class HistoryDialog(QDialog):
         filter_bar.setSpacing(8)
         self.platform_combo = QComboBox()
         self.platform_combo.addItems(
-            ["Tüm Platformlar", "YouTube", "Facebook", "Instagram", "X / Twitter", "TikTok"]
+            ["Tüm Platformlar", "YouTube", "Facebook", "Instagram", "Threads", "X / Twitter", "TikTok"]
         )
         self.type_combo = QComboBox()
         self.type_combo.addItems(["Tüm Türler", "Video", "Ses"])

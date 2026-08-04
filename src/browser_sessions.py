@@ -8,6 +8,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from src.models import PlatformType, is_rehydration_error
 
@@ -171,8 +172,36 @@ def is_firefox_has_instagram_session() -> bool:
     return False
 
 
+def validate_cookie_file(file_path: str | Path | None) -> tuple[bool, str]:
+    """Netscape HTTP Cookie File formatını doğrular."""
+    if not file_path:
+        return False, "Çerez dosyası yolu belirtilmedi."
+    p = Path(file_path)
+    if not p.exists() or not p.is_file():
+        return False, "Belirtilen çerez dosyası bulunamadı."
+    try:
+        with open(p, "r", encoding="utf-8", errors="ignore") as f:
+            for _ in range(30):
+                line = f.readline()
+                if not line:
+                    break
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if stripped.startswith(("# HTTP Cookie File", "# Netscape HTTP Cookie File")):
+                    return True, ""
+                if "\t" in stripped and len(stripped.split("\t")) >= 7:
+                    return True, ""
+                if stripped.startswith("#"):
+                    continue
+                return False, "Seçilen dosya Netscape çerez dosyası biçiminde değil."
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Çerez dosyası okunamadı: {exc}"
+    return False, "Seçilen dosya Netscape çerez dosyası biçiminde değil."
+
+
 def build_profile_attempt_order(
-    platform_type: PlatformType, requested_mode: str | None
+    platform_type: PlatformType, requested_mode: str | Any | None
 ) -> list[tuple[str | None, str | None, str]]:
     """
     Geri dönen liste öğeleri: (browser_name, profile_name, display_name)
@@ -180,22 +209,27 @@ def build_profile_attempt_order(
     (browser_name, None, display_name) profil belirtmeksizin tarayıcı çerezlerini kullanır;
     yt-dlp'nin CLI --cookies-from-browser BROWSER davranışına eşdeğerdir.
     """
-    if requested_mode and requested_mode in ("none", "disabled", "off"):
+    mode_str = str(requested_mode.value if hasattr(requested_mode, "value") else requested_mode or "").lower()
+
+    if mode_str in ("cookie_file", "cookiefile"):
+        return []
+
+    if mode_str in ("none", "disabled", "off"):
         return [(None, None, "Oturumsuz")]
 
     all_profiles = detect_available_browser_profiles()
     seen_profiles: set[tuple[str | None, str | None]] = set()
 
-    if requested_mode and requested_mode != "auto":
+    if mode_str and mode_str != "auto":
         attempts: list[tuple[str | None, str | None, str]] = []
-        b_label = "Edge" if requested_mode == "edge" else requested_mode.capitalize()
+        b_label = "Edge" if mode_str == "edge" else mode_str.capitalize()
         # Profilesiz varsayılan deneme (CLI --cookies-from-browser BROWSER ile aynı)
-        key_profileless = (requested_mode, None)
+        key_profileless = (mode_str, None)
         if key_profileless not in seen_profiles:
             seen_profiles.add(key_profileless)
-            attempts.append((requested_mode, None, f"{b_label} (varsayılan profil)"))
+            attempts.append((mode_str, None, f"{b_label} (varsayılan profil)"))
         # Tespit edilen özel profiller fallback olarak eklenir
-        for p in [p for p in all_profiles if p.browser == requested_mode]:
+        for p in [p for p in all_profiles if p.browser == mode_str]:
             key = (p.browser, p.profile_name)
             if key not in seen_profiles:
                 seen_profiles.add(key)
@@ -219,6 +253,7 @@ def build_profile_attempt_order(
         PlatformType.TIKTOK_SLIDESHOW,
         PlatformType.FACEBOOK_VIDEO,
         PlatformType.FACEBOOK_REEL,
+        PlatformType.THREADS,
     ) or platform_type == PlatformType.TWITTER_POST:
         browser_priority = ["firefox", "edge", "chrome", "brave"]
     elif platform_type in (PlatformType.YOUTUBE_VIDEO, PlatformType.YOUTUBE_PLAYLIST):
@@ -272,10 +307,14 @@ def is_browser_cookie_lock_error(message: str) -> bool:
         "could not copy chrome cookie database",
         "could not copy edge cookie database",
         "could not copy brave cookie database",
+        "could not copy",
         "database is locked",
         "permission denied",
         "cookie database",
         "sqlite3.operationalerror",
+        "winerror 32",
+        "being used by another process",
+        "başka bir işlem tarafından",
     )
     return any(term in msg_lower for term in lock_terms)
 
@@ -301,6 +340,8 @@ def is_authentication_error(message: str) -> bool:
         "korumalı bir hesaba ait",
         "oturum gerekiyor",
         "oturum isteyebilir",
+        "oturum gerekebilir",
+        "tarayıcı oturumu",
         "private account",
         "private post",
         "this post only contains photos",

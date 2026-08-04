@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
-import yt_dlp
 from PySide6.QtCore import QObject, Signal, Slot
 
 from src.browser_sessions import (
@@ -24,12 +24,13 @@ from src.download_options import QUALITY_HEIGHTS
 from src.models import (
     MediaMetadata,
     PlatformType,
+    SessionMethod,
     detect_platform_type,
     format_duration,
     is_rehydration_error,
     translate_social_error,
 )
-from src.utils import clean_log_message, clean_tiktok_url
+from src.utils import clean_log_message, clean_tiktok_url, create_ytdl
 
 
 def _fetch_kick_playback_m3u8(uuid: str, headers: dict[str, str]) -> tuple[str | None, int | str | None, str | None]:
@@ -428,6 +429,9 @@ class MetadataWorker(QObject):
         preferred_browser: str | None = None,
         preferred_profile: tuple[str, str] | None = None,
         settings: dict[str, Any] | None = None,
+        force_session: bool = False,
+        session_method: str | SessionMethod = SessionMethod.AUTO,
+        cookie_file_path: str | Path | None = None,
     ) -> None:
         super().__init__()
         self.url = url
@@ -437,6 +441,9 @@ class MetadataWorker(QObject):
         self.preferred_browser = preferred_browser
         self.preferred_profile = preferred_profile
         self.settings = settings or {}
+        self.force_session = force_session
+        self.session_method = session_method
+        self.cookie_file_path = cookie_file_path
         self._cancel_requested = False
 
     @Slot()
@@ -572,7 +579,7 @@ class MetadataWorker(QObject):
                     opts["impersonate"] = imp_target
 
                 try:
-                    with yt_dlp.YoutubeDL(opts) as downloader:
+                    with create_ytdl(opts) as downloader:
                         info = downloader.extract_info(target_url, download=False)
 
                     if self._cancel_requested:
@@ -632,23 +639,52 @@ class MetadataWorker(QObject):
             self.finished.emit()
             return
 
-        attempt_order = build_profile_attempt_order(platform, self.browser)
-
-        if self.preferred_profile:
-            match_idx = next(
-                (
-                    i
-                    for i, (b, p, _) in enumerate(attempt_order)
-                    if (b, p) == self.preferred_profile
-                ),
-                None,
+        if self.cookie_file_path:
+            attempt_order = [(None, None, "Çerez Dosyası")]
+            self.log.emit("Çerez dosyası ile inceleme başlatıldı.")
+        else:
+            method_str = (
+                self.session_method.value
+                if hasattr(self.session_method, "value")
+                else str(self.session_method or "auto")
             )
-            if match_idx is not None:
-                item = attempt_order.pop(match_idx)
-                if attempt_order and attempt_order[0][0] is None:
-                    attempt_order.insert(1, item)
-                else:
-                    attempt_order.insert(0, item)
+            browser_choice = method_str if method_str != "auto" else self.browser
+            attempt_order = build_profile_attempt_order(platform, browser_choice)
+
+            if self.preferred_profile:
+                match_idx = next(
+                    (
+                        i
+                        for i, (b, p, _) in enumerate(attempt_order)
+                        if (b, p) == self.preferred_profile
+                    ),
+                    None,
+                )
+                if match_idx is not None:
+                    item = attempt_order.pop(match_idx)
+                    if attempt_order and attempt_order[0][0] is None:
+                        attempt_order.insert(1, item)
+                    else:
+                        attempt_order.insert(0, item)
+            elif self.preferred_browser and self.preferred_browser != "auto":
+                match_idx = next(
+                    (
+                        i
+                        for i, (b, _, _) in enumerate(attempt_order)
+                        if b == self.preferred_browser
+                    ),
+                    None,
+                )
+                if match_idx is not None:
+                    item = attempt_order.pop(match_idx)
+                    if attempt_order and attempt_order[0][0] is None:
+                        attempt_order.insert(1, item)
+                    else:
+                        attempt_order.insert(0, item)
+
+            if self.force_session:
+                attempt_order = [item for item in attempt_order if item[0] is not None]
+                self.log.emit("Tarayıcı oturumu ile inceleme başlatıldı.")
 
         last_error = None
         succeeded = False
@@ -657,7 +693,9 @@ class MetadataWorker(QObject):
             if self._cancel_requested:
                 return
 
-            if b_name is None:
+            if self.cookie_file_path:
+                self.status.emit("Çerez dosyası ile oturum deneniyor…")
+            elif b_name is None:
                 self.status.emit("Oturumsuz deneme: Oturum gerekli mi kontrol ediliyor…")
             else:
                 self.status.emit(f"{display_name} oturumu deneniyor…")
@@ -669,13 +707,15 @@ class MetadataWorker(QObject):
                 "no_warnings": False,
             }
 
-            if b_name and p_name:
+            if self.cookie_file_path:
+                opts["cookiefile"] = str(self.cookie_file_path)
+            elif b_name and p_name:
                 opts["cookiesfrombrowser"] = (b_name, p_name)
             elif b_name:
                 opts["cookiesfrombrowser"] = (b_name,)
 
             try:
-                with yt_dlp.YoutubeDL(opts) as downloader:
+                with create_ytdl(opts) as downloader:
                     info = downloader.extract_info(self.url, download=False)
 
                 if self._cancel_requested:
@@ -685,7 +725,10 @@ class MetadataWorker(QObject):
                     raise TypeError("İçerik bilgisi okunamadı.")
 
                 meta = self._build_metadata(info)
-                if b_name:
+                if self.cookie_file_path:
+                    meta.cookie_file_path = self.cookie_file_path
+                    self.status.emit("Çerez dosyası: Oturum doğrulandı")
+                elif b_name:
                     meta.session_browser = b_name
                     if b_name and p_name:
                         meta.session_profile = (b_name, p_name)
@@ -722,7 +765,7 @@ class MetadataWorker(QObject):
                 prefix = display_name if b_name else "Oturumsuz deneme"
                 self.status.emit(f"{prefix}: {reason}")
 
-                if self.browser and self.browser != "auto":
+                if self.browser and self.browser != "auto" and not self.force_session:
                     break
 
                 if (
@@ -731,6 +774,7 @@ class MetadataWorker(QObject):
                     or is_chromium_encryption_error(err_clean)
                     or "could not find firefox cookies database" in err_clean.lower()
                     or "could not find" in err_clean.lower()
+                    or "could not copy" in err_clean.lower()
                 ):
                     continue
                 else:
@@ -841,6 +885,12 @@ class MetadataWorker(QObject):
             PlatformType.FACEBOOK_REEL,
         ) or "facebook" in self.url.lower() or "fb.watch" in self.url.lower()
 
+        is_threads = (
+            platform_type == PlatformType.THREADS
+            or "threads.net" in self.url.lower()
+            or "threads.com" in self.url.lower()
+        )
+
         # Slideshow / photo post tespiti
         is_slideshow = (
             info.get("_type") == "slideshow"
@@ -872,6 +922,18 @@ class MetadataWorker(QObject):
 
             if not has_valid_video:
                 raise ValueError("Bu Facebook gönderisinde indirilebilir bir video bulunamadı.")
+
+        # Threads video doğrulaması
+        if is_threads and info_type not in ("url", "url_transparent"):
+            has_valid_video = False
+            if is_playlist or bool(entries):
+                if (valid_entries and any(_has_video_candidate(e) for e in valid_entries)) or _has_video_candidate(info):
+                    has_valid_video = True
+            elif _has_video_candidate(info):
+                has_valid_video = True
+
+            if not has_valid_video:
+                raise ValueError("Bu Threads gönderisinde indirilebilir bir video bulunamadı.")
 
         if max_height is None and not is_playlist and not is_slideshow:
             if platform_type in (PlatformType.INSTAGRAM_POST, PlatformType.INSTAGRAM_REEL):
@@ -942,4 +1004,6 @@ class MetadataWorker(QObject):
             track_name=track_name,
             available_heights=available_heights,
             available_formats=valid_formats,
+            session_method=self.session_method,
+            cookie_file_path=self.cookie_file_path,
         )
