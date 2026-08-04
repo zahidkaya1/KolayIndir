@@ -3,7 +3,7 @@
 import json
 import os
 import tempfile
-import unittes
+import unittest
 from unittest.mock import MagicMock, patch
 
 from yt_dlp.utils import ExtractorError
@@ -506,7 +506,7 @@ class TestThreadsSessionAndMetadataFlow(unittest.TestCase):
             call_count = 0
 
             def mock_create_ytdl_side_effect(opts):
-                nonlocal call_coun
+                nonlocal call_count
                 call_count += 1
                 mock_downloader = MagicMock()
                 if call_count == 1:
@@ -673,7 +673,7 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
         """
         with patch.object(self.ie, "_download_webpage", return_value=html):
             result = self.ie._real_extract("https://www.threads.com/@sueermurat/post/DbnFT1TjdLL")
-            # Should be a single video, not a playlis
+            # Should be a single video, not a playlist
             self.assertNotIn("_type", result, "Tek video playlist olarak döndürülmemeli")
             self.assertIn("formats", result)
             self.assertGreaterEqual(len(result["formats"]), 1)
@@ -830,9 +830,11 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
     @patch("src.browser_sessions.validate_cookie_file", return_value=(True, ""))
     def test_browser_combo_settings_save_restore(self, mock_val, mock_fd):
         """Ayarlar kaydedilirken cookie_file_path yazılmamalı, cookie_file seçiliyse 'auto' olarak kaydedilmeli."""
-        from src.main_window import MainWindow
-        from PySide6.QtWidgets import QApplication
         import sys
+
+        from PySide6.QtWidgets import QApplication
+
+        from src.main_window import MainWindow
 
         if not QApplication.instance():
             _app = QApplication(sys.argv)
@@ -856,9 +858,10 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
 
     def test_cookiefile_not_added_for_firefox(self):
         """Firefox seçildiğinde options içine cookiefile değil, cookiesfrombrowser eklenmeli."""
-        from src.download_options import build_ydl_options
-        from src.models import DownloadReques
         from pathlib import Path
+
+        from src.download_options import build_ydl_options
+        from src.models import DownloadRequest
 
         req = DownloadRequest(
             url="https://www.threads.net/@user/post/123",
@@ -875,9 +878,10 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
 
     def test_cookiefile_does_not_add_cookiesfrombrowser(self):
         """COOKIE_FILE yöntemi seçildiğinde cookiesfrombrowser eklenmemeli."""
-        from src.download_options import build_ydl_options
-        from src.models import DownloadReques
         from pathlib import Path
+
+        from src.download_options import build_ydl_options
+        from src.models import DownloadRequest
 
         req = DownloadRequest(
             url="https://www.threads.net/@user/post/123",
