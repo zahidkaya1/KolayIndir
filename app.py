@@ -17,7 +17,7 @@ def main() -> int:
     if sys.platform == "win32":
         try:
             import ctypes
-            app_id = "zahidkaya.Loadvia.1.0.0"
+            app_id = "zahidkaya.Loadvia.1.1.0"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
         except Exception:  # noqa: BLE001, S110
             pass

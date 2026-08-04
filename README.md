@@ -1,44 +1,65 @@
 # Loadvia
 
-Loadvia; desteklenen web sayfalarındaki video ve ses içeriklerini, bağlantıyı
-uygulamaya yapıştırarak indirmeyi amaçlayan hızlı, kolay ve yüksek kaliteli bir Windows masaüstü uygulamasıdır.
+Loadvia; desteklenen web sayfalarındaki video ve ses içeriklerini, bağlantıyı uygulamaya yapıştırarak indirmeyi amaçlayan hızlı, kolay ve yüksek kaliteli bir Windows masaüstü uygulamasıdır.
 
-## İlk sürümde bulunanlar
+## Özellikler
 
-- Tek bağlantıdan video indirme
-- YouTube oynatma listesi seçeneği
-- MP4 video veya MP3 ses seçimi
-- En iyi kalite, 1080p, 720p ve 480p seçenekleri
-- Chrome, Edge veya Firefox oturum çerezlerini isteğe bağlı kullanma
-- İndirme ilerlemesi, hız, kalan süre ve işlem günlüğü
-- Ayarlanabilir indirme hızı sınırı
-- Facebook video ve Reels indirme
-- Meta Threads video indirme (deneysel)
-- İndirme klasörünü hatırlama
-- İndirmeyi iptal etme
-- GitHub Releases üzerinden güncelleme kontrolü için temel altyapı
-- Antigravity çalışma alanı kuralları
-- GitHub Actions ile temel kod testi
+- YouTube video ve oynatma listesi indirme
+- Instagram gönderi ve hikâye desteği
+- X / Twitter video desteği
+- TikTok video desteği
+- Facebook video ve Reels desteği
+- Threads video desteği (Threads gönderileri platform kısıtlamaları nedeniyle tarayıcı oturumu gerektirebilir. Bazı Threads gönderilerinde indirme kuyruğu kullanılamayabilir. Böyle durumlarda bağlantıyı doğrudan inceleyip indirin.)
+- MP4 video ve MP3 ses indirme
+- İndirme kuyruğu
+- İndirme hızı sınırı
+- İndirme geçmişi
+- Pano bağlantısı algılama
+- Açık/koyu tema
+- Portable kullanım
+- Windows installer
+- Otomatik güncelleme kontrolü
 
-## Kapsam sınırı
+## Tarayıcı Oturumu Seçenekleri
 
-Uygulama internetteki her içeriği garanti ederek indiremez. Destek; sitenin yapısına,
-erişim izinlerine ve yt-dlp çıkarıcılarına bağlıdır. Özel hesap içerikleri, silinmiş
-paylaşımlar, coğrafi kısıtlamalar ve DRM ile korunan yayınlar indirilemeyebilir.
+Bazı içeriklerin indirilebilmesi için ilgili platformda oturum açılmış bir tarayıcı bilgisine ihtiyaç duyulabilir.
 
-Uygulamayı yalnızca sahibi olduğunuz, açıkça indirme izniniz bulunan veya hukuken
-indirme hakkınız olan içerikler için kullanın. Bu proje erişim kontrolünü veya DRM
-korumasını aşmaya yönelik özellik içermez.
+Loadvia hesap parolanızı istemez. Tarayıcı oturum bilgileri yalnız içerik inceleme ve indirme işlemlerinde kullanılır. Çerez dosyaları hesap oturum bilgileri içerebilir; bu dosyaları kimseyle paylaşmayın.
+
+Desteklenen oturum yöntemleri:
+- Otomatik (Önerilen)
+- Oturumsuz
+- Firefox
+- Microsoft Edge
+- Chrome
+- Brave
+- Netscape çerez dosyası
+
+**Windows Chromium Uyarısı:**
+Windows güvenlik kısıtlamaları nedeniyle Chrome, Edge veya Brave oturum bilgileri bazı sistemlerde okunamayabilir. Böyle durumlarda Firefox veya kullanıcının kendi Netscape çerez dosyası kullanılabilir.
+
+## Kapsam Sınırı
+
+Uygulama internetteki her içeriği garanti ederek indiremez. Destek; sitenin yapısına, erişim izinlerine ve yt-dlp çıkarıcılarına bağlıdır. Özel hesap içerikleri, silinmiş paylaşımlar, coğrafi kısıtlamalar ve DRM ile korunan yayınlar indirilemeyebilir.
+
+Uygulamayı yalnızca sahibi olduğunuz, açıkça indirme izniniz bulunan veya hukuken indirme hakkınız olan içerikler için kullanın. Bu proje erişim kontrolünü veya DRM korumasını aşmaya yönelik özellik içermez.
+
+## Paketler
+
+Uygulamayı iki şekilde kullanabilirsiniz:
+- Kurulumlu (Installer): `Loadvia-Setup-1.1.0.exe`
+- Taşınabilir (Portable): `Loadvia-1.1.0-windows-x64-portable.zip`
+
+## Gelecek Geliştirmeler
+
+- Kick video desteği
+- Threads kuyruk format seçimi iyileştirmesi
 
 ## Gereksinimler
 
 - Windows 10 veya Windows 11
-- Python 3.12
-- FFmpeg
-- Güncel Deno önerilir; güncel Node.js de kullanılabilir
-- Git
 
-## Kurulum
+## Kurulum (Geliştirici)
 
 ```powershell
 py -3.12 -m venv .venv
@@ -47,41 +68,3 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 python app.py
 ```
-
-Alternatif olarak `scripts\kurulum.bat`, ardından `scripts\calistir.bat`
-dosyalarını çalıştırın.
-
-## Ortam kontrolü
-
-```powershell
-python scripts\ortam_kontrol.py
-```
-
-## EXE oluşturma
-
-```powershell
-pip install -r requirements-dev.txt
-scripts\build_exe.bat
-```
-
-İlk çıktı `dist\KolayIndir\KolayIndir.exe` altında oluşur. İlk aşamada klasörlü
-`--onedir` derlemesi kullanılır; tek dosyalı sürüm daha sonra eklenebilir.
-
-## GitHub'a ilk gönderim
-
-Önce GitHub üzerinde `kolay-indir` adında boş ve README'siz bir depo oluşturun.
-
-```powershell
-git init
-git add .
-git commit -m "Masaüstü indirme uygulaması iskeleti oluşturuldu"
-git branch -M main
-git remote add origin https://github.com/zahidkaya1/kolay-indir.git
-git push -u origin main
-```
-
-## Güncelleme altyapısı
-
-`src/config.py` içinde GitHub kullanıcı ve depo adları tanımlıdır. Uygulamadaki
-“Güncellemeyi kontrol et” düğmesi, son GitHub Release etiketini `APP_VERSION` ile
-karşılaştırır. Ayrıntılı geliştirme sırası `docs/YOL_HARITASI.md` dosyasındadır.

@@ -1,7 +1,7 @@
 """Uygulama genel sabitleri."""
 
 APP_NAME = "Loadvia"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 APP_DESCRIPTION = "Hızlı, Kolay ve Yüksek Kaliteli Medya İndirici"
 APP_USER_AGENT = f"{APP_NAME}/{APP_VERSION}"
 HTTP_USER_AGENT = f"{APP_NAME}/{APP_VERSION}"

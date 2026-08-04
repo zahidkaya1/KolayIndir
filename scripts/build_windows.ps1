@@ -13,7 +13,7 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $ProjectRoot
 
-Write-Host "=== Loadvia 1.0.0 Windows Build Process ===" -ForegroundColor Cyan
+Write-Host "=== Loadvia 1.1.0 Windows Build Process ===" -ForegroundColor Cyan
 
 # 1. Verify 64-bit Python
 $PythonExe = Join-Path $ProjectRoot ".venv\Scripts\python.exe"

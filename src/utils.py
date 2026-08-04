@@ -224,6 +224,93 @@ def is_h264_codec(codec_name: str) -> bool:
     return any(h in c for h in H264_CODECS)
 
 
+def hidden_subprocess_kwargs(**kwargs) -> dict:
+    """
+    Windows'ta subprocess çağrılarında (Popen, run vb.) konsol penceresinin
+    görünmesini engellemek için gerekli startupinfo ve creationflags ayarlarını
+    döndürür. Mevcut kwargs içine bu ayarları güvenle ekler/birleştirir.
+    """
+    import os
+    import subprocess
+
+    if os.name != "nt":
+        return kwargs
+
+    startupinfo = kwargs.get("startupinfo")
+    if startupinfo is None:
+        startupinfo = subprocess.STARTUPINFO()
+
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = subprocess.SW_HIDE
+
+    creationflags = kwargs.get("creationflags", 0)
+    creationflags |= subprocess.CREATE_NO_WINDOW
+
+    kwargs["startupinfo"] = startupinfo
+    kwargs["creationflags"] = creationflags
+    return kwargs
+
+
+import contextlib
+import threading
+
+_PATCH_LOCK = threading.RLock()
+_PATCH_COUNT = 0
+_ORIGINAL_SUBPROCESS_POPEN = None
+_ORIGINAL_YTDLP_POPEN = None
+
+
+@contextlib.contextmanager
+def patch_subprocess_for_hidden_console():
+    """
+    Geçici olarak subprocess.Popen ve yt_dlp.utils.Popen sınıflarını sarmalar,
+    Windows'ta görünmez konsol (CREATE_NO_WINDOW) bayraklarını ekler.
+    Yalnızca 'with' bloğu içinde etkilidir. Birden fazla thread tarafından
+    aynı anda güvenle kullanılabilir.
+    """
+    import os
+    if os.name != "nt":
+        yield
+        return
+
+    import subprocess
+
+    import yt_dlp.utils
+
+    global _PATCH_COUNT, _ORIGINAL_SUBPROCESS_POPEN, _ORIGINAL_YTDLP_POPEN
+
+    with _PATCH_LOCK:
+        if _PATCH_COUNT == 0:
+            _ORIGINAL_SUBPROCESS_POPEN = subprocess.Popen
+            _ORIGINAL_YTDLP_POPEN = yt_dlp.utils.Popen
+
+            class HiddenSubprocessPopen(_ORIGINAL_SUBPROCESS_POPEN):
+                def __init__(self, *args, **kwargs):
+                    kwargs = hidden_subprocess_kwargs(**kwargs)
+                    super().__init__(*args, **kwargs)
+
+            class HiddenYtDlpPopen(_ORIGINAL_YTDLP_POPEN):
+                def __init__(self, *args, **kwargs):
+                    kwargs = hidden_subprocess_kwargs(**kwargs)
+                    super().__init__(*args, **kwargs)
+
+            subprocess.Popen = HiddenSubprocessPopen
+            yt_dlp.utils.Popen = HiddenYtDlpPopen
+
+        _PATCH_COUNT += 1
+
+    try:
+        yield
+    finally:
+        with _PATCH_LOCK:
+            _PATCH_COUNT -= 1
+            if _PATCH_COUNT == 0:
+                subprocess.Popen = _ORIGINAL_SUBPROCESS_POPEN
+                yt_dlp.utils.Popen = _ORIGINAL_YTDLP_POPEN
+                _ORIGINAL_SUBPROCESS_POPEN = None
+                _ORIGINAL_YTDLP_POPEN = None
+
+
 def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
     """ffprobe kullanarak medya dosyasının video/ses codec, çözünürlük, fps ve süre bilgilerini sorgular."""
     import json
@@ -252,14 +339,14 @@ def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
     ]
 
     try:
-        res = subprocess.run(
-            cmd,
+        kwargs = hidden_subprocess_kwargs(
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
-            check=False,
+            check=False
         )
+        res = subprocess.run(cmd, check=False, **kwargs)
         if res.returncode != 0 or not res.stdout:
             return {
                 "video_codec": "unknown",

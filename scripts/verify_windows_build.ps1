@@ -32,11 +32,11 @@ if ($VerInfo.ProductName -ne "Loadvia") {
     Write-Error "ProductName is '$($VerInfo.ProductName)', expected 'Loadvia'"
     exit 1
 }
-if ($VerInfo.FileVersion -ne "1.0.0.0") {
-    Write-Error "FileVersion is '$($VerInfo.FileVersion)', expected '1.0.0.0'"
+if ($VerInfo.FileVersion -ne "1.1.0.0") {
+    Write-Error "FileVersion is '$($VerInfo.FileVersion)', expected '1.1.0.0'"
     exit 1
 }
-Write-Host "[OK] Version metadata verified (ProductName: Loadvia, FileVersion: 1.0.0.0)" -ForegroundColor Green
+Write-Host "[OK] Version metadata verified (ProductName: Loadvia, FileVersion: 1.1.0.0)" -ForegroundColor Green
 
 # 3. Verify Brand Assets Structure
 $AssetDir = Join-Path $TargetDir "assets\Loadvia-Brand-Assets"

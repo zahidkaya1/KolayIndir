@@ -1,4 +1,4 @@
-# VSVersionInfo for Loadvia 1.0.0
+# VSVersionInfo for Loadvia 1.1.0
 VSVersionInfo(
   ffi=FixedFileInfo(
     filevers=(1, 0, 0, 0),
@@ -18,11 +18,11 @@ VSVersionInfo(
           [
             StringStruct('CompanyName', 'Loadvia'),
             StringStruct('FileDescription', 'Loadvia - Video ve Ses İndirici'),
-            StringStruct('FileVersion', '1.0.0.0'),
+            StringStruct('FileVersion', '1.1.0.0'),
             StringStruct('InternalName', 'Loadvia'),
             StringStruct('OriginalFilename', 'Loadvia.exe'),
             StringStruct('ProductName', 'Loadvia'),
-            StringStruct('ProductVersion', '1.0.0.0'),
+            StringStruct('ProductVersion', '1.1.0.0'),
             StringStruct('LegalCopyright', 'Copyright © 2026 Loadvia')
           ]
         )

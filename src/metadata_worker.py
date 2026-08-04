@@ -30,7 +30,12 @@ from src.models import (
     is_rehydration_error,
     translate_social_error,
 )
-from src.utils import clean_log_message, clean_tiktok_url, create_ytdl
+from src.utils import (
+    clean_log_message,
+    clean_tiktok_url,
+    create_ytdl,
+    patch_subprocess_for_hidden_console,
+)
 
 
 def _fetch_kick_playback_m3u8(uuid: str, headers: dict[str, str]) -> tuple[str | None, int | str | None, str | None]:
@@ -579,7 +584,7 @@ class MetadataWorker(QObject):
                     opts["impersonate"] = imp_target
 
                 try:
-                    with create_ytdl(opts) as downloader:
+                    with create_ytdl(opts) as downloader, patch_subprocess_for_hidden_console():
                         info = downloader.extract_info(target_url, download=False)
 
                     if self._cancel_requested:
@@ -715,7 +720,7 @@ class MetadataWorker(QObject):
                 opts["cookiesfrombrowser"] = (b_name,)
 
             try:
-                with create_ytdl(opts) as downloader:
+                with create_ytdl(opts) as downloader, patch_subprocess_for_hidden_console():
                     info = downloader.extract_info(self.url, download=False)
 
                 if self._cancel_requested:

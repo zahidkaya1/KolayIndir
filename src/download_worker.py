@@ -34,7 +34,9 @@ from src.models import (
 from src.utils import (
     clean_log_message,
     create_ytdl,
+    hidden_subprocess_kwargs,
     is_hevc_codec,
+    patch_subprocess_for_hidden_console,
     probe_media_codecs,
     validate_final_download,
 )
@@ -474,7 +476,7 @@ class DownloadWorker(QObject):
 
             opts = _build_kick_opts(m3u8_url)  # type: ignore[arg-type]
             try:
-                with create_ytdl(opts) as downloader:
+                with create_ytdl(opts) as downloader, patch_subprocess_for_hidden_console():
                     result = downloader.extract_info(m3u8_url, download=True)
 
                 if self._cancel_requested:
@@ -585,14 +587,14 @@ class DownloadWorker(QObject):
 
         def _run_ffmpeg_cmd(cmd_args: list[str]) -> int:
             full_cmd = [cmd_args[0], "-y", "-progress", "pipe:1", "-nostats"] + cmd_args[2:]
-            proc = subprocess.Popen(
-                full_cmd,
+            kwargs = hidden_subprocess_kwargs(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
             )
+            proc = subprocess.Popen(full_cmd, **kwargs)
             self._active_process = proc
 
             time_pattern = re.compile(r"out_time_ms=(\d+)")
@@ -819,7 +821,8 @@ class DownloadWorker(QObject):
                 self.log.emit("yt-dlp işlemi başladı.")
                 try:
                     with create_ytdl(pref_options) as downloader:
-                        info = downloader.extract_info(self.request.url, download=False)
+                        with patch_subprocess_for_hidden_console():
+                            info = downloader.extract_info(self.request.url, download=False)
                         
                         if self._cancel_requested:
                             self.cancelled.emit()
@@ -853,7 +856,8 @@ class DownloadWorker(QObject):
                                 downloader.params["overwrites"] = True
                                 downloader.params["continuedl"] = False
 
-                        result = downloader.process_ie_result(info, download=True)
+                        with patch_subprocess_for_hidden_console():
+                            result = downloader.process_ie_result(info, download=True)
                         
                     if self._cancel_requested:
                         self.cancelled.emit()
@@ -937,7 +941,8 @@ class DownloadWorker(QObject):
 
                 try:
                     with create_ytdl(options) as downloader:
-                        info = downloader.extract_info(self.request.url, download=False)
+                        with patch_subprocess_for_hidden_console():
+                            info = downloader.extract_info(self.request.url, download=False)
                         
                         if self._cancel_requested:
                             self.cancelled.emit()
@@ -970,7 +975,8 @@ class DownloadWorker(QObject):
                                 downloader.params["overwrites"] = True
                                 downloader.params["continuedl"] = False
 
-                        result = downloader.process_ie_result(info, download=True)
+                        with patch_subprocess_for_hidden_console():
+                            result = downloader.process_ie_result(info, download=True)
                         
                     if self._cancel_requested:
                         self.cancelled.emit()
@@ -1359,14 +1365,14 @@ class DownloadWorker(QObject):
             duration = float(probe.get("duration") or 0.0)
             process = None
             try:
-                process = subprocess.Popen(
-                    cmd,
+                kwargs = hidden_subprocess_kwargs(
                     stderr=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     text=True,
                     encoding="utf-8",
                     errors="replace",
                 )
+                process = subprocess.Popen(cmd, **kwargs)
                 self._active_process = process
                 time_pattern = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
 

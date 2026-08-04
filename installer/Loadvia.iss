@@ -1,8 +1,8 @@
-; Loadvia 1.0.0 Inno Setup Script
+; Loadvia 1.1.0 Inno Setup Script
 ; Compatible with Inno Setup 6.x and 7.x
 
 #define MyAppName "Loadvia"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Loadvia"
 #define MyAppExeName "Loadvia.exe"
 
@@ -10,7 +10,7 @@
 AppId={{6411DE40-247B-45E7-9345-73DCCAF9DA69}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppVerName=Loadvia 1.0.0
+AppVerName=Loadvia 1.1.0
 AppPublisher=Loadvia
 AppPublisherURL=https://github.com/zahidkaya1/KolayIndir
 AppSupportURL=https://github.com/zahidkaya1/KolayIndir/issues
@@ -20,7 +20,7 @@ DefaultDirName={autopf}\Loadvia
 DefaultGroupName=Loadvia
 
 OutputDir=..\release
-OutputBaseFilename=Loadvia-Setup-1.0.0
+OutputBaseFilename=Loadvia-Setup-1.1.0
 
 SetupIconFile=..\assets\Loadvia-Brand-Assets\loadvia.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
@@ -29,13 +29,13 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 
-VersionInfoVersion=1.0.0.0
-VersionInfoProductVersion=1.0.0.0
+VersionInfoVersion=1.1.0.0
+VersionInfoProductVersion=1.1.0.0
 VersionInfoProductName=Loadvia
 VersionInfoDescription=Loadvia Kurulum Programı
 VersionInfoCompany=Loadvia
 VersionInfoCopyright=Copyright © 2026 Loadvia
-VersionInfoOriginalFileName=Loadvia-Setup-1.0.0.exe
+VersionInfoOriginalFileName=Loadvia-Setup-1.1.0.exe
 
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

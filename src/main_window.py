@@ -1701,9 +1701,11 @@ class MainWindow(QMainWindow):
         )
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.clicked_button_id == "yes":
             try:
+                from src.utils import hidden_subprocess_kwargs
+                kwargs = hidden_subprocess_kwargs(shell=False)
                 subprocess.Popen(
                     ["cmd", "/c", "start", "cmd", "/k", WINGET_CMD],
-                    shell=False,
+                    **kwargs
                 )
                 self._append_log(f"Firefox kurulum komutu başlatıldı: {WINGET_CMD}")
             except Exception as exc:  # noqa: BLE001
