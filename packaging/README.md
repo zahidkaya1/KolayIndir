@@ -1,11 +1,11 @@
 # Loadvia Packaging & Release Infrastructure
 
-Bu klasör, Loadvia 1.1.0 Windows x64 PyInstaller paketleme ve Windows executable yapılandırma dosyalarını içerir.
+Bu klasör, Loadvia 1.1.1 Windows x64 PyInstaller paketleme ve Windows executable yapılandırma dosyalarını içerir.
 
 ## Yapı
 
 - `Loadvia.spec`: PyInstaller 6.x uyumlu, `onedir`, `windowed` Windows x64 build yapılandırması.
-- `version_info.txt`: Windows PE metadata (CompanyName, FileDescription, FileVersion 1.1.0.0, ProductName, ProductVersion).
+- `version_info.txt`: Windows PE metadata (CompanyName, FileDescription, FileVersion 1.1.1.1, ProductName, ProductVersion).
 - `README.md`: Paketleme dokümantasyonu.
 
 ## Çıktı Mimarisi

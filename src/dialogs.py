@@ -59,16 +59,39 @@ class DownloadCompletedDialog(QDialog):
         msg_parts = []
         if result_summary:
             import os
-            clean_res = Path(result_summary).stem if os.path.isabs(result_summary) else result_summary
-            if clean_res.lower() in {"manifest", "master", "playlist", "index", "chunklist"}:
-                clean_res = Path(filepath).stem if (filepath and Path(filepath).stem.lower() not in {"manifest", "master", "playlist", "index", "chunklist"}) else "Kick Videosu"
+
+            clean_res = (
+                Path(result_summary).stem
+                if os.path.isabs(result_summary)
+                else result_summary
+            )
+            if clean_res.lower() in {
+                "manifest",
+                "master",
+                "playlist",
+                "index",
+                "chunklist",
+            }:
+                clean_res = (
+                    Path(filepath).stem
+                    if (
+                        filepath
+                        and Path(filepath).stem.lower()
+                        not in {"manifest", "master", "playlist", "index", "chunklist"}
+                    )
+                    else "Kick Videosu"
+                )
             msg_parts.append(f"Tamamlanan: {clean_res}")
 
         info_parts = []
         if video_codec:
             if "264" in video_codec or "avc" in video_codec.lower():
                 c_display = "H.264 (AVC)"
-            elif "hevc" in video_codec.lower() or "265" in video_codec or "bytevc" in video_codec.lower():
+            elif (
+                "hevc" in video_codec.lower()
+                or "265" in video_codec
+                or "bytevc" in video_codec.lower()
+            ):
                 c_display = "HEVC (H.265)"
             else:
                 c_display = video_codec.upper()
@@ -81,7 +104,13 @@ class DownloadCompletedDialog(QDialog):
             info_parts.append(f"• Boyut: {filesize_text}")
         if self.filepath:
             fn = Path(self.filepath).name
-            if fn.lower() not in {"manifest", "master", "playlist", "index", "chunklist"}:
+            if fn.lower() not in {
+                "manifest",
+                "master",
+                "playlist",
+                "index",
+                "chunklist",
+            }:
                 info_parts.append(f"• Dosya: {fn}")
 
         if info_parts:
@@ -175,8 +204,8 @@ class LogDialog(QDialog):
 
     def _copy_text(self) -> None:
         from PySide6.QtWidgets import QApplication
-        QApplication.clipboard().setText(self.text_edit.toPlainText())
 
+        QApplication.clipboard().setText(self.text_edit.toPlainText())
 
 
 class UpdateAvailableDialog(QDialog):
@@ -191,7 +220,9 @@ class UpdateAvailableDialog(QDialog):
         self.setMinimumWidth(400)
         self.setMaximumWidth(600)
         self.setMaximumHeight(560)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self.setWindowFlags(
+            self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
@@ -211,10 +242,14 @@ class UpdateAvailableDialog(QDialog):
         scroll.setMinimumHeight(120)
         scroll.setMaximumHeight(220)
 
-        notes_content = QLabel(notes if notes.strip() else "Yeni sürüm notu bulunmuyor.")
+        notes_content = QLabel(
+            notes if notes.strip() else "Yeni sürüm notu bulunmuyor."
+        )
         notes_content.setObjectName("updateDialogMessage")
         notes_content.setWordWrap(True)
-        notes_content.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        notes_content.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+        )
 
         scroll.setWidget(notes_content)
 
@@ -262,7 +297,9 @@ class AppMessageDialog(QDialog):
             self.setMinimumWidth(380)
             self.setMaximumWidth(560)
 
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self.setWindowFlags(
+            self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
@@ -292,7 +329,9 @@ class AppMessageDialog(QDialog):
                     btn.setObjectName("dialogSecondaryButton")
 
                 btn.setMinimumHeight(44)
-                btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                btn.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
                 min_w = btn.fontMetrics().horizontalAdvance(label) + 32
                 btn.setMinimumWidth(min_w)
                 apply_pointing_hand_cursor(btn)
@@ -329,7 +368,9 @@ class SessionFailedDialog(QDialog):
         self.setWindowTitle("Oturum alınamadı")
         self.setMinimumWidth(460)
         self.setMaximumWidth(600)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self.setWindowFlags(
+            self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
@@ -379,9 +420,7 @@ class SessionFailedDialog(QDialog):
                     "Firefox'ta Instagram'a giriş yapıp tarayıcıyı tamamen kapatarak yeniden deneyin."
                 )
             elif not ff_installed:
-                main_text = (
-                    "Bu içerik için Instagram oturumu gerekiyor ancak kullanılabilir bir oturum bulunamadı."
-                )
+                main_text = "Bu içerik için Instagram oturumu gerekiyor ancak kullanılabilir bir oturum bulunamadı."
             else:
                 main_text = (
                     "Instagram hesabının açık olduğu bir tarayıcı oturumu bulunamadı. "
@@ -394,7 +433,9 @@ class SessionFailedDialog(QDialog):
         elif is_twitter:
             main_text = "İçeriği görebildiğiniz hesabın açık olduğu tarayıcıyı kapatıp yeniden deneyin."
         elif is_youtube:
-            main_text = "Video yaş kısıtlamalı veya oturum doğrulaması gerektiriyor olabilir."
+            main_text = (
+                "Video yaş kısıtlamalı veya oturum doğrulaması gerektiriyor olabilir."
+            )
         else:
             main_text = "Lütfen tarayıcınızda hesabınızın açık olduğundan ve oturumun aktif olduğundan emin olun."
 
@@ -477,7 +518,9 @@ class SessionRetryDialog(QDialog):
         self.setWindowTitle(title)
         self.setMinimumWidth(440)
         self.setMaximumWidth(580)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self.setWindowFlags(
+            self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
+        )
 
         self.selected_method: str = "auto"
         self.selected_cookie_file: str | None = None
@@ -491,19 +534,28 @@ class SessionRetryDialog(QDialog):
         title_label.setObjectName("dialogTitleLabel")
         layout.addWidget(title_label)
 
-        msg_label = QLabel(message if message else "Bu içeriği görüntülemek için tarayıcı oturumu gerekebilir.")
+        msg_label = QLabel(
+            message
+            if message
+            else "Bu içeriği görüntülemek için tarayıcı oturumu gerekebilir."
+        )
         msg_label.setObjectName("dialogMessageLabel")
         msg_label.setWordWrap(True)
         layout.addWidget(msg_label)
 
         from src.browser_sessions import is_chromium_encryption_error
+
         if is_chromium_encryption_error(message):
             warn_frame = QFrame()
             warn_frame.setObjectName("warnFrame")
-            warn_frame.setStyleSheet("QFrame#warnFrame { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 8px; }")
+            warn_frame.setStyleSheet(
+                "QFrame#warnFrame { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 8px; }"
+            )
             warn_layout = QVBoxLayout(warn_frame)
             warn_layout.setContentsMargins(8, 6, 8, 6)
-            warn_lbl = QLabel("Bu tarayıcının oturum bilgileri Windows güvenlik kısıtlamaları nedeniyle okunamadı. Firefox oturumunu veya bir çerez dosyasını kullanabilirsiniz.")
+            warn_lbl = QLabel(
+                "Bu tarayıcının oturum bilgileri Windows güvenlik kısıtlamaları nedeniyle okunamadı. Firefox oturumunu veya bir çerez dosyasını kullanabilirsiniz."
+            )
             warn_lbl.setStyleSheet("color: #991b1b; font-size: 12px;")
             warn_lbl.setWordWrap(True)
             warn_layout.addWidget(warn_lbl)
@@ -552,7 +604,11 @@ class SessionRetryDialog(QDialog):
         self.edit_btn.clicked.connect(lambda: self._choose("edit_url"))
 
         self.retry_btn = QPushButton("Oturumla İncele")
-        self.retry_btn.setObjectName("threadsSessionRetryButton" if "threads" in platform_name.lower() else "dialogSessionRetryButton")
+        self.retry_btn.setObjectName(
+            "threadsSessionRetryButton"
+            if "threads" in platform_name.lower()
+            else "dialogSessionRetryButton"
+        )
         self.retry_btn.clicked.connect(lambda: self._choose("session_retry"))
 
         apply_pointing_hand_cursor(self.close_btn)
@@ -571,6 +627,7 @@ class SessionRetryDialog(QDialog):
             from PySide6.QtWidgets import QFileDialog
 
             from src.browser_sessions import validate_cookie_file
+
             path, _ = QFileDialog.getOpenFileName(
                 self,
                 "Çerez Dosyası Seç (Netscape formatı)",
@@ -581,13 +638,19 @@ class SessionRetryDialog(QDialog):
                 is_valid, err_msg = validate_cookie_file(path)
                 if not is_valid:
                     self.cookie_path_label.setText(f"❌ {err_msg}")
-                    self.cookie_path_label.setStyleSheet("color: #dc2626; font-size: 12px;")
+                    self.cookie_path_label.setStyleSheet(
+                        "color: #dc2626; font-size: 12px;"
+                    )
                     self.cookie_path_label.setVisible(True)
                     self.selected_cookie_file = None
                 else:
                     self.selected_cookie_file = path
-                    self.cookie_path_label.setText(f"✓ Seçilen dosya: {Path(path).name}")
-                    self.cookie_path_label.setStyleSheet("color: #16a34a; font-size: 12px;")
+                    self.cookie_path_label.setText(
+                        f"✓ Seçilen dosya: {Path(path).name}"
+                    )
+                    self.cookie_path_label.setStyleSheet(
+                        "color: #16a34a; font-size: 12px;"
+                    )
                     self.cookie_path_label.setVisible(True)
             else:
                 if not self.selected_cookie_file:
@@ -599,10 +662,15 @@ class SessionRetryDialog(QDialog):
     def _choose(self, choice: str) -> None:
         self.clicked_button_id = choice
         self.selected_method = self.method_combo.currentData() or "auto"
-        if choice == "session_retry" and self.selected_method == "cookie_file" and not self.selected_cookie_file:
+        if (
+            choice == "session_retry"
+            and self.selected_method == "cookie_file"
+            and not self.selected_cookie_file
+        ):
             from PySide6.QtWidgets import QFileDialog
 
             from src.browser_sessions import validate_cookie_file
+
             path, _ = QFileDialog.getOpenFileName(
                 self,
                 "Çerez Dosyası Seç (Netscape formatı)",
@@ -635,7 +703,9 @@ class AdvancedSessionDialog(QDialog):
         self.setObjectName("advancedSessionDialog")
         self.setWindowTitle("Gelişmiş Ayarlar")
         self.setMinimumWidth(400)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self.setWindowFlags(
+            self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 18)
@@ -644,7 +714,9 @@ class AdvancedSessionDialog(QDialog):
         title = QLabel("Gelişmiş Oturum ve Format Ayarları")
         title.setObjectName("dialogTitleLabel")
 
-        desc = QLabel("Özel bir tarayıcı oturumu seçin veya otomatik oturum yönetimini kullanın:")
+        desc = QLabel(
+            "Özel bir tarayıcı oturumu seçin veya otomatik oturum yönetimini kullanın:"
+        )
         desc.setObjectName("dialogMessageLabel")
         desc.setWordWrap(True)
 
@@ -672,9 +744,13 @@ class AdvancedSessionDialog(QDialog):
 
         self.convert_hevc_check = QCheckBox("Windows uyumlu MP4 oluştur")
         self.convert_hevc_check.setChecked(convert_hevc)
-        self.convert_hevc_check.setStyleSheet("color: #172033; font-size: 13px; font-weight: 600;")
+        self.convert_hevc_check.setStyleSheet(
+            "color: #172033; font-size: 13px; font-weight: 600;"
+        )
 
-        hevc_desc = QLabel("HEVC/H.265 videoları gerekirse H.264'e dönüştürür. Dönüştürme işlemi ek süre alabilir.")
+        hevc_desc = QLabel(
+            "HEVC/H.265 videoları gerekirse H.264'e dönüştürür. Dönüştürme işlemi ek süre alabilir."
+        )
         hevc_desc.setStyleSheet("color: #64748b; font-size: 12px;")
         hevc_desc.setWordWrap(True)
 
@@ -683,7 +759,9 @@ class AdvancedSessionDialog(QDialog):
         self.cookie_path_label.setWordWrap(True)
         self.cookie_path_label.setVisible(False)
 
-        self.cookie_info_label = QLabel("Çerez dosyası, hesap erişim bilgilerini içerir. Lütfen yalnızca güvendiğiniz uygulamalarla paylaşın.")
+        self.cookie_info_label = QLabel(
+            "Çerez dosyası, hesap erişim bilgilerini içerir. Lütfen yalnızca güvendiğiniz uygulamalarla paylaşın."
+        )
         self.cookie_info_label.setStyleSheet("color: #64748b; font-size: 11px;")
         self.cookie_info_label.setWordWrap(True)
         self.cookie_info_label.setVisible(False)
@@ -723,6 +801,7 @@ class AdvancedSessionDialog(QDialog):
             from PySide6.QtWidgets import QFileDialog
 
             from src.browser_sessions import validate_cookie_file
+
             path, _ = QFileDialog.getOpenFileName(
                 self,
                 "Çerez Dosyası Seç (Netscape formatı)",
@@ -733,14 +812,20 @@ class AdvancedSessionDialog(QDialog):
                 is_valid, err_msg = validate_cookie_file(path)
                 if not is_valid:
                     self.cookie_path_label.setText(f"❌ {err_msg}")
-                    self.cookie_path_label.setStyleSheet("color: #dc2626; font-size: 12px;")
+                    self.cookie_path_label.setStyleSheet(
+                        "color: #dc2626; font-size: 12px;"
+                    )
                     self.cookie_path_label.setVisible(True)
                     self.cookie_info_label.setVisible(False)
                     self.selected_cookie_file = None
                 else:
                     self.selected_cookie_file = path
-                    self.cookie_path_label.setText(f"✓ Seçilen dosya: {Path(path).name}")
-                    self.cookie_path_label.setStyleSheet("color: #16a34a; font-size: 12px;")
+                    self.cookie_path_label.setText(
+                        f"✓ Seçilen dosya: {Path(path).name}"
+                    )
+                    self.cookie_path_label.setStyleSheet(
+                        "color: #16a34a; font-size: 12px;"
+                    )
                     self.cookie_path_label.setVisible(True)
                     self.cookie_info_label.setVisible(True)
             else:
@@ -758,6 +843,7 @@ class AdvancedSessionDialog(QDialog):
             from PySide6.QtWidgets import QFileDialog
 
             from src.browser_sessions import validate_cookie_file
+
             path, _ = QFileDialog.getOpenFileName(
                 self,
                 "Çerez Dosyası Seç (Netscape formatı)",
@@ -770,7 +856,9 @@ class AdvancedSessionDialog(QDialog):
                     self.selected_cookie_file = path
                 else:
                     self.cookie_path_label.setText(f"❌ {err_msg}")
-                    self.cookie_path_label.setStyleSheet("color: #dc2626; font-size: 12px;")
+                    self.cookie_path_label.setStyleSheet(
+                        "color: #dc2626; font-size: 12px;"
+                    )
                     self.cookie_path_label.setVisible(True)
                     self.cookie_info_label.setVisible(False)
                     return
@@ -805,7 +893,9 @@ class AlreadyDownloadedDialog(QDialog):
         self.setWindowTitle("Bu içerik daha önce indirilmiş")
         self.setMinimumWidth(440)
         self.setMaximumWidth(620)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self.setWindowFlags(
+            self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
+        )
 
         self.clicked_button_id: str = "cancel"
         self.filepath = filepath
@@ -871,7 +961,13 @@ class AlreadyDownloadedDialog(QDialog):
 
         from src.utils import apply_pointing_hand_cursor
 
-        for btn in (open_file_btn, open_folder_btn, redownload_btn, save_as_btn, cancel_btn):
+        for btn in (
+            open_file_btn,
+            open_folder_btn,
+            redownload_btn,
+            save_as_btn,
+            cancel_btn,
+        ):
             apply_pointing_hand_cursor(btn)
 
         btn_layout.addLayout(row1)
@@ -902,7 +998,9 @@ class LeftoverJobsDialog(QDialog):
         self.setObjectName("leftoverJobsDialog")
         self.setWindowTitle("Önceki yarım indirmeler bulundu")
         self.setMinimumWidth(420)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        self.setWindowFlags(
+            self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
+        )
 
         self.clicked_button_id: str = "keep"
 
@@ -956,6 +1054,3 @@ class LeftoverJobsDialog(QDialog):
             self.reject()
         else:
             self.accept()
-
-
-

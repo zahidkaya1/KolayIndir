@@ -3,7 +3,11 @@
 import re
 from typing import Any
 
-from src.models import DownloadRequest, PlatformType, detect_platform_type
+from src.models import (
+    DownloadRequest,
+    PlatformType,
+    detect_platform_type,
+)
 
 QUALITY_HEIGHTS: dict[str, int | None] = {
     "En iyi kullanılabilir kalite": None,
@@ -41,18 +45,8 @@ def parse_quality_height(quality: str) -> int | None:
 def _video_format(quality: str) -> str:
     height = parse_quality_height(quality)
     if height is None:
-        return (
-            "bv*[vcodec^=avc1]+ba/bv*[vcodec^=h264]+ba/"
-            "b[vcodec^=avc1]/b[vcodec^=h264]/"
-            "bv*+ba/b"
-        )
-    return (
-        f"bv*[vcodec^=avc1][height<={height}]+ba/"
-        f"bv*[vcodec^=h264][height<={height}]+ba/"
-        f"b[vcodec^=avc1][height<={height}]/"
-        f"b[vcodec^=h264][height<={height}]/"
-        f"bv*[height<={height}]+ba/b[height<={height}]"
-    )
+        return "bv*+ba/b"
+    return f"bv*[height<={height}]+ba/b[height<={height}]/bv*+ba/b"
 
 
 def _make_cookies_from_browser(
@@ -76,6 +70,7 @@ def _make_impersonate_target(target_name: str) -> Any:
     """yt_dlp impersonate target nesnesi oluşturur."""
     try:
         from yt_dlp.networking.impersonate import ImpersonateTarget
+
         return ImpersonateTarget.from_str(target_name.lower())
     except Exception:  # noqa: BLE001
         return None
@@ -120,14 +115,26 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
     if request.target_final_path and not request.playlist:
         outtmpl_str = str(request.target_final_path.with_suffix("")) + ".%(ext)s"
     elif request.target_final_path and request.playlist:
-        outtmpl_str = str(request.target_final_path / "%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s")
+        outtmpl_str = str(
+            request.target_final_path
+            / "%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s"
+        )
     elif is_tiktok:
-        outtmpl_str = str(request.output_dir / "TikTok - %(uploader,uploader_id,channel|TikTok_Kullanicisi)s - %(title,id)s [%(id)s].%(ext)s")
+        outtmpl_str = str(
+            request.output_dir
+            / "TikTok - %(uploader,uploader_id,channel|TikTok_Kullanicisi)s - %(title,id)s [%(id)s].%(ext)s"
+        )
     elif request.playlist:
         if is_instagram_story:
-            outtmpl_str = str(request.output_dir / "%(uploader,uploader_id,playlist_title,playlist|Instagram_Hikayeleri)s/%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s")
+            outtmpl_str = str(
+                request.output_dir
+                / "%(uploader,uploader_id,playlist_title,playlist|Instagram_Hikayeleri)s/%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s"
+            )
         else:
-            outtmpl_str = str(request.output_dir / "%(playlist_title,playlist,title,id)s/%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s")
+            outtmpl_str = str(
+                request.output_dir
+                / "%(playlist_title,playlist,title,id)s/%(playlist_index)03d - %(title,id)s [%(id)s].%(ext)s"
+            )
     else:
         outtmpl_str = str(request.output_dir / "%(title)s [%(id)s].%(ext)s")
 
@@ -158,19 +165,27 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
         options["playlist_items"] = "1"
 
     if request.media_type == "Ses (MP3)":
-        options.update({
-            "format": "bestaudio/best",
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }],
-        })
+        options.update(
+            {
+                "format": "bestaudio/best",
+                "postprocessors": [
+                    {
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "192",
+                    }
+                ],
+            }
+        )
     else:
-        options.update({
-            "format": _video_format(request.quality),
-            "merge_output_format": "mp4",
-        })
+        options.update(
+            {
+                "format": _video_format(request.quality),
+                "merge_output_format": "mp4",
+            }
+        )
+        if platform != PlatformType.THREADS:
+            options["format_sort"] = ["vcodec:h264", "acodec:aac", "ext:mp4"]
 
     # --- Çerez / oturum seçenekleri ---
     if request.cookie_file_path:
@@ -185,7 +200,13 @@ def build_ydl_options(request: DownloadRequest) -> dict[str, Any]:
             cookies_tuple = _make_cookies_from_browser(request.preferred_browser, None)
         elif isinstance(request.browser, tuple):
             cookies_tuple = request.browser
-        elif request.browser and request.browser not in ("auto", "none", "disabled", "off", "cookie_file"):
+        elif request.browser and request.browser not in (
+            "auto",
+            "none",
+            "disabled",
+            "off",
+            "cookie_file",
+        ):
             cookies_tuple = _make_cookies_from_browser(request.browser, None)
 
         if cookies_tuple is not None:

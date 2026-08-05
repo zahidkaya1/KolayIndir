@@ -32,13 +32,17 @@ from src.utils import (
 # 1. URL Doğrulama Testleri
 # -----------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     ("url", "expected_platform"),
     [
         ("https://www.facebook.com/watch/?v=123456", PlatformType.FACEBOOK_VIDEO),
         ("https://facebook.com/watch/?v=123456", PlatformType.FACEBOOK_VIDEO),
         ("https://www.facebook.com/user/videos/123456", PlatformType.FACEBOOK_VIDEO),
-        ("https://www.facebook.com/user/videos/title/123456", PlatformType.FACEBOOK_VIDEO),
+        (
+            "https://www.facebook.com/user/videos/title/123456",
+            PlatformType.FACEBOOK_VIDEO,
+        ),
         ("https://www.facebook.com/reel/123456", PlatformType.FACEBOOK_REEL),
         ("https://m.facebook.com/watch/?v=123456", PlatformType.FACEBOOK_VIDEO),
         ("https://m.facebook.com/user/videos/123456", PlatformType.FACEBOOK_VIDEO),
@@ -46,8 +50,14 @@ from src.utils import (
         ("https://fb.watch/abc123", PlatformType.FACEBOOK_VIDEO),
         ("https://www.facebook.com/share/v/abc123", PlatformType.FACEBOOK_VIDEO),
         ("https://www.facebook.com/share/r/abc123", PlatformType.FACEBOOK_REEL),
-        ("https://www.facebook.com/permalink.php?story_fbid=123456&id=789", PlatformType.FACEBOOK_VIDEO),
-        ("https://m.facebook.com/story.php?story_fbid=123456&id=789", PlatformType.FACEBOOK_VIDEO),
+        (
+            "https://www.facebook.com/permalink.php?story_fbid=123456&id=789",
+            PlatformType.FACEBOOK_VIDEO,
+        ),
+        (
+            "https://m.facebook.com/story.php?story_fbid=123456&id=789",
+            PlatformType.FACEBOOK_VIDEO,
+        ),
         ("https://www.facebook.com/username/posts/123456", PlatformType.FACEBOOK_VIDEO),
     ],
 )
@@ -83,6 +93,7 @@ def test_facebook_invalid_url_detection(invalid_url: str):
 # -----------------------------------------------------------------------------
 # 2. Metadata Eşleme Testleri
 # -----------------------------------------------------------------------------
+
 
 def test_facebook_watch_metadata_conversion():
     worker = MetadataWorker("https://www.facebook.com/watch/?v=123456")
@@ -145,7 +156,9 @@ def test_facebook_photo_only_raises_error():
         "id": "12345",
         "formats": [],
     }
-    with pytest.raises(ValueError, match="Bu Facebook gönderisinde indirilebilir bir video bulunamadı."):
+    with pytest.raises(
+        ValueError, match="Bu Facebook gönderisinde indirilebilir bir video bulunamadı."
+    ):
         worker._build_metadata(info)
 
 
@@ -231,7 +244,11 @@ def test_facebook_entry_with_requested_downloads_accepted():
                 "id": "entry_req_dl",
                 "title": "Requested Download Video",
                 "requested_downloads": [
-                    {"url": "https://fbcdn.net/video.mp4", "ext": "mp4", "filesize": 5000000}
+                    {
+                        "url": "https://fbcdn.net/video.mp4",
+                        "ext": "mp4",
+                        "filesize": 5000000,
+                    }
                 ],
             }
         ],
@@ -256,7 +273,9 @@ def test_facebook_no_formats_and_no_valid_entries_raises_error():
             },
         ],
     }
-    with pytest.raises(ValueError, match="Bu Facebook gönderisinde indirilebilir bir video bulunamadı."):
+    with pytest.raises(
+        ValueError, match="Bu Facebook gönderisinde indirilebilir bir video bulunamadı."
+    ):
         worker._build_metadata(info)
 
 
@@ -289,6 +308,7 @@ def test_facebook_single_video_requested_formats_accepted():
 # -----------------------------------------------------------------------------
 # 3. Kalite ve Format Seçim Testleri
 # -----------------------------------------------------------------------------
+
 
 def test_facebook_quality_selection_best():
     worker = MetadataWorker(
@@ -336,22 +356,40 @@ def test_facebook_audio_download_options(tmp_path: Path):
     )
     opts = build_ydl_options(req)
     assert opts["format"] == "bestaudio/best"
-    assert any(pp.get("key") == "FFmpegExtractAudio" for pp in opts.get("postprocessors", []))
+    assert any(
+        pp.get("key") == "FFmpegExtractAudio" for pp in opts.get("postprocessors", [])
+    )
 
 
 # -----------------------------------------------------------------------------
 # 4. Hata Mesajı Çeviri Testleri
 # -----------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     ("raw_error", "expected_snippet"),
     [
         ("Cannot parse data from facebook page", "Facebook video bilgileri alınamadı"),
-        ("No video formats found on this page", "Bu Facebook bağlantısında indirilebilir video bulunamadı"),
-        ("Login required to view this video", "Bu Facebook içeriğini görüntülemek için tarayıcı oturumu gerekebilir"),
-        ("This video has been removed or is unavailable", "Facebook videosu kaldırılmış, gizlenmiş veya kullanılamıyor olabilir"),
-        ("Post contains only photos and no video", "Bu Facebook gönderisinde indirilebilir bir video bulunamadı"),
-        ("HTTP Error 429: Too Many Requests / Rate limit", "Facebook isteği geçici olarak sınırlandırdı"),
+        (
+            "No video formats found on this page",
+            "Bu Facebook bağlantısında indirilebilir video bulunamadı",
+        ),
+        (
+            "Login required to view this video",
+            "Bu Facebook içeriğini görüntülemek için tarayıcı oturumu gerekebilir",
+        ),
+        (
+            "This video has been removed or is unavailable",
+            "Facebook videosu kaldırılmış, gizlenmiş veya kullanılamıyor olabilir",
+        ),
+        (
+            "Post contains only photos and no video",
+            "Bu Facebook gönderisinde indirilebilir bir video bulunamadı",
+        ),
+        (
+            "HTTP Error 429: Too Many Requests / Rate limit",
+            "Facebook isteği geçici olarak sınırlandırdı",
+        ),
     ],
 )
 def test_facebook_error_translations(raw_error: str, expected_snippet: str):
@@ -362,6 +400,7 @@ def test_facebook_error_translations(raw_error: str, expected_snippet: str):
 # -----------------------------------------------------------------------------
 # 5. Platform Badge, Geçmiş ve Kuyruk Testleri
 # -----------------------------------------------------------------------------
+
 
 def test_facebook_badge_text():
     assert get_platform_badge_text(PlatformType.FACEBOOK_VIDEO) == "Facebook"
@@ -404,6 +443,7 @@ def test_facebook_queue_item_creation(tmp_path: Path):
 # 6. Tarayıcı Oturumu ve Fallback Testleri
 # -----------------------------------------------------------------------------
 
+
 def test_facebook_session_attempt_order():
     order = build_profile_attempt_order(PlatformType.FACEBOOK_VIDEO, "auto")
     # Oturumsuz deneme ilk sırada olmalı
@@ -412,13 +452,16 @@ def test_facebook_session_attempt_order():
 
 
 def test_facebook_browser_failure_reason():
-    reason = classify_session_error("Sign in required / Cookies needed", "https://www.facebook.com/watch/?v=123")
+    reason = classify_session_error(
+        "Sign in required / Cookies needed", "https://www.facebook.com/watch/?v=123"
+    )
     assert "Facebook oturumu" in reason or "oturum" in reason.lower()
 
 
 # -----------------------------------------------------------------------------
 # 7. Clipboard URL Çıkarma Testleri
 # -----------------------------------------------------------------------------
+
 
 def test_facebook_clipboard_extraction():
     text = "Şu Facebook videosuna göz at: https://www.facebook.com/watch/?v=987654 harika görünüyor!"
@@ -443,4 +486,9 @@ def test_facebook_clipboard_extraction_multiple():
 
 def test_facebook_clipboard_rejects_homepage_and_evil():
     assert extract_supported_url_from_text("https://facebook.com/") is None
-    assert extract_supported_url_from_text("https://facebook.com.evil.example/watch/?v=123") is None
+    assert (
+        extract_supported_url_from_text(
+            "https://facebook.com.evil.example/watch/?v=123"
+        )
+        is None
+    )

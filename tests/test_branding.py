@@ -32,10 +32,10 @@ def qapp():
 
 def test_branding_constants():
     assert APP_NAME == "Loadvia"
-    assert APP_VERSION == "1.1.0"
+    assert APP_VERSION == "1.1.1"
     assert APP_DESCRIPTION == "Hızlı, Kolay ve Yüksek Kaliteli Medya İndirici"
-    assert APP_USER_AGENT == "Loadvia/1.1.0"
-    assert HTTP_USER_AGENT == "Loadvia/1.1.0"
+    assert APP_USER_AGENT == "Loadvia/1.1.1"
+    assert HTTP_USER_AGENT == "Loadvia/1.1.1"
     assert GITHUB_OWNER == "zahidkaya1"
     assert GITHUB_REPO == "KolayIndir"
 
@@ -43,7 +43,7 @@ def test_branding_constants():
 def test_main_window_branding_title_and_icon(qapp, monkeypatch):
     monkeypatch.setattr(MainWindow, "_show_dependency_status", lambda self: None)
     win = MainWindow()
-    assert win.windowTitle() == "Loadvia 1.1.0"
+    assert win.windowTitle() == "Loadvia 1.1.1"
     assert not win.windowIcon().isNull()
     win.close()
     win.deleteLater()
@@ -72,7 +72,9 @@ def test_brand_assets_exist_and_loadable():
 
 def test_resource_path_helper_normal_and_meipass(tmp_path, monkeypatch):
     # Normal dev environment test
-    res_path = get_resource_path(Path("assets") / "Loadvia-Brand-Assets" / "loadvia.ico")
+    res_path = get_resource_path(
+        Path("assets") / "Loadvia-Brand-Assets" / "loadvia.ico"
+    )
     assert res_path.exists()
 
     # sys._MEIPASS test
@@ -83,7 +85,9 @@ def test_resource_path_helper_normal_and_meipass(tmp_path, monkeypatch):
     fake_asset.write_text("ok", encoding="utf-8")
 
     monkeypatch.setattr(sys, "_MEIPASS", str(meipass_dir), raising=False)
-    resolved = get_resource_path(Path("assets") / "Loadvia-Brand-Assets" / "test_asset.txt")
+    resolved = get_resource_path(
+        Path("assets") / "Loadvia-Brand-Assets" / "test_asset.txt"
+    )
     assert resolved == fake_asset
     assert resolved.read_text(encoding="utf-8") == "ok"
 

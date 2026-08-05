@@ -57,8 +57,8 @@ def test_chrome_cookie_error_detection():
 
 @patch("shutil.which")
 def test_ffmpeg_missing_check(mock_which):
-    mock_which.side_effect = (
-        lambda cmd: None if cmd in {"ffmpeg", "ffprobe"} else "/usr/bin/" + cmd
+    mock_which.side_effect = lambda cmd: (
+        None if cmd in {"ffmpeg", "ffprobe"} else "/usr/bin/" + cmd
     )
 
     env = check_environment()
@@ -92,12 +92,14 @@ def test_browser_and_playlist_settings_not_persisted(tmp_path, monkeypatch):
     assert "browser" not in loaded
     assert "playlist" not in loaded
 
-    save_settings({
-        "output_dir": str(tmp_path),
-        "browser": "chrome",
-        "playlist": True,
-        "media_type": "Video (MP4)",
-    })
+    save_settings(
+        {
+            "output_dir": str(tmp_path),
+            "browser": "chrome",
+            "playlist": True,
+            "media_type": "Video (MP4)",
+        }
+    )
     reloaded_dict = json.loads(settings_file.read_text(encoding="utf-8"))
     assert "chrome" not in reloaded_dict.values()
     assert "browser" not in reloaded_dict
@@ -148,10 +150,7 @@ def test_single_video_vs_playlist_output_template(tmp_path):
         browser=None,
     )
     single_opts = build_ydl_options(single_req)
-    assert (
-        single_opts["outtmpl"]
-        == str(tmp_path / "%(title)s [%(id)s].%(ext)s")
-    )
+    assert single_opts["outtmpl"] == str(tmp_path / "%(title)s [%(id)s].%(ext)s")
 
     playlist_req = DownloadRequest(
         url="https://example.com/playlist?list=123",
@@ -163,7 +162,6 @@ def test_single_video_vs_playlist_output_template(tmp_path):
     )
     playlist_opts = build_ydl_options(playlist_req)
     assert "%(playlist_title,playlist" in playlist_opts["outtmpl"]
-
 
 
 def test_download_request_retry_without_browser(tmp_path):
@@ -257,7 +255,7 @@ def test_http_user_agent_ascii_only():
     from src.config import APP_NAME, HTTP_USER_AGENT
 
     assert APP_NAME == "Loadvia"
-    assert HTTP_USER_AGENT == "Loadvia/1.1.0"
+    assert HTTP_USER_AGENT == "Loadvia/1.1.1"
     assert "İ" not in HTTP_USER_AGENT
     assert HTTP_USER_AGENT.isascii() is True
 
@@ -298,7 +296,6 @@ def test_combo_boxes_object_names_and_defaults(tmp_path, monkeypatch):
     assert win.quality_combo.currentText() == "En iyi kullanılabilir kalite"
     assert win.browser_combo.currentText() == "Otomatik (Önerilen)"
     win.close()
-
 
 
 def test_invalid_settings_media_and_quality_fallback(tmp_path, monkeypatch):
@@ -375,12 +372,10 @@ def test_fixed_window_structure_and_dimensions(tmp_path, monkeypatch):
     assert hasattr(win, "tech_details_button") is True
 
 
-
-
 def test_dialogs_max_width_constraints():
     _app = QApplication.instance() or QApplication([])
     dlg1 = DownloadCompletedDialog("Summary")
-    dlg2 = UpdateAvailableDialog("v1.1.0", "Notes")
+    dlg2 = UpdateAvailableDialog("v1.1.1", "Notes")
     dlg3 = AppMessageDialog("Title", "Message")
 
     assert dlg1.maximumWidth() <= 600
@@ -426,7 +421,9 @@ def test_download_worker_log_signal_and_main_window_connections(
     monkeypatch.setattr(MainWindow, "_start_history_validation", lambda self: None)
     monkeypatch.setattr(MainWindow, "check_for_updates", lambda self: None)
     monkeypatch.setattr(MainWindow, "check_and_clean_leftover_jobs", lambda self: None)
-    monkeypatch.setattr("src.main_window.check_environment", lambda: {"ffmpeg": True, "ytdlp": True})
+    monkeypatch.setattr(
+        "src.main_window.check_environment", lambda: {"ffmpeg": True, "ytdlp": True}
+    )
 
     from unittest.mock import MagicMock, patch
 
@@ -447,8 +444,9 @@ def test_download_worker_log_signal_and_main_window_connections(
         mock_worker.cancelled = MagicMock()
         mock_worker.finished = MagicMock()
 
-        with patch("src.main_window.QThread", return_value=mock_thread), patch(
-            "src.main_window.DownloadWorker", return_value=mock_worker
+        with (
+            patch("src.main_window.QThread", return_value=mock_thread),
+            patch("src.main_window.DownloadWorker", return_value=mock_worker),
         ):
             win.start_download()
             assert win._download_worker is mock_worker
@@ -562,14 +560,16 @@ def test_download_worker_progress_details_signal(tmp_path):
     received_details = []
     worker.progress_details.connect(lambda d: received_details.append(d))
 
-    worker._progress_hook({
-        "status": "downloading",
-        "downloaded_bytes": 500000,
-        "total_bytes": 1000000,
-        "speed": 100000,
-        "eta": 5,
-        "filename": "video.mp4",
-    })
+    worker._progress_hook(
+        {
+            "status": "downloading",
+            "downloaded_bytes": 500000,
+            "total_bytes": 1000000,
+            "speed": 100000,
+            "eta": 5,
+            "filename": "video.mp4",
+        }
+    )
 
     assert len(received_details) == 1
     assert received_details[0]["percent"] == 50
@@ -669,7 +669,6 @@ def test_close_event_when_active_and_canceled(mock_dialog_exec, tmp_path, monkey
             widget.clicked_button_id = "yes"
         return 1
 
-
     mock_dialog_exec.side_effect = mock_exec_no
     event = QCloseEvent()
     win.closeEvent(event)
@@ -683,7 +682,6 @@ def test_close_event_when_active_and_canceled(mock_dialog_exec, tmp_path, monkey
     assert win._close_requested is True
     win._download_thread = None
     win.close()
-
 
 
 def test_reset_after_successful_download(tmp_path, monkeypatch):
@@ -740,37 +738,72 @@ def test_error_preserves_url_and_preview(mock_dialog_exec, tmp_path, monkeypatch
 def test_platform_type_detection():
     from src.models import PlatformType, detect_platform_type, get_platform_badge_text
 
-    assert detect_platform_type("https://twitter.com/user/status/123") == PlatformType.TWITTER_POST
-    assert detect_platform_type("https://x.com/user/status/456") == PlatformType.TWITTER_POST
-    assert detect_platform_type("https://www.instagram.com/reel/C123456/") == PlatformType.INSTAGRAM_REEL
-    assert detect_platform_type("https://www.instagram.com/p/B98765/") == PlatformType.INSTAGRAM_POST
-    assert detect_platform_type("https://www.instagram.com/stories/username/123456/") == PlatformType.INSTAGRAM_STORY
-    assert detect_platform_type("https://www.instagram.com/stories/highlights/987654/") == PlatformType.INSTAGRAM_HIGHLIGHT
-    assert detect_platform_type("https://www.youtube.com/watch?v=abc") == PlatformType.YOUTUBE_VIDEO
+    assert (
+        detect_platform_type("https://twitter.com/user/status/123")
+        == PlatformType.TWITTER_POST
+    )
+    assert (
+        detect_platform_type("https://x.com/user/status/456")
+        == PlatformType.TWITTER_POST
+    )
+    assert (
+        detect_platform_type("https://www.instagram.com/reel/C123456/")
+        == PlatformType.INSTAGRAM_REEL
+    )
+    assert (
+        detect_platform_type("https://www.instagram.com/p/B98765/")
+        == PlatformType.INSTAGRAM_POST
+    )
+    assert (
+        detect_platform_type("https://www.instagram.com/stories/username/123456/")
+        == PlatformType.INSTAGRAM_STORY
+    )
+    assert (
+        detect_platform_type("https://www.instagram.com/stories/highlights/987654/")
+        == PlatformType.INSTAGRAM_HIGHLIGHT
+    )
+    assert (
+        detect_platform_type("https://www.youtube.com/watch?v=abc")
+        == PlatformType.YOUTUBE_VIDEO
+    )
 
     assert get_platform_badge_text(PlatformType.TWITTER_POST) == "X / Twitter"
     assert get_platform_badge_text(PlatformType.INSTAGRAM_REEL) == "Instagram Reel"
     assert get_platform_badge_text(PlatformType.INSTAGRAM_POST) == "Instagram Gönderisi"
     assert get_platform_badge_text(PlatformType.INSTAGRAM_STORY) == "Instagram Hikâyesi"
-    assert get_platform_badge_text(PlatformType.INSTAGRAM_HIGHLIGHT) == "Instagram Öne Çıkan"
+    assert (
+        get_platform_badge_text(PlatformType.INSTAGRAM_HIGHLIGHT)
+        == "Instagram Öne Çıkan"
+    )
 
 
 def test_translate_social_error():
     from src.models import translate_social_error
 
-    err1 = translate_social_error("This tweet is from a protected account.", "https://x.com/user/status/123")
+    err1 = translate_social_error(
+        "This tweet is from a protected account.", "https://x.com/user/status/123"
+    )
     assert "korumalı bir hesaba ait" in err1
 
-    err2 = translate_social_error("Did not find any video stream", "https://x.com/user/status/456")
+    err2 = translate_social_error(
+        "Did not find any video stream", "https://x.com/user/status/456"
+    )
     assert "indirilebilir video bulunamadı" in err2
 
-    err3 = translate_social_error("Instagram error: Please log in to view this story", "https://www.instagram.com/stories/user/123")
+    err3 = translate_social_error(
+        "Instagram error: Please log in to view this story",
+        "https://www.instagram.com/stories/user/123",
+    )
     assert "Instagram oturumu gerekiyor" in err3
 
-    err4 = translate_social_error("This post only contains photos", "https://www.instagram.com/p/123")
+    err4 = translate_social_error(
+        "This post only contains photos", "https://www.instagram.com/p/123"
+    )
     assert "Fotoğraf indirme desteği henüz eklenmedi" in err4
 
-    err5 = translate_social_error("Login required to view this reel", "https://www.instagram.com/reel/123")
+    err5 = translate_social_error(
+        "Login required to view this reel", "https://www.instagram.com/reel/123"
+    )
     assert "Firefox oturumunu seçip yeniden deneyin" in err5
 
 
@@ -850,8 +883,11 @@ def test_download_worker_cancel_raises_download_cancelled(tmp_path):
 
     # Progress hook should raise DownloadCancelled
     import pytest
+
     with pytest.raises(DownloadCancelled):
-        worker._progress_hook({"status": "downloading", "downloaded_bytes": 10, "total_bytes": 100})
+        worker._progress_hook(
+            {"status": "downloading", "downloaded_bytes": 10, "total_bytes": 100}
+        )
 
 
 def test_cancel_download_idempotent(tmp_path, monkeypatch):
@@ -902,11 +938,3 @@ def test_close_event_asynchronous_with_timer(tmp_path, monkeypatch):
         win._force_close_timer.stop()
         win._download_thread = None
         win.close()
-
-
-
-
-
-
-
-

@@ -59,16 +59,16 @@ def _parse_completed_at(value: str):
 
 def _canonical_platform(platform: str | None) -> str:
     value = str(platform or "").strip().lower()
-    
+
     if not value:
         return "unknown"
-        
+
     if "youtube" in value or "youtu_be" in value:
         return "youtube"
-    
+
     if "instagram" in value:
         return "instagram"
-        
+
     if "facebook" in value or "fb" in value:
         return "facebook"
 
@@ -77,29 +77,39 @@ def _canonical_platform(platform: str | None) -> str:
 
     if "twitter" in value or value == "x" or "x_com" in value or "x / twitter" in value:
         return "x_twitter"
-        
+
     if "tiktok" in value:
         return "tiktok"
-        
+
     if "kick" in value:
         return "kick"
-        
+
     return value
+
 
 def _get_platform_display_name(platform: str | None) -> str:
     canon = _canonical_platform(platform)
-    
-    if canon == "youtube": return "YouTube"
-    if canon == "facebook": return "Facebook"
-    if canon == "instagram": return "Instagram"
-    if canon == "threads": return "Threads"
-    if canon == "x_twitter": return "X / Twitter"
-    if canon == "tiktok": return "TikTok"
-    if canon == "kick": return "Kick"
-    if canon == "unknown": return "Bilinmiyor"
-    
+
+    if canon == "youtube":
+        return "YouTube"
+    if canon == "facebook":
+        return "Facebook"
+    if canon == "instagram":
+        return "Instagram"
+    if canon == "threads":
+        return "Threads"
+    if canon == "x_twitter":
+        return "X / Twitter"
+    if canon == "tiktok":
+        return "TikTok"
+    if canon == "kick":
+        return "Kick"
+    if canon == "unknown":
+        return "Bilinmiyor"
+
     value = str(platform or "").strip()
     return value.capitalize()
+
 
 def _get_platform_badge_style(
     platform: str | None,
@@ -108,7 +118,7 @@ def _get_platform_badge_style(
     media = str(media_type or "").lower()
     if "mp3" in media or "ses" in media:
         return "background-color: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;"
-        
+
     canon = _canonical_platform(platform)
     if canon == "youtube":
         return "background-color: #fef2f2; color: #dc2626; border: 1px solid #fecaca;"
@@ -122,7 +132,7 @@ def _get_platform_badge_style(
         return "background-color: #f0f9ff; color: #0284c7; border: 1px solid #bae6fd;"
     if canon == "tiktok":
         return "background-color: #f0fdfa; color: #0d9488; border: 1px solid #ccfbf1;"
-        
+
     return "background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;"
 
 
@@ -258,7 +268,9 @@ class HistoryCard(QFrame):
             if not target_path or is_missing or not target_path.is_file():
                 self.open_file_btn.setEnabled(False)
 
-        parent_exists = target_path.parent.exists() if target_path and target_path.name else False
+        parent_exists = (
+            target_path.parent.exists() if target_path and target_path.name else False
+        )
         if not target_path or (not exists and not parent_exists):
             self.open_folder_btn.setEnabled(False)
 
@@ -429,7 +441,15 @@ class HistoryDialog(QDialog):
         filter_bar.setSpacing(8)
         self.platform_combo = QComboBox()
         self.platform_combo.addItems(
-            ["Tüm Platformlar", "YouTube", "Facebook", "Instagram", "Threads", "X / Twitter", "TikTok"]
+            [
+                "Tüm Platformlar",
+                "YouTube",
+                "Facebook",
+                "Instagram",
+                "Threads",
+                "X / Twitter",
+                "TikTok",
+            ]
         )
         self.type_combo = QComboBox()
         self.type_combo.addItems(["Tüm Türler", "Video", "Ses"])
@@ -472,7 +492,9 @@ class HistoryDialog(QDialog):
         self.scroll_content.setObjectName("historyScrollContent")
         self.scroll_area.viewport().setObjectName("historyScrollViewport")
         self.scroll_content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.scroll_area.viewport().setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.scroll_area.viewport().setAttribute(
+            Qt.WidgetAttribute.WA_StyledBackground, True
+        )
         self.scroll_layout = QVBoxLayout(self.scroll_content)
         self.scroll_layout.setContentsMargins(0, 0, 8, 0)
         self.scroll_layout.setSpacing(12)
@@ -611,7 +633,7 @@ class HistoryDialog(QDialog):
             filtered_records.append(rec)
 
         indexed_records = list(enumerate(filtered_records))
-        
+
         if sort_f == "En Yeni":
             valid_dates = []
             invalid_dates = []
@@ -625,8 +647,10 @@ class HistoryDialog(QDialog):
             valid_dates.sort(key=lambda item: (item[0], item[1]), reverse=True)
             # Tarihsiz kayıtlar kendi aralarında son eklenen önce (index reverse)
             invalid_dates.sort(key=lambda item: item[0], reverse=True)
-            filtered_records = [r for _, _, r in valid_dates] + [r for _, r in invalid_dates]
-            
+            filtered_records = [r for _, _, r in valid_dates] + [
+                r for _, r in invalid_dates
+            ]
+
         elif sort_f == "En Eski":
             valid_dates = []
             invalid_dates = []
@@ -640,7 +664,9 @@ class HistoryDialog(QDialog):
             valid_dates.sort(key=lambda item: (item[0], item[1]))
             # Tarihsiz kayıtlar sonda, indeks küçükten büyüğe
             invalid_dates.sort(key=lambda item: item[0])
-            filtered_records = [r for _, _, r in valid_dates] + [r for _, r in invalid_dates]
+            filtered_records = [r for _, _, r in valid_dates] + [
+                r for _, r in invalid_dates
+            ]
         elif sort_f == "Başlık A-Z":
             valid_titles = []
             empty_titles = []

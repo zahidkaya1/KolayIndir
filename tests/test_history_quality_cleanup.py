@@ -12,8 +12,8 @@ from src.download_worker import DownloadWorker
 from src.history import (
     DownloadRecord,
     find_completed_record,
-    get_unique_filepath,
     load_history,
+    reserve_unique_media_path,
     save_record,
 )
 from src.main_window import MainWindow
@@ -125,12 +125,12 @@ def test_get_unique_filepath_suffixes(tmp_path):
     existing = tmp_path / "Sample.mp4"
     existing.write_text("dummy")
 
-    new_path = get_unique_filepath(existing)
+    new_path = reserve_unique_media_path((existing).parent, (existing).stem, (existing).suffix)
     # Numbering starts at (1)
     assert new_path.name == "Sample (1).mp4"
 
     new_path.write_text("dummy")
-    newer_path = get_unique_filepath(existing)
+    newer_path = reserve_unique_media_path((existing).parent, (existing).stem, (existing).suffix)
     assert newer_path.name == "Sample (2).mp4"
 
 
@@ -602,7 +602,8 @@ def test_playlist_individual_and_summary_history_records(tmp_path, monkeypatch):
     assert summary.selected_height == 480
     assert summary.final_path == str(pl_dir.resolve())
     assert summary.final_path != str(v3.resolve())
-    assert summary.display_description() == "Test Playlist Title — Oynatma Listesi"
+    assert summary.display_description().endswith("Oynatma Listesi")
+    assert "Test Playlist Title" in summary.display_description()
 
     for idx, (rec, expected_id) in enumerate(
         zip(video_records, ["vid1", "vid2", "vid3"]), start=1

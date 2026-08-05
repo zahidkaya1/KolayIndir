@@ -85,10 +85,15 @@ def is_valid_media_url(media_url: str | None) -> bool:
     if not host:
         return False
 
-    if host in ("localhost", "127.0.0.1", "::1") or host.startswith(_BLOCKED_HOST_PREFIXES):
+    if host in ("localhost", "127.0.0.1", "::1") or host.startswith(
+        _BLOCKED_HOST_PREFIXES
+    ):
         return False
 
-    return any(host == domain or host.endswith(f".{domain}") for domain in _TRUSTED_MEDIA_DOMAINS)
+    return any(
+        host == domain or host.endswith(f".{domain}")
+        for domain in _TRUSTED_MEDIA_DOMAINS
+    )
 
 
 def _clean_text(raw_text: str | None) -> str:
@@ -132,13 +137,13 @@ class ThreadsIE(InfoExtractor):
     """Meta Threads video gönderileri için özel InfoExtractor."""
 
     IE_NAME = "threads"
-    _VALID_URL = (
-        r"https?://(?:www\.)?threads\.(?:net|com)/(?:@(?P<user>[\w.]+)/post/|t/)(?P<id>[a-zA-Z0-9_-]+)"
-    )
+    _VALID_URL = r"https?://(?:www\.)?threads\.(?:net|com)/(?:@(?P<user>[\w.]+)/post/|t/|share/)(?P<id>[a-zA-Z0-9_-]+)"
 
     def _fetch_oembed(self, url: str) -> dict[str, Any] | None:
         """Tokenless Meta Threads oEmbed endpoint'inden temel gönderi bilgilerini sorgular."""
-        with contextlib.suppress(ExtractorError, OSError, ValueError, KeyError, TypeError):
+        with contextlib.suppress(
+            ExtractorError, OSError, ValueError, KeyError, TypeError
+        ):
             encoded_url = urllib.parse.quote(url, safe="")
             oembed_url = f"https://graph.threads.com/oembed?url={encoded_url}"
             oembed_json = self._download_json(
@@ -149,7 +154,9 @@ class ThreadsIE(InfoExtractor):
                 headers={"User-Agent": "Mozilla/5.0"},
             )
             if isinstance(oembed_json, dict) and (
-                oembed_json.get("html") or oembed_json.get("author_name") or oembed_json.get("title")
+                oembed_json.get("html")
+                or oembed_json.get("author_name")
+                or oembed_json.get("title")
             ):
                 return oembed_json
         return None
@@ -204,7 +211,11 @@ class ThreadsIE(InfoExtractor):
                 if not isinstance(item, dict):
                     continue
                 item_type = item.get("@type")
-                if item_type == "VideoObject" or "contentUrl" in item or "embedUrl" in item:
+                if (
+                    item_type == "VideoObject"
+                    or "contentUrl" in item
+                    or "embedUrl" in item
+                ):
                     candidates.append(item)
 
         return candidates
@@ -249,31 +260,43 @@ class ThreadsIE(InfoExtractor):
                 width = v.get("width")
                 height = v.get("height")
                 bitrate = v.get("bandwidth") or v.get("bitrate")
-                formats.append({
-                    "format_id": f"http-{height}p" if height else f"http-{len(formats)+1}",
-                    "url": v_url,
-                    "ext": "mp4",
-                    "protocol": "https",
-                    "width": width if isinstance(width, int) else None,
-                    "height": height if isinstance(height, int) else None,
-                    "tbr": (bitrate // 1000) if isinstance(bitrate, int) and bitrate > 1000 else None,
-                    "vcodec": "unknown",
-                    "acodec": "unknown",
-                })
+                formats.append(
+                    {
+                        "format_id": f"http-{height}p"
+                        if height
+                        else f"http-{len(formats) + 1}",
+                        "url": v_url,
+                        "ext": "mp4",
+                        "protocol": "https",
+                        "width": width if isinstance(width, int) else None,
+                        "height": height if isinstance(height, int) else None,
+                        "tbr": (bitrate // 1000)
+                        if isinstance(bitrate, int) and bitrate > 1000
+                        else None,
+                        "vcodec": "unknown",
+                        "acodec": "unknown",
+                    }
+                )
 
         # 2. playback_url / progressive_url / video_url
         for key in ("playback_url", "progressive_url", "video_url", "content_url"):
             v_url = _unescape_url(node.get(key))
-            if isinstance(v_url, str) and is_valid_media_url(v_url) and v_url not in seen_urls:
+            if (
+                isinstance(v_url, str)
+                and is_valid_media_url(v_url)
+                and v_url not in seen_urls
+            ):
                 seen_urls.add(v_url)
-                formats.append({
-                    "format_id": f"http-{len(formats)+1}",
-                    "url": v_url,
-                    "ext": "mp4",
-                    "protocol": "https",
-                    "vcodec": "unknown",
-                    "acodec": "unknown",
-                })
+                formats.append(
+                    {
+                        "format_id": f"http-{len(formats) + 1}",
+                        "url": v_url,
+                        "ext": "mp4",
+                        "protocol": "https",
+                        "vcodec": "unknown",
+                        "acodec": "unknown",
+                    }
+                )
 
         # 3. dash_manifest / manifest_url
         for key in ("dash_manifest", "manifest_url"):
@@ -285,10 +308,16 @@ class ThreadsIE(InfoExtractor):
                 and is_valid_media_url(manifest)
             ):
                 with contextlib.suppress(ExtractorError, OSError, ValueError, KeyError):
-                    mpd_fmts = self._extract_mpd_formats(manifest, shortcode, fatal=False)
+                    mpd_fmts = self._extract_mpd_formats(
+                        manifest, shortcode, fatal=False
+                    )
                     for f in mpd_fmts or []:
                         f_url = _unescape_url(f.get("url"))
-                        if f_url and is_valid_media_url(f_url) and f_url not in seen_urls:
+                        if (
+                            f_url
+                            and is_valid_media_url(f_url)
+                            and f_url not in seen_urls
+                        ):
                             seen_urls.add(f_url)
                             f["url"] = f_url
                             formats.append(f)
@@ -304,12 +333,16 @@ class ThreadsIE(InfoExtractor):
         """Gömülü JSON ağacında medya öğelerini tespit edip medya kimliğine göre gruplar."""
         if isinstance(obj, dict):
             # Carousel/çoklu medya kontrolü
-            carousel_media = obj.get("carousel_media") or obj.get("carousel_share_child_media")
+            carousel_media = obj.get("carousel_media") or obj.get(
+                "carousel_share_child_media"
+            )
             if isinstance(carousel_media, list) and carousel_media:
                 for idx, child in enumerate(carousel_media):
                     if not isinstance(child, dict):
                         continue
-                    child_id = str(child.get("id") or child.get("pk") or f"{shortcode}_{idx+1}")
+                    child_id = str(
+                        child.get("id") or child.get("pk") or f"{shortcode}_{idx + 1}"
+                    )
                     fmts, thumb, cap = self._extract_node_formats(child, shortcode)
                     if fmts:
                         if child_id not in groups:
@@ -382,20 +415,26 @@ class ThreadsIE(InfoExtractor):
                                 seen_urls.add(u)
                                 w = v.get("width")
                                 h = v.get("height")
-                                formats.append({
-                                    "format_id": f"http-{h}p" if h else f"http-{len(formats)+1}",
-                                    "url": u,
-                                    "ext": "mp4",
-                                    "protocol": "https",
-                                    "width": w if isinstance(w, int) else None,
-                                    "height": h if isinstance(h, int) else None,
-                                    "vcodec": "unknown",
-                                    "acodec": "unknown",
-                                })
+                                formats.append(
+                                    {
+                                        "format_id": f"http-{h}p"
+                                        if h
+                                        else f"http-{len(formats) + 1}",
+                                        "url": u,
+                                        "ext": "mp4",
+                                        "protocol": "https",
+                                        "width": w if isinstance(w, int) else None,
+                                        "height": h if isinstance(h, int) else None,
+                                        "vcodec": "unknown",
+                                        "acodec": "unknown",
+                                    }
+                                )
             except (json.JSONDecodeError, ValueError, TypeError):
-                for obj_match in re.finditer(r'\{[^{}]*\}', raw_array):
+                for obj_match in re.finditer(r"\{[^{}]*\}", raw_array):
                     block = obj_match.group(0)
-                    url_m = re.search(r'["\']url["\']\s*:\s*["\']([^"\'\s]+)["\']', block)
+                    url_m = re.search(
+                        r'["\']url["\']\s*:\s*["\']([^"\'\s]+)["\']', block
+                    )
                     if url_m:
                         u = _unescape_url(url_m.group(1))
                         if is_valid_media_url(u) and u not in seen_urls:
@@ -404,16 +443,20 @@ class ThreadsIE(InfoExtractor):
                             h_m = re.search(r'["\']height["\']\s*:\s*(\d+)', block)
                             w_val = int(w_m.group(1)) if w_m else None
                             h_val = int(h_m.group(1)) if h_m else None
-                            formats.append({
-                                "format_id": f"http-{h_val}p" if h_val else f"http-{len(formats)+1}",
-                                "url": u,
-                                "ext": "mp4",
-                                "protocol": "https",
-                                "width": w_val,
-                                "height": h_val,
-                                "vcodec": "unknown",
-                                "acodec": "unknown",
-                            })
+                            formats.append(
+                                {
+                                    "format_id": f"http-{h_val}p"
+                                    if h_val
+                                    else f"http-{len(formats) + 1}",
+                                    "url": u,
+                                    "ext": "mp4",
+                                    "protocol": "https",
+                                    "width": w_val,
+                                    "height": h_val,
+                                    "vcodec": "unknown",
+                                    "acodec": "unknown",
+                                }
+                            )
 
         # 2. playback_url, progressive_url, video_url
         for m in re.finditer(
@@ -423,14 +466,16 @@ class ThreadsIE(InfoExtractor):
             raw_url = _unescape_url(m.group(1))
             if is_valid_media_url(raw_url) and raw_url not in seen_urls:
                 seen_urls.add(raw_url)
-                formats.append({
-                    "format_id": f"http-{len(formats)+1}",
-                    "url": raw_url,
-                    "ext": "mp4",
-                    "protocol": "https",
-                    "vcodec": "unknown",
-                    "acodec": "unknown",
-                })
+                formats.append(
+                    {
+                        "format_id": f"http-{len(formats) + 1}",
+                        "url": raw_url,
+                        "ext": "mp4",
+                        "protocol": "https",
+                        "vcodec": "unknown",
+                        "acodec": "unknown",
+                    }
+                )
 
         return formats
 
@@ -442,9 +487,6 @@ class ThreadsIE(InfoExtractor):
         shortcode = match.group("id")
         url_username = match.group("user") if "user" in match.groupdict() else None
 
-        # Sayfa içeriğini indir (yt-dlp session / cookie jar ve headers altyapısını kullanır)
-        webpage: str | None = None
-        download_err: Exception | None = None
         req_headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -452,6 +494,79 @@ class ThreadsIE(InfoExtractor):
             "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-Site": "same-origin",
         }
+
+        # SHARE URL KONTROLÜ VE CANONICAL ÇÖZÜMLEME
+        if "/share/" in url:
+            webpage: str | None = None
+            urlh = None
+            download_err: Exception | None = None
+
+            try:
+                webpage, urlh = self._download_webpage_handle(
+                    url,
+                    shortcode,
+                    headers=req_headers,
+                    fatal=False,
+                    note="Threads paylaşım bağlantısı çözülüyor...",
+                )
+            except (ExtractorError, OSError, ValueError, KeyError) as exc:
+                download_err = exc
+
+            err_str = str(download_err or "").lower()
+            if "429" in err_str or "too many requests" in err_str:
+                raise ExtractorError(
+                    "Threads isteği geçici olarak sınırlandırdı. Bir süre sonra yeniden deneyin.",
+                    expected=True,
+                )
+
+            final_url = urlh.geturl() if urlh else url
+            is_valid_domain = "threads.com" in final_url or "threads.net" in final_url
+
+            webpage_lower = (webpage or "").lower()
+            final_url_lower = final_url.lower()
+            if (
+                "login" in webpage_lower
+                or "login" in final_url_lower
+                or ('"logged_out"' in webpage_lower)
+            ):
+                raise ExtractorError(
+                    "Bu Threads paylaşım bağlantısı için tarayıcı oturumu gerekebilir.",
+                    expected=True,
+                )
+
+            # 1. HTTP Redirect kontrolü
+            if "/share/" not in final_url and is_valid_domain:
+                return self.url_result(final_url, ie=ThreadsIE.ie_key())
+
+            # 2. HTML Canonical etiket kontrolü
+            if webpage:
+                meta_tags = self._extract_meta_tags(webpage)
+                canonical_url = meta_tags.get("og:url")
+                if not canonical_url:
+                    canonical_m = re.search(
+                        r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']',
+                        webpage,
+                        re.IGNORECASE,
+                    )
+                    if canonical_m:
+                        canonical_url = _unescape_url(canonical_m.group(1))
+
+                if canonical_url and "/share/" not in canonical_url:
+                    c_valid = (
+                        "threads.com" in canonical_url or "threads.net" in canonical_url
+                    )
+                    if c_valid and "login" not in canonical_url.lower():
+                        return self.url_result(canonical_url, ie=ThreadsIE.ie_key())
+
+            # 3. Çözülemediyse hatayı sınıflandır
+            raise ExtractorError(
+                "Threads paylaşım bağlantısı silinmiş veya kullanılamıyor olabilir.",
+                expected=True,
+            )
+
+        # Sayfa içeriğini indir (yt-dlp session / cookie jar ve headers altyapısını kullanır)
+        webpage: str | None = None
+        download_err: Exception | None = None
         try:
             webpage = self._download_webpage(
                 url,
@@ -560,16 +675,20 @@ class ThreadsIE(InfoExtractor):
                 seen_extra.add(c_url)
                 w = ld.get("width")
                 h = ld.get("height")
-                ld_and_meta_formats.append({
-                    "format_id": f"http-{h}p" if isinstance(h, int) else f"http-{len(ld_and_meta_formats)+1}",
-                    "url": c_url,
-                    "ext": "mp4",
-                    "protocol": "https",
-                    "width": w if isinstance(w, int) else None,
-                    "height": h if isinstance(h, int) else None,
-                    "vcodec": "unknown",
-                    "acodec": "unknown",
-                })
+                ld_and_meta_formats.append(
+                    {
+                        "format_id": f"http-{h}p"
+                        if isinstance(h, int)
+                        else f"http-{len(ld_and_meta_formats) + 1}",
+                        "url": c_url,
+                        "ext": "mp4",
+                        "protocol": "https",
+                        "width": w if isinstance(w, int) else None,
+                        "height": h if isinstance(h, int) else None,
+                        "vcodec": "unknown",
+                        "acodec": "unknown",
+                    }
+                )
 
         for tag_key in (
             "og:video",
@@ -584,16 +703,20 @@ class ThreadsIE(InfoExtractor):
                 h_str = meta_tags.get("og:video:height")
                 w_val = int(w_str) if w_str and w_str.isdigit() else None
                 h_val = int(h_str) if h_str and h_str.isdigit() else None
-                ld_and_meta_formats.append({
-                    "format_id": f"http-{h_val}p" if h_val else f"http-{len(ld_and_meta_formats)+1}",
-                    "url": v_url,
-                    "ext": "mp4",
-                    "protocol": "https",
-                    "width": w_val,
-                    "height": h_val,
-                    "vcodec": "unknown",
-                    "acodec": "unknown",
-                })
+                ld_and_meta_formats.append(
+                    {
+                        "format_id": f"http-{h_val}p"
+                        if h_val
+                        else f"http-{len(ld_and_meta_formats) + 1}",
+                        "url": v_url,
+                        "ext": "mp4",
+                        "protocol": "https",
+                        "width": w_val,
+                        "height": h_val,
+                        "vcodec": "unknown",
+                        "acodec": "unknown",
+                    }
+                )
 
         if ld_and_meta_formats:
             if not groups:
@@ -620,8 +743,12 @@ class ThreadsIE(InfoExtractor):
         post_title = ""
         if og_title:
             cleaned = _clean_text(og_title)
-            cleaned = re.sub(r"^[^:]+\s+on\s+Threads:\s*", "", cleaned, flags=re.IGNORECASE)
-            cleaned = re.sub(r"^[^:]+\s+Threads['’]te:\s*", "", cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(
+                r"^[^:]+\s+on\s+Threads:\s*", "", cleaned, flags=re.IGNORECASE
+            )
+            cleaned = re.sub(
+                r"^[^:]+\s+Threads['’]te:\s*", "", cleaned, flags=re.IGNORECASE
+            )
             cleaned = re.sub(r"\s*[•|]\s*Threads\s*$", "", cleaned, flags=re.IGNORECASE)
             post_title = cleaned.strip()
 
@@ -632,7 +759,9 @@ class ThreadsIE(InfoExtractor):
 
         if not post_title:
             post_title = (
-                f"Threads Videosu - @{uploader}" if uploader else f"Threads Videosu - {shortcode}"
+                f"Threads Videosu - @{uploader}"
+                if uploader
+                else f"Threads Videosu - {shortcode}"
             )
 
         # Geçerli video formatı içeren grupları filtrele
@@ -643,16 +772,18 @@ class ThreadsIE(InfoExtractor):
             entries: list[dict[str, Any]] = []
             for idx, g in enumerate(valid_video_groups):
                 entry_title = g.caption if g.caption else f"{post_title} - {idx + 1}"
-                entries.append({
-                    "id": f"{shortcode}_{idx + 1}",
-                    "title": entry_title,
-                    "description": g.caption or og_desc or "",
-                    "thumbnail": g.thumbnail_url or og_thumb,
-                    "uploader": uploader,
-                    "uploader_id": uploader_id,
-                    "webpage_url": url,
-                    "formats": g.formats,
-                })
+                entries.append(
+                    {
+                        "id": f"{shortcode}_{idx + 1}",
+                        "title": entry_title,
+                        "description": g.caption or og_desc or "",
+                        "thumbnail": g.thumbnail_url or og_thumb,
+                        "uploader": uploader,
+                        "uploader_id": uploader_id,
+                        "webpage_url": url,
+                        "formats": g.formats,
+                    }
+                )
             return self.playlist_result(
                 entries,
                 playlist_id=shortcode,
@@ -727,7 +858,9 @@ def register_custom_extractors(ydl: Any) -> None:
     """YoutubeDL nesnesine ThreadsIE özel extractor'ını kaydeder."""
     if not hasattr(ydl, "_ies") or not hasattr(ydl, "_ies_instances"):
         if hasattr(ydl, "add_info_extractor"):
-            with contextlib.suppress(AttributeError, TypeError, ValueError, ExtractorError):
+            with contextlib.suppress(
+                AttributeError, TypeError, ValueError, ExtractorError
+            ):
                 ydl.add_info_extractor(ThreadsIE(ydl))
         return
 

@@ -14,7 +14,7 @@ def create_fake_request():
         media_type="Video (MP4)",
         quality="1080p'ye kadar",
         playlist=False,
-        browser="none"
+        browser="none",
     )
 
 
@@ -33,7 +33,10 @@ def test_retry_state_retention(main_window, monkeypatch):
     main_window._download_worker = FakeWorker()
 
     # Mock AppMessageDialog to prevent UI blocking
-    monkeypatch.setattr("src.main_window.AppMessageDialog.exec", lambda self: QDialog.DialogCode.Rejected)
+    monkeypatch.setattr(
+        "src.main_window.AppMessageDialog.exec",
+        lambda self: QDialog.DialogCode.Rejected,
+    )
 
     main_window._on_download_failed("Test error")
 
@@ -63,6 +66,7 @@ def test_retry_download_behavior(main_window, monkeypatch):
 
     # Monkeypatch start_download to just verify state
     start_called = False
+
     def mock_start():
         nonlocal start_called
         start_called = True
@@ -83,7 +87,10 @@ def test_retry_download_blocked_if_active(main_window):
 
     main_window._retry_download()
 
-    assert main_window.status_label.text() == "Devam eden işlem tamamlanmadan yeniden deneme başlatılamaz."
+    assert (
+        main_window.status_label.text()
+        == "Devam eden işlem tamamlanmadan yeniden deneme başlatılamaz."
+    )
 
 
 def test_retry_with_session_switches_to_auto(main_window, monkeypatch):
@@ -91,6 +98,7 @@ def test_retry_with_session_switches_to_auto(main_window, monkeypatch):
     main_window._last_failed_request = fake_req
 
     retry_called = False
+
     def mock_retry():
         nonlocal retry_called
         retry_called = True
@@ -112,11 +120,12 @@ def test_retry_with_session_stops_if_already_auto(main_window, monkeypatch):
         media_type="Video (MP4)",
         quality="1080p'ye kadar",
         playlist=False,
-        browser="auto"  # Already tried auto
+        browser="auto",  # Already tried auto
     )
     main_window._last_failed_request = fake_req
 
     dialog_shown = False
+
     def mock_exec(self):
         nonlocal dialog_shown
         dialog_shown = True
@@ -125,6 +134,7 @@ def test_retry_with_session_stops_if_already_auto(main_window, monkeypatch):
     monkeypatch.setattr("src.main_window.AppMessageDialog.exec", mock_exec)
 
     retry_called = False
+
     def mock_retry():
         nonlocal retry_called
         retry_called = True
@@ -135,7 +145,10 @@ def test_retry_with_session_stops_if_already_auto(main_window, monkeypatch):
 
     assert dialog_shown
     assert not retry_called
-    assert main_window.status_label.text() == "Kullanılabilir bir tarayıcı oturumu bulunamadı veya oturum doğrulanamadı."
+    assert (
+        main_window.status_label.text()
+        == "Kullanılabilir bir tarayıcı oturumu bulunamadı veya oturum doğrulanamadı."
+    )
 
 
 def test_edit_url_behavior(main_window):

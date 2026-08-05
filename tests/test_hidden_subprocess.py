@@ -21,7 +21,10 @@ def test_hidden_subprocess_kwargs_windows():
         # Windows-specific flags
         # CREATE_NO_WINDOW = 0x08000000
         assert cf & subprocess.CREATE_NO_WINDOW == subprocess.CREATE_NO_WINDOW
-        assert si.dwFlags & subprocess.STARTF_USESHOWWINDOW == subprocess.STARTF_USESHOWWINDOW
+        assert (
+            si.dwFlags & subprocess.STARTF_USESHOWWINDOW
+            == subprocess.STARTF_USESHOWWINDOW
+        )
         assert si.wShowWindow == subprocess.SW_HIDE
         assert kwargs["stdout"] == subprocess.PIPE
 
@@ -31,6 +34,7 @@ def test_hidden_subprocess_kwargs_windows():
 
     finally:
         os.name = original_os_name
+
 
 def test_hidden_subprocess_kwargs_non_windows():
     """Linux/macOS için Windows flagleri eklenmez."""
@@ -44,6 +48,7 @@ def test_hidden_subprocess_kwargs_non_windows():
     finally:
         os.name = original_os_name
 
+
 def test_patch_subprocess_context_manager():
     """patch_subprocess_for_hidden_console ile Popen sınıfları güvenle sarmalanır."""
     original_os_name = os.name
@@ -51,6 +56,7 @@ def test_patch_subprocess_context_manager():
         os.name = "nt"
 
         import yt_dlp.utils
+
         orig_sub_popen = subprocess.Popen
         orig_yt_popen = yt_dlp.utils.Popen
 
@@ -78,7 +84,9 @@ def test_patch_subprocess_context_manager_nested():
 
             with patch_subprocess_for_hidden_console():
                 patched_2 = subprocess.Popen
-                assert patched_2 is patched_1  # Aynı patch sınıfı kullanılmaya devam etmeli
+                assert (
+                    patched_2 is patched_1
+                )  # Aynı patch sınıfı kullanılmaya devam etmeli
 
             # İçteki context bittiğinde hala patchli kalmalı
             assert subprocess.Popen is patched_1
@@ -87,6 +95,7 @@ def test_patch_subprocess_context_manager_nested():
         assert subprocess.Popen is orig_sub_popen
     finally:
         os.name = original_os_name
+
 
 def test_patch_subprocess_context_manager_threading():
     """Thread'ler arası eşzamanlı kullanımda patch durumu korunur."""
@@ -103,16 +112,16 @@ def test_patch_subprocess_context_manager_threading():
 
         def worker_1():
             with patch_subprocess_for_hidden_console():
-                results.append(('w1_enter', subprocess.Popen is not orig_sub_popen))
+                results.append(("w1_enter", subprocess.Popen is not orig_sub_popen))
                 time.sleep(0.5)
-                results.append(('w1_exit', subprocess.Popen is not orig_sub_popen))
+                results.append(("w1_exit", subprocess.Popen is not orig_sub_popen))
 
         def worker_2():
             time.sleep(0.1)  # worker_1'in patch yapmasını bekle
             with patch_subprocess_for_hidden_console():
-                results.append(('w2_enter', subprocess.Popen is not orig_sub_popen))
+                results.append(("w2_enter", subprocess.Popen is not orig_sub_popen))
                 time.sleep(0.1)
-                results.append(('w2_exit', subprocess.Popen is not orig_sub_popen))
+                results.append(("w2_exit", subprocess.Popen is not orig_sub_popen))
 
         t1 = threading.Thread(target=worker_1)
         t2 = threading.Thread(target=worker_2)

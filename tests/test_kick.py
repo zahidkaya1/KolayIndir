@@ -495,12 +495,15 @@ class TestKickFilenameSanitization:
         assert cleaned == "Bu sefer gerçekten döndüm-Çok haber var _ Gündem-Haberler wraith"
 
     def test_kick_target_final_path_sanitized(self, tmp_path):
-        from src.history import get_unique_filepath, sanitize_filename
+        from src.history import (
+            reserve_unique_media_path,
+            sanitize_filename,
+        )
 
         raw_title = "Bu sefer gerçekten döndüm-Çok haber var _ Gündem-Haberler\n\n\\wraith"
         clean = sanitize_filename(raw_title)
         initial_path = tmp_path / f"{clean}.mp4"
-        target_path = get_unique_filepath(initial_path)
+        target_path = reserve_unique_media_path((initial_path).parent, (initial_path).stem, (initial_path).suffix)
 
         assert "\n" not in str(target_path)
         assert "\\" not in target_path.name
@@ -509,12 +512,15 @@ class TestKickFilenameSanitization:
     def test_kick_ytdl_path_valid(self, tmp_path):
         from pathlib import Path
 
-        from src.history import get_unique_filepath, sanitize_filename
+        from src.history import (
+            reserve_unique_media_path,
+            sanitize_filename,
+        )
 
 
         raw_title = "Bu sefer gerçekten döndüm\n\n\\wraith"
         clean = sanitize_filename(raw_title)
-        target_path = get_unique_filepath(tmp_path / f"{clean}.mp4")
+        target_path = reserve_unique_media_path((tmp_path / f"{clean}.mp4").parent, (tmp_path / f"{clean}.mp4").stem, (tmp_path / f"{clean}.mp4").suffix)
         ytdl_path = target_path.with_suffix(".mp4.ytdl")
 
         assert "\n" not in str(ytdl_path)

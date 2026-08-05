@@ -35,7 +35,10 @@ def test_url_extraction_kick_and_unsupported():
 
 
 def test_queue_item_settings_copy_and_duplication(main_window, monkeypatch):
-    monkeypatch.setattr("src.main_window.AppMessageDialog.exec", lambda self: QDialog.DialogCode.Rejected)
+    monkeypatch.setattr(
+        "src.main_window.AppMessageDialog.exec",
+        lambda self: QDialog.DialogCode.Rejected,
+    )
 
     url = "https://www.youtube.com/watch?v=test1"
     main_window.url_input.setText(url)
@@ -85,8 +88,16 @@ def test_queue_conflict_prevention(main_window, monkeypatch):
 
 
 def test_retry_failed_queue_items(main_window):
-    item1 = QueueItem(id="1", url="https://youtube.com/w?v=1", platform="YouTube", status="Tamamlandı")
-    item2 = QueueItem(id="2", url="https://youtube.com/w?v=2", platform="YouTube", status="Başarısız", error_msg="Network Error")
+    item1 = QueueItem(
+        id="1", url="https://youtube.com/w?v=1", platform="YouTube", status="Tamamlandı"
+    )
+    item2 = QueueItem(
+        id="2",
+        url="https://youtube.com/w?v=2",
+        platform="YouTube",
+        status="Başarısız",
+        error_msg="Network Error",
+    )
     main_window._queue_items = [item1, item2]
 
     main_window._retry_failed_queue()
@@ -97,9 +108,15 @@ def test_retry_failed_queue_items(main_window):
 
 
 def test_clear_completed_queue(main_window):
-    item1 = QueueItem(id="1", url="https://youtube.com/w?v=1", platform="YouTube", status="Tamamlandı")
-    item2 = QueueItem(id="2", url="https://youtube.com/w?v=2", platform="YouTube", status="Başarısız")
-    item3 = QueueItem(id="3", url="https://youtube.com/w?v=3", platform="YouTube", status="Bekliyor")
+    item1 = QueueItem(
+        id="1", url="https://youtube.com/w?v=1", platform="YouTube", status="Tamamlandı"
+    )
+    item2 = QueueItem(
+        id="2", url="https://youtube.com/w?v=2", platform="YouTube", status="Başarısız"
+    )
+    item3 = QueueItem(
+        id="3", url="https://youtube.com/w?v=3", platform="YouTube", status="Bekliyor"
+    )
     main_window._queue_items = [item1, item2, item3]
 
     main_window._clear_completed_queue()
@@ -110,7 +127,12 @@ def test_clear_completed_queue(main_window):
 
 
 def test_stop_queue(main_window):
-    item = QueueItem(id="1", url="https://youtube.com/w?v=1", platform="YouTube", status="İndiriliyor")
+    item = QueueItem(
+        id="1",
+        url="https://youtube.com/w?v=1",
+        platform="YouTube",
+        status="İndiriliyor",
+    )
     main_window._queue_items = [item]
     main_window._is_queue_active = True
 
@@ -151,11 +173,18 @@ def test_queue_dialog_thread_and_flags(main_window):
 def test_queue_download_start_exception_and_signal_transition(main_window, monkeypatch):
     from src.models import MediaMetadata
 
-    item = QueueItem(id="q1", url="https://youtube.com/watch?v=abc", platform="YouTube", status="Analiz ediliyor")
+    item = QueueItem(
+        id="q1",
+        url="https://youtube.com/watch?v=abc",
+        platform="YouTube",
+        status="Analiz ediliyor",
+    )
     main_window._queue_items = [item]
     main_window._is_queue_active = True
 
-    meta = MediaMetadata(title="Test Video", webpage_url="https://youtube.com/watch?v=abc")
+    meta = MediaMetadata(
+        title="Test Video", webpage_url="https://youtube.com/watch?v=abc"
+    )
     main_window._on_queue_metadata_ready(meta)
 
     assert main_window._pending_queue_download_item_id == "q1"
@@ -179,8 +208,18 @@ def test_queue_download_start_exception_and_signal_transition(main_window, monke
 
 
 def test_download_succeeded_signal_slot_compatibility(main_window):
-    item1 = QueueItem(id="s1", url="https://youtube.com/watch?v=s1", platform="YouTube", status="İndiriliyor")
-    item2 = QueueItem(id="s2", url="https://youtube.com/watch?v=s2", platform="YouTube", status="Bekliyor")
+    item1 = QueueItem(
+        id="s1",
+        url="https://youtube.com/watch?v=s1",
+        platform="YouTube",
+        status="İndiriliyor",
+    )
+    item2 = QueueItem(
+        id="s2",
+        url="https://youtube.com/watch?v=s2",
+        platform="YouTube",
+        status="Bekliyor",
+    )
     main_window._queue_items = [item1, item2]
     main_window._active_queue_item_id = "s1"
     main_window._is_queue_active = True
@@ -197,8 +236,18 @@ def test_download_succeeded_signal_slot_compatibility(main_window):
 
 
 def test_thread_finished_advances_queue_and_respects_stop(main_window, monkeypatch):
-    item1 = QueueItem(id="t1", url="https://youtube.com/watch?v=t1", platform="YouTube", status="Tamamlandı")
-    item2 = QueueItem(id="t2", url="https://youtube.com/watch?v=t2", platform="YouTube", status="Bekliyor")
+    item1 = QueueItem(
+        id="t1",
+        url="https://youtube.com/watch?v=t1",
+        platform="YouTube",
+        status="Tamamlandı",
+    )
+    item2 = QueueItem(
+        id="t2",
+        url="https://youtube.com/watch?v=t2",
+        platform="YouTube",
+        status="Bekliyor",
+    )
     main_window._queue_items = [item1, item2]
     main_window._active_queue_item_id = "t1"
     main_window._is_queue_active = True
@@ -222,7 +271,6 @@ def test_thread_finished_advances_queue_and_respects_stop(main_window, monkeypat
     main_window._is_queue_active = False
     main_window._on_queue_download_thread_finished()
     assert next_started is False
-
 
 
 def test_queue_settings_controls_and_item_editing(main_window, monkeypatch):

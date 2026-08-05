@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -194,7 +195,8 @@ def test_tiktok_slideshow_mp3_allowed():
     assert meta.selected_resolution == "Ses (MP3)"
 
 
-def test_tiktok_attempt_order_first_unauthenticated():
+@patch("src.browser_sessions.detect_available_browser_profiles", return_value=[])
+def test_tiktok_attempt_order_first_unauthenticated(mock_profiles):
     order = build_profile_attempt_order(PlatformType.TIKTOK_VIDEO, "auto")
     assert order[0] == (None, None, "Oturumsuz")
     assert order[1][0] == "firefox"
@@ -285,7 +287,9 @@ def test_tiktok_short_url_failed_logs_turkish_error(monkeypatch):
     def fake_resolve_fail(u):
         return u, "Could not resolve"
 
-    monkeypatch.setattr("src.metadata_worker.resolve_tiktok_short_link", fake_resolve_fail)
+    monkeypatch.setattr(
+        "src.metadata_worker.resolve_tiktok_short_link", fake_resolve_fail
+    )
 
     class FakeYDLFail:
         def __init__(self, opts):
@@ -312,7 +316,10 @@ def test_tiktok_rehydration_error_turkish_translation():
     url = "https://vt.tiktok.com/ZSXgEmedA/"
     msg = "ERROR: [TikTok] 7664960339628313864: Unable to extract universal data for rehydration"
     tr = translate_social_error(msg, url)
-    assert "TikTok bağlantısı çözüldü ancak bu videonun verileri şu anda yt-dlp tarafından okunamadı" in tr
+    assert (
+        "TikTok bağlantısı çözüldü ancak bu videonun verileri şu anda yt-dlp tarafından okunamadı"
+        in tr
+    )
     assert "yt-dlp güncellemesini kontrol edin" in tr
 
 
@@ -353,12 +360,16 @@ def test_tiktok_rehydration_error_does_not_show_short_link_failed_msg(monkeypatc
 
     assert "TikTok yönlendirmesi başarılı." in logs
     assert any("Gerçek video bağlantısı bulundu:" in log for log in logs)
-    assert "TikTok extractor video verisini çıkaramadı: universal data for rehydration bulunamadı." in logs
+    assert (
+        "TikTok extractor video verisini çıkaramadı: universal data for rehydration bulunamadı."
+        in logs
+    )
     assert not any("Kısa bağlantı çözümlenemedi" in log for log in logs)
 
 
 def test_clean_tiktok_url_removes_tokens_and_query_params():
     from src.utils import clean_tiktok_url
+
     raw_url = "https://www.tiktok.com/@teus.54/video/7664960339628313864?_r=1&_t=ZS-98FKvxrMzEm#token=123"
     cleaned = clean_tiktok_url(raw_url)
     assert cleaned == "https://www.tiktok.com/@teus.54/video/7664960339628313864"
@@ -368,10 +379,14 @@ def test_clean_tiktok_url_removes_tokens_and_query_params():
 
 def test_tiktok_rehydration_error_does_not_trigger_full_browser_loop():
     from src.browser_sessions import classify_session_error, is_authentication_error
+
     msg = "Unable to extract universal data for rehydration"
     url = "https://www.tiktok.com/@user/video/123"
     assert not is_authentication_error(msg)
-    assert classify_session_error(msg, url) == "TikTok video verisi çıkarılamadı (rehydration)"
+    assert (
+        classify_session_error(msg, url)
+        == "TikTok video verisi çıkarılamadı (rehydration)"
+    )
 
 
 def test_tiktok_metadata_stores_successful_attempt_strategy(monkeypatch):
@@ -470,12 +485,20 @@ def test_hevc_and_h264_codec_detection():
 
 
 def test_video_format_prioritizes_h264():
-    from src.download_options import _video_format
+    from pathlib import Path
 
-    fmt_1080p = _video_format("1080p'ye kadar")
-    assert "vcodec^=avc1" in fmt_1080p
-    assert "vcodec^=h264" in fmt_1080p
-    assert fmt_1080p.index("vcodec^=avc1") < fmt_1080p.index("bv*[height<=1080]+ba")
+    from src.download_options import build_ydl_options
+    from src.models import DownloadRequest
+
+    req = DownloadRequest(
+        url="https://www.tiktok.com/@user/video/123",
+        output_dir=Path("."),
+        media_type="Video (MP4)",
+        quality="1080p'ye kadar",
+        playlist=False,
+    )
+    opts = build_ydl_options(req)
+    assert opts.get("format_sort") == ["vcodec:h264", "acodec:aac", "ext:mp4"]
 
 
 def test_handle_post_download_transcode_h264_no_reencode(tmp_path, monkeypatch):
@@ -495,7 +518,14 @@ def test_handle_post_download_transcode_h264_no_reencode(tmp_path, monkeypatch):
     worker._last_filename = str(test_file)
 
     def fake_probe(path):
-        return {"video_codec": "h264", "audio_codec": "aac", "height": 1080}
+        return {
+            "video_codec": "h264",
+            "audio_codec": "aac",
+            "height": 1080,
+            "width": 1920,
+            "pix_fmt": "yuv420p",
+            "channels": 2,
+        }
 
     monkeypatch.setattr("src.download_worker.probe_media_codecs", fake_probe)
 
@@ -505,7 +535,3 @@ def test_handle_post_download_transcode_h264_no_reencode(tmp_path, monkeypatch):
 
     assert test_file.exists()
     assert not any("dönüştürülüyor" in log for log in logs)
-
-
-
-

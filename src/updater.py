@@ -30,7 +30,9 @@ class UpdateWorker(QObject):
 
     @Slot()
     def run(self) -> None:
-        endpoint = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
+        endpoint = (
+            f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
+        )
         request = Request(
             endpoint,
             headers={

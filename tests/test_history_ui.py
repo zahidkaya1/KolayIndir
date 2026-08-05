@@ -20,7 +20,6 @@ def qapp():
     return app
 
 
-
 @pytest.fixture
 def main_window_factory(monkeypatch, qapp):
     from PySide6.QtCore import QCoreApplication, QEvent
@@ -52,7 +51,6 @@ def main_window_factory(monkeypatch, qapp):
         QEvent.Type.DeferredDelete,
     )
     qapp.processEvents()
-
 
 
 @pytest.fixture(autouse=True)
@@ -228,7 +226,9 @@ class TestHistoryUI:
         assert not (dlg.windowFlags() & Qt.WindowType.WindowContextHelpButtonHint)
         dlg.close()
 
-    def test_redownload_active_download_shows_warning(self, monkeypatch, main_window_factory):
+    def test_redownload_active_download_shows_warning(
+        self, monkeypatch, main_window_factory
+    ):
         # active download prevents analyze
 
         win = main_window_factory()
@@ -1083,7 +1083,7 @@ class TestHistoryFiltersAndSearch:
             state="completed",
             playlist=False,
             playlist_index=0,
-            playlist_count=0
+            playlist_count=0,
         )
 
         # Should not crash
@@ -1094,31 +1094,55 @@ class TestHistoryFiltersAndSearch:
         assert "background-color: #f1f5f9;" in badge.styleSheet()
         card.close()
 
-
-    def test_history_dialog_shows_records_newest_first_with_same_date(self, qapp, tmp_path):
+    def test_history_dialog_shows_records_newest_first_with_same_date(
+        self, qapp, tmp_path
+    ):
         from src.history import save_history
-        r1 = _make_record(tmp_path, "1.mp4", media_id="v1", completed_at="2024-01-01T10:00:00Z")
-        r2 = _make_record(tmp_path, "2.mp4", media_id="v2", completed_at="2024-01-01T10:00:00Z")
-        r3 = _make_record(tmp_path, "3.mp4", media_id="v3", completed_at="2024-01-01T10:00:00Z")
+
+        r1 = _make_record(
+            tmp_path, "1.mp4", media_id="v1", completed_at="2024-01-01T10:00:00Z"
+        )
+        r2 = _make_record(
+            tmp_path, "2.mp4", media_id="v2", completed_at="2024-01-01T10:00:00Z"
+        )
+        r3 = _make_record(
+            tmp_path, "3.mp4", media_id="v3", completed_at="2024-01-01T10:00:00Z"
+        )
         save_history([r1, r2, r3])
         dlg = HistoryDialog()
 
         dlg.sort_combo.setCurrentText("En Yeni")
-        cards = [dlg.scroll_layout.itemAt(i).widget() for i in range(dlg.scroll_layout.count()) if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)]
+        cards = [
+            dlg.scroll_layout.itemAt(i).widget()
+            for i in range(dlg.scroll_layout.count())
+            if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)
+        ]
         assert [c.record.media_id for c in cards] == ["v3", "v2", "v1"]
 
         dlg.sort_combo.setCurrentText("En Eski")
-        cards = [dlg.scroll_layout.itemAt(i).widget() for i in range(dlg.scroll_layout.count()) if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)]
+        cards = [
+            dlg.scroll_layout.itemAt(i).widget()
+            for i in range(dlg.scroll_layout.count())
+            if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)
+        ]
         assert [c.record.media_id for c in cards] == ["v1", "v2", "v3"]
         dlg.close()
 
     def test_platform_alias_parametric(self, qapp, tmp_path):
         from src.history import save_history
+
         aliases = [
-            "instagram", "instagram_reel", "instagram_post", "instagram_story",
-            "youtube_video", "youtube_playlist",
-            "twitter", "twitter_video", "x", "x_com",
-            "tiktok_video"
+            "instagram",
+            "instagram_reel",
+            "instagram_post",
+            "instagram_story",
+            "youtube_video",
+            "youtube_playlist",
+            "twitter",
+            "twitter_video",
+            "x",
+            "x_com",
+            "tiktok_video",
         ]
         records = []
         for i, alias in enumerate(aliases):
@@ -1128,27 +1152,44 @@ class TestHistoryFiltersAndSearch:
 
         # Instagram count
         dlg.platform_combo.setCurrentText("Instagram")
-        cards = [dlg.scroll_layout.itemAt(i).widget() for i in range(dlg.scroll_layout.count()) if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)]
+        cards = [
+            dlg.scroll_layout.itemAt(i).widget()
+            for i in range(dlg.scroll_layout.count())
+            if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)
+        ]
         assert len(cards) == 4
 
         # YouTube count
         dlg.platform_combo.setCurrentText("YouTube")
-        cards = [dlg.scroll_layout.itemAt(i).widget() for i in range(dlg.scroll_layout.count()) if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)]
+        cards = [
+            dlg.scroll_layout.itemAt(i).widget()
+            for i in range(dlg.scroll_layout.count())
+            if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)
+        ]
         assert len(cards) == 2
 
         # X / Twitter count
         dlg.platform_combo.setCurrentText("X / Twitter")
-        cards = [dlg.scroll_layout.itemAt(i).widget() for i in range(dlg.scroll_layout.count()) if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)]
+        cards = [
+            dlg.scroll_layout.itemAt(i).widget()
+            for i in range(dlg.scroll_layout.count())
+            if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)
+        ]
         assert len(cards) == 4
 
         # TikTok count
         dlg.platform_combo.setCurrentText("TikTok")
-        cards = [dlg.scroll_layout.itemAt(i).widget() for i in range(dlg.scroll_layout.count()) if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)]
+        cards = [
+            dlg.scroll_layout.itemAt(i).widget()
+            for i in range(dlg.scroll_layout.count())
+            if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)
+        ]
         assert len(cards) == 1
         dlg.close()
 
     def test_long_title_and_filename_overflow_with_1366_768(self, qapp, tmp_path):
         from src.history import save_history
+
         long_title = "A" * 500
         long_name = "B" * 100 + ".mp4"
         save_history([_make_record(tmp_path, long_name, title=long_title)])
@@ -1158,7 +1199,11 @@ class TestHistoryFiltersAndSearch:
         dlg.show()
         qapp.processEvents()
 
-        cards = [dlg.scroll_layout.itemAt(i).widget() for i in range(dlg.scroll_layout.count()) if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)]
+        cards = [
+            dlg.scroll_layout.itemAt(i).widget()
+            for i in range(dlg.scroll_layout.count())
+            if isinstance(dlg.scroll_layout.itemAt(i).widget(), HistoryCard)
+        ]
         card = cards[0]
 
         assert card.minimumSizeHint().width() < 1366
@@ -1178,28 +1223,39 @@ class TestHistoryBackgroundRegression:
 
     def test_history_dialog_main_background_is_light(self, qapp, tmp_path):
         from src.history_dialog import HistoryDialog
+
         dlg = HistoryDialog()
         qss = dlg.styleSheet()
-        assert "background-color: #F7F9FC" in qss or "background-color: #f7f9fc" in qss.lower()
+        assert (
+            "background-color: #F7F9FC" in qss
+            or "background-color: #f7f9fc" in qss.lower()
+        )
 
     def test_scroll_area_viewport_background_is_light(self, qapp):
         from src.history_dialog import HistoryDialog
+
         dlg = HistoryDialog()
         qss = dlg.styleSheet()
         assert "QWidget#historyScrollViewport" in qss
         # Checking that WA_StyledBackground is True
         from PySide6.QtCore import Qt
-        assert dlg.scroll_area.viewport().testAttribute(Qt.WidgetAttribute.WA_StyledBackground)
+
+        assert dlg.scroll_area.viewport().testAttribute(
+            Qt.WidgetAttribute.WA_StyledBackground
+        )
 
     def test_scroll_content_background_is_light(self, qapp):
         from src.history_dialog import HistoryDialog
+
         dlg = HistoryDialog()
         from PySide6.QtCore import Qt
+
         assert dlg.scroll_content.testAttribute(Qt.WidgetAttribute.WA_StyledBackground)
 
     def test_no_black_background_when_history_empty(self, qapp):
         from src.history import clear_history
         from src.history_dialog import HistoryDialog
+
         clear_history()
         dlg = HistoryDialog()
         dlg.show()
@@ -1219,15 +1275,26 @@ class TestHistoryBackgroundRegression:
 
         from src.history import DownloadRecord, save_history
         from src.history_dialog import HistoryDialog
-        save_history([
-            DownloadRecord(
-                platform="youtube", media_id="test", media_type="Video",
-                requested_quality="720p", selected_height=720,
-                final_path=str(tmp_path / "1.mp4"), state="completed",
-                file_size=1024, completed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                video_codec="h264", audio_codec="aac"
-            )
-        ])
+
+        save_history(
+            [
+                DownloadRecord(
+                    platform="youtube",
+                    media_id="test",
+                    media_type="Video",
+                    requested_quality="720p",
+                    selected_height=720,
+                    final_path=str(tmp_path / "1.mp4"),
+                    state="completed",
+                    file_size=1024,
+                    completed_at=datetime.datetime.now(
+                        datetime.timezone.utc
+                    ).isoformat(),
+                    video_codec="h264",
+                    audio_codec="aac",
+                )
+            ]
+        )
         dlg = HistoryDialog()
         dlg.show()
         dlg.resize(1100, 700)
@@ -1243,15 +1310,26 @@ class TestHistoryBackgroundRegression:
 
         from src.history import DownloadRecord, save_history
         from src.history_dialog import HistoryDialog
-        save_history([
-            DownloadRecord(
-                platform="youtube", media_id="test", media_type="Video",
-                requested_quality="720p", selected_height=720,
-                final_path=str(tmp_path / "1.mp4"), state="completed",
-                file_size=1024, completed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                video_codec="h264", audio_codec="aac"
-            )
-        ])
+
+        save_history(
+            [
+                DownloadRecord(
+                    platform="youtube",
+                    media_id="test",
+                    media_type="Video",
+                    requested_quality="720p",
+                    selected_height=720,
+                    final_path=str(tmp_path / "1.mp4"),
+                    state="completed",
+                    file_size=1024,
+                    completed_at=datetime.datetime.now(
+                        datetime.timezone.utc
+                    ).isoformat(),
+                    video_codec="h264",
+                    audio_codec="aac",
+                )
+            ]
+        )
         dlg = HistoryDialog()
         dlg.platform_combo.setCurrentText("TikTok")
         dlg.show()
@@ -1262,4 +1340,3 @@ class TestHistoryBackgroundRegression:
         image = pixmap.toImage()
         color = image.pixelColor(dlg.width() // 2, dlg.height() - 50)
         assert color.lightness() > 200
-

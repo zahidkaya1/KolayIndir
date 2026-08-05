@@ -24,6 +24,7 @@ from src.settings import load_settings, save_settings
 # BrowserProfileCandidate veri yapısı
 # ---------------------------------------------------------------------------
 
+
 def test_browser_profile_candidate_fields():
     cand = BrowserProfileCandidate(
         browser="edge",
@@ -41,6 +42,7 @@ def test_browser_profile_candidate_fields():
 # ---------------------------------------------------------------------------
 # Chrome / Edge / Brave profil algılama
 # ---------------------------------------------------------------------------
+
 
 def _make_chromium_structure(tmp_path: Path, browser_rel: str) -> Path:
     """tmp_path altında sahte bir Chromium User Data dizini oluşturur."""
@@ -88,7 +90,10 @@ def test_chromium_display_name_format(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
 
     profiles = detect_available_browser_profiles()
-    edge_default = next((p for p in profiles if p.browser == "edge" and p.profile_name == "Default"), None)
+    edge_default = next(
+        (p for p in profiles if p.browser == "edge" and p.profile_name == "Default"),
+        None,
+    )
     assert edge_default is not None
     assert "Edge" in edge_default.display_name
     assert "Default" in edge_default.display_name
@@ -97,6 +102,7 @@ def test_chromium_display_name_format(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # Firefox profil algılama
 # ---------------------------------------------------------------------------
+
 
 def _make_firefox_ini(base: Path, profiles: list[dict]) -> None:
     base.mkdir(parents=True, exist_ok=True)
@@ -109,7 +115,12 @@ def _make_firefox_ini(base: Path, profiles: list[dict]) -> None:
             "IsRelative": "1",
             "Path": p["path"],
         }
-        (base / p["path"]).mkdir(parents=True, exist_ok=True)
+    # Make sure we add cookies.sqlite so they are valid!
+    for p in profiles:
+        db_path = base / p["path"] / "cookies.sqlite"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path.touch()
+
     with open(base / "profiles.ini", "w", encoding="utf-8") as f:
         config.write(f)
 
@@ -147,6 +158,7 @@ def test_firefox_profile_name_from_ini(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # build_profile_attempt_order
 # ---------------------------------------------------------------------------
+
 
 def test_attempt_order_first_is_unauthenticated():
     order = build_profile_attempt_order(PlatformType.INSTAGRAM_REEL, "auto")
@@ -200,33 +212,44 @@ def test_attempt_order_specific_browser_mode(tmp_path, monkeypatch):
 # classify_session_error
 # ---------------------------------------------------------------------------
 
+
 def test_classify_locked_database():
     result = classify_session_error("Could not copy Chrome cookie database", "")
     assert result == SESSION_STATUS_LABELS["db_locked"]
 
 
 def test_classify_expired_story():
-    result = classify_session_error("This content is not available", "https://instagram.com/stories/x/123")
+    result = classify_session_error(
+        "This content is not available", "https://instagram.com/stories/x/123"
+    )
     assert result == SESSION_STATUS_LABELS["story_inaccessible"]
 
 
 def test_classify_rate_limit():
-    result = classify_session_error("429 too many requests", "https://instagram.com/reel/abc")
+    result = classify_session_error(
+        "429 too many requests", "https://instagram.com/reel/abc"
+    )
     assert result == "Instagram oran sınırlaması"
 
 
 def test_classify_instagram_auth():
-    result = classify_session_error("Login required", "https://instagram.com/stories/user/12345")
+    result = classify_session_error(
+        "Login required", "https://instagram.com/stories/user/12345"
+    )
     assert result == SESSION_STATUS_LABELS["no_instagram_session"]
 
 
 def test_classify_twitter_auth():
-    result = classify_session_error("You need to log in to access this content", "https://x.com/user/status/123")
+    result = classify_session_error(
+        "You need to log in to access this content", "https://x.com/user/status/123"
+    )
     assert result == "X oturumu bulunamadı"
 
 
 def test_classify_profile_not_found():
-    result = classify_session_error("Could not find profile directory", "https://instagram.com/reel/abc")
+    result = classify_session_error(
+        "Could not find profile directory", "https://instagram.com/reel/abc"
+    )
     assert result == SESSION_STATUS_LABELS["profile_not_found"]
 
 
@@ -234,28 +257,37 @@ def test_classify_profile_not_found():
 # analyze_instagram_story_url
 # ---------------------------------------------------------------------------
 
+
 def test_story_url_username_only():
-    notice, err = analyze_instagram_story_url("https://www.instagram.com/stories/someuser/")
+    notice, err = analyze_instagram_story_url(
+        "https://www.instagram.com/stories/someuser/"
+    )
     assert notice is not None
     assert "tüm aktif hikâye" in notice.lower()
     assert err is None
 
 
 def test_story_url_specific_id():
-    notice, err = analyze_instagram_story_url("https://www.instagram.com/stories/someuser/123456789/")
+    notice, err = analyze_instagram_story_url(
+        "https://www.instagram.com/stories/someuser/123456789/"
+    )
     assert notice is not None
     assert "belirli" in notice.lower()
     assert err is None
 
 
 def test_story_url_highlight_no_id():
-    _notice, err = analyze_instagram_story_url("https://www.instagram.com/stories/highlights/")
+    _notice, err = analyze_instagram_story_url(
+        "https://www.instagram.com/stories/highlights/"
+    )
     assert err is not None
     assert "kimlik" in err.lower() or "eksik" in err.lower()
 
 
 def test_story_url_highlight_with_id():
-    notice, err = analyze_instagram_story_url("https://www.instagram.com/stories/highlights/1234567/")
+    notice, err = analyze_instagram_story_url(
+        "https://www.instagram.com/stories/highlights/1234567/"
+    )
     assert err is None
     assert notice is not None
 
@@ -269,6 +301,7 @@ def test_non_story_url_no_notice():
 # ---------------------------------------------------------------------------
 # Bellek odaklı profil saklama (settings.json'a yazılmıyor)
 # ---------------------------------------------------------------------------
+
 
 def test_session_profile_memory_only(tmp_path, monkeypatch):
     settings_file = tmp_path / "settings.json"
@@ -293,7 +326,11 @@ def test_session_profile_not_written_to_settings(tmp_path, monkeypatch):
     monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
 
     save_settings({"output_dir": str(tmp_path)})
-    content = json.loads(settings_file.read_text(encoding="utf-8")) if settings_file.exists() else {}
+    content = (
+        json.loads(settings_file.read_text(encoding="utf-8"))
+        if settings_file.exists()
+        else {}
+    )
     assert "session_profile" not in content
     assert "preferred_profile" not in content
 
@@ -301,6 +338,7 @@ def test_session_profile_not_written_to_settings(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # DownloadRequest preferred_profile
 # ---------------------------------------------------------------------------
+
 
 def test_download_request_preferred_profile(tmp_path):
     req = DownloadRequest(
@@ -318,6 +356,7 @@ def test_download_request_preferred_profile(tmp_path):
 # ---------------------------------------------------------------------------
 # is_authentication_error / is_browser_cookie_lock_error
 # ---------------------------------------------------------------------------
+
 
 def test_is_authentication_error_variants():
     assert is_authentication_error("Login required to view this content") is True
@@ -337,10 +376,13 @@ def test_is_browser_cookie_lock_error_variants():
 # Gizli cookie/token loglanmıyor kontrolü
 # ---------------------------------------------------------------------------
 
+
 def test_classify_does_not_expose_cookies():
     """classify_session_error çıktısı gizli bilgi içermemeli."""
     fake_error = "Cookie value: abc123secret; session_token=xyz789 — Login required"
-    result = classify_session_error(fake_error, "https://instagram.com/stories/user/123")
+    result = classify_session_error(
+        fake_error, "https://instagram.com/stories/user/123"
+    )
     assert "abc123secret" not in result
     assert "xyz789" not in result
     assert "session_token" not in result
@@ -350,13 +392,16 @@ def test_classify_does_not_expose_cookies():
 # SessionFailedDialog (GUI)
 # ---------------------------------------------------------------------------
 
+
 def test_session_failed_dialog_renders():
     from PySide6.QtWidgets import QApplication
 
     from src.dialogs import SessionFailedDialog
 
     _app = QApplication.instance() or QApplication([])
-    dlg = SessionFailedDialog(platform_name="instagram", failure_reason="Login required")
+    dlg = SessionFailedDialog(
+        platform_name="instagram", failure_reason="Login required"
+    )
     assert dlg.windowTitle() == "Oturum alınamadı"
     dlg.close()
 
@@ -367,7 +412,9 @@ def test_session_failed_dialog_lock_reason():
     from src.dialogs import SessionFailedDialog
 
     _app = QApplication.instance() or QApplication([])
-    dlg = SessionFailedDialog(platform_name="instagram", failure_reason="database is locked")
+    dlg = SessionFailedDialog(
+        platform_name="instagram", failure_reason="database is locked"
+    )
     # Dialog açılmalı ve kilitli tarayıcı mesajı içermeli
     assert dlg.windowTitle() == "Oturum alınamadı"
     dlg.close()
@@ -382,7 +429,10 @@ def test_is_chromium_encryption_error_dpapi():
     """DPAPI şifreleme hatası doğru algılanmalı."""
     assert is_chromium_encryption_error("failed to decrypt cookie") is True
     assert is_chromium_encryption_error("DPAPI decryption error") is True
-    assert is_chromium_encryption_error("app-bound encryption prevents cookie access") is True
+    assert (
+        is_chromium_encryption_error("app-bound encryption prevents cookie access")
+        is True
+    )
     assert is_chromium_encryption_error("cookies could not be decrypted") is True
     assert is_chromium_encryption_error("no cookies could be loaded") is True
 
@@ -396,7 +446,9 @@ def test_is_chromium_encryption_error_false_for_others():
 
 def test_classify_chromium_encryption_gets_correct_label():
     """Chromium şifreleme hatası doğru SESSION_STATUS_LABELS etiketini almalı."""
-    result = classify_session_error("failed to decrypt cookie", "https://instagram.com/stories/user/123")
+    result = classify_session_error(
+        "failed to decrypt cookie", "https://instagram.com/stories/user/123"
+    )
     assert result == SESSION_STATUS_LABELS["encrypted_cookies"]
     assert "Windows" in result
 
@@ -405,7 +457,9 @@ def test_classify_chromium_profile_found_not_session_validated():
     """Chromium profili bulunması oturum başarısı sayılmamalı; oturum doğrulandı
     ancak yt-dlp içeriği çözümleyebildiyse geçerlidir. Bu test classify_session_error'ın
     auth hatasını 'no_instagram_session' olarak sınıflandırdığını doğrular."""
-    result = classify_session_error("Login required", "https://instagram.com/stories/user/123")
+    result = classify_session_error(
+        "Login required", "https://instagram.com/stories/user/123"
+    )
     assert result == SESSION_STATUS_LABELS["no_instagram_session"]
     # 'Oturum doğrulandı' OLMAMALI — bu sadece gerçek içerik çözümünde emit edilir
     assert result != SESSION_STATUS_LABELS["session_validated"]
@@ -422,17 +476,22 @@ def test_firefox_not_installed_dialog_shows_install_button(monkeypatch):
     monkeypatch.setattr(dialogs_mod, "is_firefox_has_instagram_session", lambda: False)
     monkeypatch.setattr(dialogs_mod, "is_chromium_encryption_error", lambda msg: False)
 
-    dlg = dialogs_mod.SessionFailedDialog(platform_name="instagram", failure_reason="Login required")
+    dlg = dialogs_mod.SessionFailedDialog(
+        platform_name="instagram", failure_reason="Login required"
+    )
 
     # "Firefox Kurulumunu Aç" butonu var mı?
     from PySide6.QtWidgets import QPushButton
+
     install_btn = dlg.findChild(QPushButton, "dialogPrimaryButton")
     assert install_btn is not None
     # Başlık ya da metin "Firefox" içeriyor mu?
     # En az bir butonun metninde Firefox olmalı
     buttons = dlg.findChildren(QPushButton)
     btn_texts = [b.text() for b in buttons]
-    assert any("Firefox" in t for t in btn_texts), f"Firefox butonu bulunamadı: {btn_texts}"
+    assert any("Firefox" in t for t in btn_texts), (
+        f"Firefox butonu bulunamadı: {btn_texts}"
+    )
     dlg.close()
 
 
@@ -447,7 +506,9 @@ def test_firefox_installed_no_session_dialog_message(monkeypatch):
     monkeypatch.setattr(dialogs_mod, "is_firefox_has_instagram_session", lambda: False)
     monkeypatch.setattr(dialogs_mod, "is_chromium_encryption_error", lambda msg: False)
 
-    dlg = dialogs_mod.SessionFailedDialog(platform_name="instagram", failure_reason="Login required")
+    dlg = dialogs_mod.SessionFailedDialog(
+        platform_name="instagram", failure_reason="Login required"
+    )
 
     labels = dlg.findChildren(QLabel)
     label_texts = " ".join(lbl.text() for lbl in labels).lower()
@@ -458,7 +519,9 @@ def test_firefox_installed_no_session_dialog_message(monkeypatch):
 
 def test_story_url_username_only_updated_message():
     """Yalnızca kullanıcı adıyla biten hikâye URL'si doğru uyarı metnini döndürmeli."""
-    notice, err = analyze_instagram_story_url("https://www.instagram.com/stories/someuser/")
+    notice, err = analyze_instagram_story_url(
+        "https://www.instagram.com/stories/someuser/"
+    )
     assert err is None
     assert notice is not None
     # Yeni metin "sayısal hikâye kimliği" ifadesini içermeli
@@ -467,7 +530,9 @@ def test_story_url_username_only_updated_message():
 
 def test_story_url_specific_id_not_confused_with_username_only():
     """Sayısal ID içeren hikâye URL'si 'yalnızca kullanıcı adı' uyarısı vermemeli."""
-    notice, err = analyze_instagram_story_url("https://www.instagram.com/stories/someuser/9876543210/")
+    notice, err = analyze_instagram_story_url(
+        "https://www.instagram.com/stories/someuser/9876543210/"
+    )
     assert err is None
     assert notice is not None
     # Bu "belirli hikâye" veya "ID" içermeli, "sayısal hikâye kimliği" içermemeli
@@ -488,25 +553,10 @@ def test_session_status_labels_completeness():
     assert expected_keys <= set(SESSION_STATUS_LABELS.keys())
 
 
-def test_firefox_profileless_attempt_first():
-    """Instagram için ilk oturumlu deneme profil belirtmeden ('firefox', None) olmalı."""
-    order = build_profile_attempt_order(PlatformType.INSTAGRAM_STORY, "auto")
-    assert len(order) >= 2
-    assert order[0] == (None, None, "Oturumsuz")
-    assert order[1][0] == "firefox"
-    assert order[1][1] is None
-
-
-def test_firefox_profileless_attempt_no_duplicates():
-    """('firefox', None) girişi yalnızca bir kez eklenmeli."""
-    order = build_profile_attempt_order(PlatformType.INSTAGRAM_STORY, "auto")
-    firefox_profileless_count = sum(1 for b, p, _ in order if b == "firefox" and p is None)
-    assert firefox_profileless_count == 1
-
-
 def test_cookiesfrombrowser_preferred_browser_tuple():
     """preferred_browser='firefox' ve preferred_profile=None durumunda cookiesfrombrowser == ('firefox',)."""
     from src.download_options import build_ydl_options
+
     req = DownloadRequest(
         url="https://www.instagram.com/stories/jahrein/123/",
         output_dir=Path("downloads"),
@@ -524,6 +574,7 @@ def test_cookiesfrombrowser_preferred_browser_tuple():
 def test_story_playlist_disabled_single_item():
     """Story URL + playlist kapalı ise noplaylist=True ve playlist_items='1' olmalı."""
     from src.download_options import build_ydl_options
+
     req = DownloadRequest(
         url="https://www.instagram.com/stories/jahrein/3951962231915018297/",
         output_dir=Path("downloads"),
@@ -540,6 +591,7 @@ def test_story_playlist_disabled_single_item():
 def test_story_playlist_enabled_subfolder_template():
     """Story URL + playlist açık ise noplaylist=False ve NA klasörü oluşturmayan şablon kullanılmalı."""
     from src.download_options import build_ydl_options
+
     req = DownloadRequest(
         url="https://www.instagram.com/stories/jahrein/3951962231915018297/",
         output_dir=Path("downloads"),
@@ -553,3 +605,85 @@ def test_story_playlist_enabled_subfolder_template():
     assert "%(uploader" in opts["outtmpl"]
     assert "NA" not in opts["outtmpl"]
 
+
+def test_firefox_profiles_ini_priority(tmp_path, monkeypatch):
+    from src.browser_sessions import _detect_firefox_profiles
+
+    ff_base = tmp_path / "Mozilla" / "Firefox"
+    ff_base.mkdir(parents=True, exist_ok=True)
+
+    # Create the structure requested by the user
+    config_content = """
+[Install308046B0AF4A39CB]
+Default=Profiles/psbqyrpy.default-release
+Locked=1
+
+[Profile1]
+Name=default
+IsRelative=1
+Path=Profiles/2bx1d3o0.default
+Default=1
+
+[Profile0]
+Name=default-release
+IsRelative=1
+Path=Profiles/psbqyrpy.default-release
+"""
+    with open(ff_base / "profiles.ini", "w", encoding="utf-8") as f:
+        f.write(config_content)
+
+    # Profile 1 (no cookies.sqlite)
+    p1 = ff_base / "Profiles/2bx1d3o0.default"
+    p1.mkdir(parents=True, exist_ok=True)
+
+    # Profile 0 (has cookies.sqlite)
+    p0 = ff_base / "Profiles/psbqyrpy.default-release"
+    p0.mkdir(parents=True, exist_ok=True)
+    (p0 / "cookies.sqlite").touch()
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    profiles = _detect_firefox_profiles()
+
+    assert len(profiles) == 1
+    assert profiles[0].profile_name == "psbqyrpy.default-release"
+
+
+def test_firefox_install_default_selected(tmp_path, monkeypatch):
+    from src.browser_sessions import _detect_firefox_profiles
+
+    ff_base = tmp_path / "Mozilla" / "Firefox"
+    ff_base.mkdir(parents=True, exist_ok=True)
+
+    config_content = """
+[InstallXYZ]
+Default=Profiles/install.default
+
+[Profile0]
+Name=Profile0
+IsRelative=1
+Path=Profiles/install.default
+Default=0
+
+[Profile1]
+Name=Profile1
+IsRelative=1
+Path=Profiles/other.default
+Default=1
+"""
+    with open(ff_base / "profiles.ini", "w", encoding="utf-8") as f:
+        f.write(config_content)
+
+    p0 = ff_base / "Profiles/install.default"
+    p0.mkdir(parents=True, exist_ok=True)
+    (p0 / "cookies.sqlite").touch()
+
+    p1 = ff_base / "Profiles/other.default"
+    p1.mkdir(parents=True, exist_ok=True)
+    (p1 / "cookies.sqlite").touch()
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    profiles = _detect_firefox_profiles()
+
+    assert len(profiles) == 2
+    assert profiles[0].profile_name == "install.default"
+    assert profiles[1].profile_name == "other.default"

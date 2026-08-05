@@ -97,13 +97,9 @@ def configure_combo_box(combo: QComboBox) -> None:
         palette.setColor(group, QPalette.ColorRole.Base, QColor("#FFFFFF"))
         palette.setColor(group, QPalette.ColorRole.Window, QColor("#FFFFFF"))
         palette.setColor(group, QPalette.ColorRole.Button, QColor("#FFFFFF"))
-        palette.setColor(
-            group, QPalette.ColorRole.AlternateBase, QColor("#FFFFFF")
-        )
+        palette.setColor(group, QPalette.ColorRole.AlternateBase, QColor("#FFFFFF"))
         palette.setColor(group, QPalette.ColorRole.Highlight, QColor("#E8F0FE"))
-        palette.setColor(
-            group, QPalette.ColorRole.HighlightedText, QColor("#174EA6")
-        )
+        palette.setColor(group, QPalette.ColorRole.HighlightedText, QColor("#174EA6"))
 
     palette.setColor(
         QPalette.ColorGroup.Disabled,
@@ -149,7 +145,9 @@ def is_valid_kick_manifest_url(url: str | None) -> bool:
     if not u.startswith(("http://", "https://")):
         return False
     u_lower = u.lower()
-    return ".m3u8" in u_lower and not ("web.kick.com" in u_lower and "manifest.m3u8" in u_lower)
+    return ".m3u8" in u_lower and not (
+        "web.kick.com" in u_lower and "manifest.m3u8" in u_lower
+    )
 
 
 def set_combo_value(combo: QComboBox, value: str) -> None:
@@ -158,9 +156,7 @@ def set_combo_value(combo: QComboBox, value: str) -> None:
     combo.setCurrentIndex(max(index, 0))
 
 
-
 def strip_ansi(text: str) -> str:
-
     """Metindeki ANSI escape / terminal renk kodlarını temizler."""
     if not text:
         return ""
@@ -177,7 +173,7 @@ def clean_log_message(text: str) -> str:
     match = re.match(pattern, cleaned, flags=re.IGNORECASE)
     if match:
         matched_str = match.group(0)
-        rest = cleaned[match.end():].strip()
+        rest = cleaned[match.end() :].strip()
         is_error = "hata" in matched_str.lower() or "error" in matched_str.lower()
         is_warning = "uyarı" in matched_str.lower() or "warning" in matched_str.lower()
         if is_error:
@@ -269,6 +265,7 @@ def patch_subprocess_for_hidden_console():
     aynı anda güvenle kullanılabilir.
     """
     import os
+
     if os.name != "nt":
         yield
         return
@@ -325,6 +322,9 @@ def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
             "height": 0,
             "fps": 0.0,
             "duration": 0.0,
+            "pix_fmt": "",
+            "channels": 0,
+            "sample_rate": 0,
         }
 
     cmd = [
@@ -344,7 +344,7 @@ def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
             text=True,
             encoding="utf-8",
             errors="replace",
-            check=False
+            check=False,
         )
         res = subprocess.run(cmd, check=False, **kwargs)
         if res.returncode != 0 or not res.stdout:
@@ -355,6 +355,9 @@ def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
                 "height": 0,
                 "fps": 0.0,
                 "duration": 0.0,
+                "pix_fmt": "",
+                "channels": 0,
+                "sample_rate": 0,
             }
 
         data = json.loads(res.stdout)
@@ -363,6 +366,9 @@ def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
         width = 0
         height = 0
         fps = 0.0
+        pix_fmt = ""
+        channels = 0
+        sample_rate = 0
 
         for stream in data.get("streams", []):
             codec_type = stream.get("codec_type")
@@ -370,6 +376,7 @@ def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
                 video_codec = str(stream.get("codec_name") or "unknown").lower()
                 width = int(stream.get("width") or 0)
                 height = int(stream.get("height") or 0)
+                pix_fmt = str(stream.get("pix_fmt") or "")
                 r_fps = str(stream.get("r_frame_rate") or "0/1")
                 if "/" in r_fps:
                     parts = r_fps.split("/")
@@ -379,6 +386,8 @@ def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
                     fps = float(r_fps)
             elif codec_type == "audio" and audio_codec == "none":
                 audio_codec = str(stream.get("codec_name") or "unknown").lower()
+                channels = int(stream.get("channels") or 0)
+                sample_rate = int(stream.get("sample_rate") or 0)
 
         fmt_info = data.get("format", {})
         duration = float(fmt_info.get("duration") or 0.0)
@@ -390,6 +399,9 @@ def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
             "height": height,
             "fps": round(fps, 2),
             "duration": round(duration, 2),
+            "pix_fmt": pix_fmt,
+            "channels": channels,
+            "sample_rate": sample_rate,
         }
     except Exception:  # noqa: BLE001
         return {
@@ -399,6 +411,9 @@ def probe_media_codecs(file_path: str | Path) -> dict[str, Any]:
             "height": 0,
             "fps": 0.0,
             "duration": 0.0,
+            "pix_fmt": "",
+            "channels": 0,
+            "sample_rate": 0,
         }
 
 
@@ -406,7 +421,9 @@ INVALID_FINAL_NAMES = {"manifest", "master", "playlist", "index", "chunklist"}
 TEMP_FILE_SUFFIXES = (".part", ".ytdl", ".ts", ".temp", ".frag", ".urls", ".m3u8")
 
 
-def validate_final_download(file_path: str | Path, is_audio_mode: bool = False) -> tuple[bool, str]:
+def validate_final_download(
+    file_path: str | Path, is_audio_mode: bool = False
+) -> tuple[bool, str]:
     """
     Final indirilen medya dosyasını doğrular.
     - Dosya mevcut, normal bir dosya olmalı.
@@ -430,14 +447,22 @@ def validate_final_download(file_path: str | Path, is_audio_mode: bool = False) 
     stem_lower = path.stem.lower()
 
     if stem_lower in INVALID_FINAL_NAMES or name_lower in INVALID_FINAL_NAMES:
-        return False, f"Geçersiz dosya adı ({path.name}). 'manifest/index/master' final çıktı olamaz."
+        return (
+            False,
+            f"Geçersiz dosya adı ({path.name}). 'manifest/index/master' final çıktı olamaz.",
+        )
 
-    if name_lower.startswith(".kolayindir_") or any(name_lower.endswith(sfx) for sfx in TEMP_FILE_SUFFIXES):
+    if name_lower.startswith(".kolayindir_") or any(
+        name_lower.endswith(sfx) for sfx in TEMP_FILE_SUFFIXES
+    ):
         return False, f"Geçici dosya uzantısı final çıktı olamaz: {path.name}"
 
     expected_ext = ".mp3" if is_audio_mode else ".mp4"
     if path.suffix.lower() != expected_ext:
-        return False, f"Beklenen dosya uzantısı '{expected_ext}' ancak '{path.suffix}' bulundu."
+        return (
+            False,
+            f"Beklenen dosya uzantısı '{expected_ext}' ancak '{path.suffix}' bulundu.",
+        )
 
     file_size = path.stat().st_size
     if file_size < 1024:
@@ -453,18 +478,28 @@ def validate_final_download(file_path: str | Path, is_audio_mode: bool = False) 
 
     if is_audio_mode:
         if a_codec in ("none", "unknown"):
-            return False, "ffprobe doğrulaması başarısız: Ses akışı (audio stream) bulunamadı."
+            return (
+                False,
+                "ffprobe doğrulaması başarısız: Ses akışı (audio stream) bulunamadı.",
+            )
     else:
         if v_codec in ("none", "unknown"):
-            return False, "ffprobe doğrulaması başarısız: Video akışı (video stream) bulunamadı."
+            return (
+                False,
+                "ffprobe doğrulaması başarısız: Video akışı (video stream) bulunamadı.",
+            )
         if a_codec in ("none", "unknown"):
-            return False, "ffprobe doğrulaması başarısız: Ses akışı (audio stream) bulunamadı."
+            return (
+                False,
+                "ffprobe doğrulaması başarısız: Ses akışı (audio stream) bulunamadı.",
+            )
 
     return True, "Doğrulama başarılı."
 
 
-
-def extract_available_formats(info: dict[str, Any]) -> tuple[list[int], list[dict[str, Any]]]:
+def extract_available_formats(
+    info: dict[str, Any],
+) -> tuple[list[int], list[dict[str, Any]]]:
     """
     yt-dlp extract_info sözlüğünden mevcut çözünürlük yüksekliklerini (int)
     ve video formatı listesini çıkarır.
@@ -553,7 +588,11 @@ def calculate_detailed_format_info(
 
         est_bytes = int(duration * audio_bitrate / 8) if duration > 0 else 0
         is_approx = True
-        size_text = f"Tahmini MP3: yaklaşık {format_bytes(est_bytes)}" if est_bytes > 0 else "Tahmini MP3: 192 kbps"
+        size_text = (
+            f"Tahmini MP3: yaklaşık {format_bytes(est_bytes)}"
+            if est_bytes > 0
+            else "Tahmini MP3: 192 kbps"
+        )
 
         return {
             "selected_height": None,
@@ -588,15 +627,21 @@ def calculate_detailed_format_info(
                 continue
 
             if vcodec != "none" and acodec != "none":
-                if not best_combo_fmt or (f.get("height") or 0) > (best_combo_fmt.get("height") or 0):
+                if not best_combo_fmt or (f.get("height") or 0) > (
+                    best_combo_fmt.get("height") or 0
+                ):
                     best_combo_fmt = f
             elif vcodec != "none" and acodec == "none":
-                if not best_v_fmt or (f.get("height") or 0) > (best_v_fmt.get("height") or 0):
+                if not best_v_fmt or (f.get("height") or 0) > (
+                    best_v_fmt.get("height") or 0
+                ):
                     best_v_fmt = f
             elif (
                 vcodec == "none"
                 and acodec != "none"
-                and (not best_a_fmt or (f.get("tbr") or 0) > (best_a_fmt.get("tbr") or 0))
+                and (
+                    not best_a_fmt or (f.get("tbr") or 0) > (best_a_fmt.get("tbr") or 0)
+                )
             ):
                 best_a_fmt = f
 
@@ -645,21 +690,32 @@ def calculate_detailed_format_info(
         if fallback_sz > 0:
             est_bytes = fallback_sz
         elif duration > 0:
-            bitrate = 2500_000 if (calc_h or 0) >= 1080 else (1500_000 if (calc_h or 0) >= 720 else 800_000)
+            bitrate = (
+                2500_000
+                if (calc_h or 0) >= 1080
+                else (1500_000 if (calc_h or 0) >= 720 else 800_000)
+            )
             est_bytes = int(duration * bitrate / 8)
             is_approx = True
 
-    is_hevc = is_hevc_codec(vcodec) or "vp9" in vcodec.lower() or "av01" in vcodec.lower()
+    is_hevc = (
+        is_hevc_codec(vcodec) or "vp9" in vcodec.lower() or "av01" in vcodec.lower()
+    )
     if convert_hevc_to_h264 and is_hevc:
         is_approx = True
         output_codec_text = "H.264 (Dönüştürülecek)"
     else:
         output_codec_text = vcodec.upper() if vcodec else "H.264"
 
-    if getattr(meta, "is_playlist", False) and (getattr(meta, "playlist_count", 0) or 0) > 1:
+    if (
+        getattr(meta, "is_playlist", False)
+        and (getattr(meta, "playlist_count", 0) or 0) > 1
+    ):
         p_count = meta.playlist_count
         total_bytes = est_bytes * p_count
-        size_text = f"Tahmini Toplam ({p_count} içerik): yaklaşık {format_bytes(total_bytes)}"
+        size_text = (
+            f"Tahmini Toplam ({p_count} içerik): yaklaşık {format_bytes(total_bytes)}"
+        )
     else:
         if is_approx:
             size_text = f"Tahmini: yaklaşık {format_bytes(est_bytes)}"
@@ -693,7 +749,9 @@ class PointingHandEventFilter(QObject):
     """
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        if event.type() in (QEvent.Type.EnabledChange, QEvent.Type.Show) and isinstance(watched, QWidget):
+        if event.type() in (QEvent.Type.EnabledChange, QEvent.Type.Show) and isinstance(
+            watched, QWidget
+        ):
             if watched.isEnabled():
                 watched.setCursor(Qt.CursorShape.PointingHandCursor)
             else:
@@ -734,12 +792,12 @@ def extract_supported_url_from_text(text: str) -> str | None:
     )
 
     # HTTP veya HTTPS ile başlayan URL adaylarını bul
-    url_pattern = re.compile(r'https?://[^\s]+')
+    url_pattern = re.compile(r"https?://[^\s]+")
     matches = url_pattern.findall(text)
 
     for match in matches:
         # URL sonuna yapışan noktalama işaretlerini temizle
-        cleaned = re.sub(r'[\.\,\)\'\"\;\:\]]+$', '', match)
+        cleaned = re.sub(r"[\.\,\)\'\"\;\:\]]+$", "", match)
 
         platform = detect_platform_type(cleaned)
         if platform != PlatformType.UNKNOWN and not is_platform_temporarily_disabled(
@@ -763,14 +821,14 @@ def extract_supported_urls_from_text(text: str | None) -> list[str]:
         is_platform_temporarily_disabled,
     )
 
-    url_pattern = re.compile(r'https?://[^\s]+')
+    url_pattern = re.compile(r"https?://[^\s]+")
     matches = url_pattern.findall(text)
 
     seen = set()
     result = []
 
     for match in matches:
-        cleaned = re.sub(r'[\.\,\)\'\"\;\:\]]+$', '', match)
+        cleaned = re.sub(r"[\.\,\)\'\"\;\:\]]+$", "", match)
 
         if cleaned in seen:
             continue

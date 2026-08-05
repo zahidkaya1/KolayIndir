@@ -37,24 +37,55 @@ def _detect_firefox_profiles() -> list[BrowserProfileCandidate]:
             try:
                 config = configparser.ConfigParser()
                 config.read(ini_path, encoding="utf-8")
+
+                install_default_path = None
+                profile_defaults: list[Path] = []
+                other_profiles: list[Path] = []
+
                 for section in config.sections():
+                    if section.startswith("Install"):
+                        install_default_str = config.get(
+                            section, "Default", fallback=""
+                        )
+                        if install_default_str:
+                            install_default_path = base / install_default_str
+
                     if section.lower().startswith("profile"):
-                        name = config.get(section, "Name", fallback="")
                         rel_path = config.get(section, "Path", fallback="")
+                        if not rel_path:
+                            continue
                         is_rel = config.get(section, "IsRelative", fallback="1") == "1"
-                        if rel_path:
-                            full_path = (base / rel_path) if is_rel else Path(rel_path)
-                            p_name = name or full_path.name
-                            if full_path.exists():
-                                profiles.append(
-                                    BrowserProfileCandidate(
-                                        browser="firefox",
-                                        profile_name=full_path.name,
-                                        profile_path=full_path,
-                                        display_name=f"Firefox ({p_name})",
-                                        priority=1,
-                                    )
-                                )
+                        full_path = (base / rel_path) if is_rel else Path(rel_path)
+
+                        is_default = config.get(section, "Default", fallback="0") == "1"
+                        if is_default:
+                            profile_defaults.append(full_path)
+                        else:
+                            other_profiles.append(full_path)
+
+                candidates_to_check = []
+                if install_default_path:
+                    candidates_to_check.append(install_default_path)
+                candidates_to_check.extend(profile_defaults)
+                candidates_to_check.extend(other_profiles)
+
+                seen = set()
+                for full_path in candidates_to_check:
+                    if full_path in seen:
+                        continue
+                    seen.add(full_path)
+
+                    cookies_db = full_path / "cookies.sqlite"
+                    if cookies_db.exists():
+                        profiles.append(
+                            BrowserProfileCandidate(
+                                browser="firefox",
+                                profile_name=full_path.name,
+                                profile_path=full_path,
+                                display_name=f"Firefox ({full_path.name})",
+                                priority=1,
+                            )
+                        )
             except Exception:  # noqa: BLE001, S110
                 pass
 
@@ -64,15 +95,17 @@ def _detect_firefox_profiles() -> list[BrowserProfileCandidate]:
                 try:
                     for child in profiles_dir.iterdir():
                         if child.is_dir():
-                            profiles.append(
-                                BrowserProfileCandidate(
-                                    browser="firefox",
-                                    profile_name=child.name,
-                                    profile_path=child,
-                                    display_name=f"Firefox ({child.name})",
-                                    priority=1,
+                            cookies_db = child / "cookies.sqlite"
+                            if cookies_db.exists():
+                                profiles.append(
+                                    BrowserProfileCandidate(
+                                        browser="firefox",
+                                        profile_name=child.name,
+                                        profile_path=child,
+                                        display_name=f"Firefox ({child.name})",
+                                        priority=1,
+                                    )
                                 )
-                            )
                 except OSError:
                     pass
         if profiles:
@@ -140,9 +173,15 @@ def _detect_chromium_profiles(
 def detect_available_browser_profiles() -> list[BrowserProfileCandidate]:
     all_profiles: list[BrowserProfileCandidate] = []
     all_profiles.extend(_detect_firefox_profiles())
-    all_profiles.extend(_detect_chromium_profiles("edge", R"Microsoft\Edge\User Data", 2))
-    all_profiles.extend(_detect_chromium_profiles("chrome", R"Google\Chrome\User Data", 4))
-    all_profiles.extend(_detect_chromium_profiles("brave", R"BraveSoftware\Brave-Browser\User Data", 6))
+    all_profiles.extend(
+        _detect_chromium_profiles("edge", R"Microsoft\Edge\User Data", 2)
+    )
+    all_profiles.extend(
+        _detect_chromium_profiles("chrome", R"Google\Chrome\User Data", 4)
+    )
+    all_profiles.extend(
+        _detect_chromium_profiles("brave", R"BraveSoftware\Brave-Browser\User Data", 6)
+    )
     return all_profiles
 
 
@@ -151,8 +190,12 @@ def is_firefox_installed() -> bool:
     if shutil.which("firefox") is not None:
         return True
     candidate_paths = [
-        Path(os.environ.get("PROGRAMFILES", "C:\\Program Files")) / "Mozilla Firefox" / "firefox.exe",
-        Path(os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)")) / "Mozilla Firefox" / "firefox.exe",
+        Path(os.environ.get("PROGRAMFILES", "C:\\Program Files"))
+        / "Mozilla Firefox"
+        / "firefox.exe",
+        Path(os.environ.get("PROGRAMFILES(X86)", "C:\\Program Files (x86)"))
+        / "Mozilla Firefox"
+        / "firefox.exe",
         Path.home() / "AppData" / "Local" / "Mozilla Firefox" / "firefox.exe",
     ]
     return any(p.exists() for p in candidate_paths)
@@ -188,7 +231,9 @@ def validate_cookie_file(file_path: str | Path | None) -> tuple[bool, str]:
                 stripped = line.strip()
                 if not stripped:
                     continue
-                if stripped.startswith(("# HTTP Cookie File", "# Netscape HTTP Cookie File")):
+                if stripped.startswith(
+                    ("# HTTP Cookie File", "# Netscape HTTP Cookie File")
+                ):
                     return True, ""
                 if "\t" in stripped and len(stripped.split("\t")) >= 7:
                     return True, ""
@@ -209,7 +254,11 @@ def build_profile_attempt_order(
     (browser_name, None, display_name) profil belirtmeksizin tarayıcı çerezlerini kullanır;
     yt-dlp'nin CLI --cookies-from-browser BROWSER davranışına eşdeğerdir.
     """
-    mode_str = str(requested_mode.value if hasattr(requested_mode, "value") else requested_mode or "").lower()
+    mode_str = str(
+        requested_mode.value
+        if hasattr(requested_mode, "value")
+        else requested_mode or ""
+    ).lower()
 
     if mode_str in ("cookie_file", "cookiefile"):
         return []
@@ -241,20 +290,24 @@ def build_profile_attempt_order(
     order: list[tuple[str | None, str | None, str]] = [(None, None, "Oturumsuz")]
     seen_profiles.add((None, None))
 
-    if platform_type in (
-        PlatformType.INSTAGRAM_REEL,
-        PlatformType.INSTAGRAM_POST,
-        PlatformType.INSTAGRAM_STORY,
-        PlatformType.INSTAGRAM_HIGHLIGHT,
-        PlatformType.TIKTOK_VIDEO,
-        PlatformType.TIKTOK_SHORT_LINK,
-        PlatformType.TIKTOK_PROFILE,
-        PlatformType.TIKTOK_LIVE,
-        PlatformType.TIKTOK_SLIDESHOW,
-        PlatformType.FACEBOOK_VIDEO,
-        PlatformType.FACEBOOK_REEL,
-        PlatformType.THREADS,
-    ) or platform_type == PlatformType.TWITTER_POST:
+    if (
+        platform_type
+        in (
+            PlatformType.INSTAGRAM_REEL,
+            PlatformType.INSTAGRAM_POST,
+            PlatformType.INSTAGRAM_STORY,
+            PlatformType.INSTAGRAM_HIGHLIGHT,
+            PlatformType.TIKTOK_VIDEO,
+            PlatformType.TIKTOK_SHORT_LINK,
+            PlatformType.TIKTOK_PROFILE,
+            PlatformType.TIKTOK_LIVE,
+            PlatformType.TIKTOK_SLIDESHOW,
+            PlatformType.FACEBOOK_VIDEO,
+            PlatformType.FACEBOOK_REEL,
+            PlatformType.THREADS,
+        )
+        or platform_type == PlatformType.TWITTER_POST
+    ):
         browser_priority = ["firefox", "edge", "chrome", "brave"]
     elif platform_type in (PlatformType.YOUTUBE_VIDEO, PlatformType.YOUTUBE_PLAYLIST):
         browser_priority = ["edge", "firefox", "chrome", "brave"]
@@ -265,8 +318,9 @@ def build_profile_attempt_order(
         b_profiles = [p for p in all_profiles if p.browser == b]
         b_label = "Edge" if b == "edge" else b.capitalize()
 
-        # Firefox için profil-belirsiz varsayılan giriş ilk sırada (CLI --cookies-from-browser firefox)
-        if b == "firefox":
+        # Firefox için profil-belirsiz varsayılan girişi kaldır. Doğrudan listelenen gerçek profiller kullanılır.
+        # Sadece liste tamamen boşsa profil-belirsiz eklenebilir.
+        if b == "firefox" and not b_profiles:
             key_profileless = ("firefox", None)
             if key_profileless not in seen_profiles:
                 seen_profiles.add(key_profileless)
@@ -372,7 +426,10 @@ def classify_session_error(message: str, url: str) -> str:
     if is_browser_cookie_lock_error(message):
         return SESSION_STATUS_LABELS["db_locked"]
 
-    if any(t in msg_lower for t in ("expired", "not available", "404", "does not exist", "unavailable")):
+    if any(
+        t in msg_lower
+        for t in ("expired", "not available", "404", "does not exist", "unavailable")
+    ):
         return SESSION_STATUS_LABELS["story_inaccessible"]
 
     if any(t in msg_lower for t in ("rate limit", "429", "too many requests")):
@@ -380,7 +437,10 @@ def classify_session_error(message: str, url: str) -> str:
             return "TikTok oran sınırlaması"
         return "Instagram oran sınırlaması"
 
-    if any(t in msg_lower for t in ("file not found", "no such file", "could not find", "cannot read")):
+    if any(
+        t in msg_lower
+        for t in ("file not found", "no such file", "could not find", "cannot read")
+    ):
         return SESSION_STATUS_LABELS["profile_not_found"]
 
     if is_authentication_error(message):

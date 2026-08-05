@@ -1,10 +1,12 @@
-"""İndirme geçmişini saklar ve doğrulama işlemlerini yönetir."""
+﻿"""Ä°ndirme geÃ§miÅŸini saklar ve doÄŸrulama iÅŸlemlerini yÃ¶netir."""
 
 from __future__ import annotations
 
 import datetime
 import json
 import os
+import re
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -16,7 +18,7 @@ from src.utils import probe_media_codecs
 
 def _history_dir() -> Path:
     base = Path(os.getenv("APPDATA") or Path.home())
-    path = base / "Kolayİndir"
+    path = base / "KolayÄ°ndir"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -49,15 +51,19 @@ class DownloadRecord:
         if self.title:
             return self.title
         fn = Path(self.final_path).stem if self.final_path else ""
-        return fn or self.media_id or "Bilinmeyen İçerik"
+        return fn or self.media_id or "Bilinmeyen Ä°Ã§erik"
 
     def display_description(self) -> str:
         if self.platform == "youtube_playlist":
             pl_name = self.playlist_title or self.title or self.media_id
-            return f"{pl_name} — Oynatma Listesi"
+            return f"{pl_name} â€” Oynatma Listesi"
         if self.playlist and self.playlist_title:
-            idx_str = f" ({self.playlist_index}/{self.playlist_count})" if self.playlist_count > 0 else ""
-            return f"{self.display_title()} — {self.playlist_title}{idx_str}"
+            idx_str = (
+                f" ({self.playlist_index}/{self.playlist_count})"
+                if self.playlist_count > 0
+                else ""
+            )
+            return f"{self.display_title()} â€” {self.playlist_title}{idx_str}"
         return self.display_title()
 
     def to_dict(self) -> dict[str, Any]:
@@ -93,7 +99,11 @@ def load_history() -> list[DownloadRecord]:
     try:
         data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
         if isinstance(data, list):
-            return [DownloadRecord.from_dict(item) for item in data if isinstance(item, dict)]
+            return [
+                DownloadRecord.from_dict(item)
+                for item in data
+                if isinstance(item, dict)
+            ]
     except (OSError, json.JSONDecodeError):
         return []
     return []
@@ -103,7 +113,9 @@ def save_history(records: list[DownloadRecord]) -> None:
     data = [rec.to_dict() for rec in records]
     temp_file = HISTORY_FILE.with_name(HISTORY_FILE.name + ".tmp")
     try:
-        temp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_file.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         temp_file.replace(HISTORY_FILE)
     except OSError:
         if temp_file.exists():
@@ -115,11 +127,11 @@ def save_history(records: list[DownloadRecord]) -> None:
 
 def normalize_quality(quality: str | int | None) -> str | int:
     """
-    Kalite metinlerini/değerlerini karşılaştırma için ortak formata dönüştürür.
-    Örnek:
-    - "1080p’ye kadar" / "1080p'ye kadar" / "1080p" / 1080 -> 1080
-    - "720p’ye kadar" / "720p'ye kadar" / "720p" / 720 -> 720
-    - "En iyi kullanılabilir kalite" / "En iyi" / "best" / None -> "best"
+    Kalite metinlerini/deÄŸerlerini karÅŸÄ±laÅŸtÄ±rma iÃ§in ortak formata dÃ¶nÃ¼ÅŸtÃ¼rÃ¼r.
+    Ã–rnek:
+    - "1080pâ€™ye kadar" / "1080p'ye kadar" / "1080p" / 1080 -> 1080
+    - "720pâ€™ye kadar" / "720p'ye kadar" / "720p" / 720 -> 720
+    - "En iyi kullanÄ±labilir kalite" / "En iyi" / "best" / None -> "best"
     """
     if quality is None:
         return "best"
@@ -130,6 +142,7 @@ def normalize_quality(quality: str | int | None) -> str | int:
         return "best"
 
     import re
+
     match = re.search(r"(\d{3,4})", q_str)
     if match:
         return int(match.group(1))
@@ -139,7 +152,7 @@ def normalize_quality(quality: str | int | None) -> str | int:
 
 def normalize_platform(platform: Any) -> str:
     """
-    Platform isimlerini ortak kategori anahtarına dönüştürür.
+    Platform isimlerini ortak kategori anahtarÄ±na dÃ¶nÃ¼ÅŸtÃ¼rÃ¼r.
     """
     if not platform:
         return "unknown"
@@ -161,7 +174,7 @@ def normalize_platform(platform: Any) -> str:
 
 def normalize_media_type(media_type: str) -> str:
     """
-    Medya türünü 'audio' veya 'video' olarak sadeleştirir.
+    Medya tÃ¼rÃ¼nÃ¼ 'audio' veya 'video' olarak sadeleÅŸtirir.
     """
     m_str = str(media_type).strip().lower()
     if "mp3" in m_str or "ses" in m_str or "audio" in m_str:
@@ -171,58 +184,60 @@ def normalize_media_type(media_type: str) -> str:
 
 def _normalize_path(path_str: str) -> str:
     """
-    Windows yollarını karşılaştırma için normalleştirir.
-    - Büyük/küçük harf farkını ortadan kaldırır (normcase)
-    - Çift eğik çizgi / ileri-geri eğik çizgi farklarını giderir (normpath)
-    - Path.resolve(strict=False) ile güvenli şekilde çözer
+    Windows yollarÄ±nÄ± karÅŸÄ±laÅŸtÄ±rma iÃ§in normalleÅŸtirir.
+    - BÃ¼yÃ¼k/kÃ¼Ã§Ã¼k harf farkÄ±nÄ± ortadan kaldÄ±rÄ±r (normcase)
+    - Ã‡ift eÄŸik Ã§izgi / ileri-geri eÄŸik Ã§izgi farklarÄ±nÄ± giderir (normpath)
+    - Path.resolve(strict=False) ile gÃ¼venli ÅŸekilde Ã§Ã¶zer
     """
     if not path_str:
         return ""
     try:
-        return os.path.normcase(os.path.normpath(str(Path(path_str).resolve(strict=False))))
+        return os.path.normcase(
+            os.path.normpath(str(Path(path_str).resolve(strict=False)))
+        )
     except Exception:  # noqa: BLE001
         return os.path.normcase(os.path.normpath(path_str))
 
 
 def save_record(record: DownloadRecord) -> None:
     """
-    Kayıt ekleme / güncelleme mantığı:
+    KayÄ±t ekleme / gÃ¼ncelleme mantÄ±ÄŸÄ±:
 
-    Eşleşme kriteri (öncelik sırasıyla):
-    1. Normalleştirilmiş final_path aynıysa → mevcut kaydı güncelle (in-place).
-    2. Başka bir final_path için aynı kayıt zaten kayıtlıysa → yeni kayıt ekle.
+    EÅŸleÅŸme kriteri (Ã¶ncelik sÄ±rasÄ±yla):
+    1. NormalleÅŸtirilmiÅŸ final_path aynÄ±ysa â†’ mevcut kaydÄ± gÃ¼ncelle (in-place).
+    2. BaÅŸka bir final_path iÃ§in aynÄ± kayÄ±t zaten kayÄ±tlÄ±ysa â†’ yeni kayÄ±t ekle.
 
-    Bu sayede aynı video farklı dosyalara indirildiğinde (Video.mp4, Video (1).mp4 …)
-    her biri ayrı bir kayıt olarak saklanır.
+    Bu sayede aynÄ± video farklÄ± dosyalara indirildiÄŸinde (Video.mp4, Video (1).mp4 â€¦)
+    her biri ayrÄ± bir kayÄ±t olarak saklanÄ±r.
     """
     if not record.completed_at:
         record.completed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     history = load_history()
 
-    # Normalleştirilmiş yol karşılaştırması için hedef path
+    # NormalleÅŸtirilmiÅŸ yol karÅŸÄ±laÅŸtÄ±rmasÄ± iÃ§in hedef path
     rec_norm_path = _normalize_path(record.final_path)
 
-    # Sadece aynı normalleştirilmiş final_path'e sahip kaydı güncelle.
+    # Sadece aynÄ± normalleÅŸtirilmiÅŸ final_path'e sahip kaydÄ± gÃ¼ncelle.
     for idx, item in enumerate(history):
         if _normalize_path(item.final_path) == rec_norm_path:
             history[idx] = record
             save_history(history)
             return
 
-    # Aynı path yok → her zaman yeni kayıt ekle.
+    # AynÄ± path yok â†’ her zaman yeni kayÄ±t ekle.
     history.append(record)
     save_history(history)
 
 
 def validate_record(record: DownloadRecord) -> bool:
     """
-    İndirme kaydının diskteki gerçek dosyasını doğrular:
-    - state == 'completed' olmalı
-    - Dosya diskte var ve normal dosya olmalı
-    - Boyut > 10KB olmalı
-    - ffprobe ile açılabilmeli:
-      * MP4 için: video_codec var ve duration > 0
-      * MP3 için: audio_codec var ve duration > 0
+    Ä°ndirme kaydÄ±nÄ±n diskteki gerÃ§ek dosyasÄ±nÄ± doÄŸrular:
+    - state == 'completed' olmalÄ±
+    - Dosya diskte var ve normal dosya olmalÄ±
+    - Boyut > 10KB olmalÄ±
+    - ffprobe ile aÃ§Ä±labilmeli:
+      * MP4 iÃ§in: video_codec var ve duration > 0
+      * MP3 iÃ§in: audio_codec var ve duration > 0
     """
     if record.state != "completed":
         return False
@@ -239,7 +254,7 @@ def validate_record(record: DownloadRecord) -> bool:
     except OSError:
         return False
 
-    if file_size < 1024:  # 1 KB altı boş/bozuk sayılır
+    if file_size < 1024:  # 1 KB altÄ± boÅŸ/bozuk sayÄ±lÄ±r
         return False
 
     probe = probe_media_codecs(file_path)
@@ -255,19 +270,19 @@ def validate_record(record: DownloadRecord) -> bool:
 
 def validate_all_completed_records() -> tuple[int, int]:
     """
-    Tüm 'completed' kayıtları validate eder; geçersiz olanları 'stale' yapar.
-    Her kayıt bağımsız olarak kontrol edilir — aynı media_id'ye sahip farklı
+    TÃ¼m 'completed' kayÄ±tlarÄ± validate eder; geÃ§ersiz olanlarÄ± 'stale' yapar.
+    Her kayÄ±t baÄŸÄ±msÄ±z olarak kontrol edilir â€” aynÄ± media_id'ye sahip farklÄ±
     dosyalar birbirini etkilemez.
 
-    Sorumluluk ayrımı:
-    - validate_all_completed_records: Tüm geçmişteki 'completed' kayıtların disk
-      durumunu toplu olarak kontrol eder ve silinmiş/bozuk dosyaları 'stale'
-      olarak günceller.
-    - find_completed_record: Belirli bir indirme isteği için diski kontrol ederek
-      yalnızca karşılaşılan ilk sağlam eşleşmeyi (found) döndürür. Tüm geçmiş
-      kayıtlarının toplu bakımı bu fonksiyonun sorumluluğunda değildir.
+    Sorumluluk ayrÄ±mÄ±:
+    - validate_all_completed_records: TÃ¼m geÃ§miÅŸteki 'completed' kayÄ±tlarÄ±n disk
+      durumunu toplu olarak kontrol eder ve silinmiÅŸ/bozuk dosyalarÄ± 'stale'
+      olarak gÃ¼nceller.
+    - find_completed_record: Belirli bir indirme isteÄŸi iÃ§in diski kontrol ederek
+      yalnÄ±zca karÅŸÄ±laÅŸÄ±lan ilk saÄŸlam eÅŸleÅŸmeyi (found) dÃ¶ndÃ¼rÃ¼r. TÃ¼m geÃ§miÅŸ
+      kayÄ±tlarÄ±nÄ±n toplu bakÄ±mÄ± bu fonksiyonun sorumluluÄŸunda deÄŸildir.
 
-    Döndürür: (toplam_kontrol_edilen_kayıt_sayısı, stale_yapılan_kayıt_sayısı)
+    DÃ¶ndÃ¼rÃ¼r: (toplam_kontrol_edilen_kayÄ±t_sayÄ±sÄ±, stale_yapÄ±lan_kayÄ±t_sayÄ±sÄ±)
     """
     history = load_history()
     dirty = False
@@ -298,9 +313,6 @@ class HistoryValidationWorker(QObject):
         self.finished.emit(total_checked, stale_count)
 
 
-
-
-
 def find_completed_record(
     platform: Any,
     media_id: str,
@@ -310,9 +322,9 @@ def find_completed_record(
     output_dir: Path,
 ) -> tuple[DownloadRecord | None, str]:
     """
-    Geçmişte arar. Geçersiz/silinmiş/bozuk dosyası olan kayıtları
-    otomatik 'stale' olarak işaretleyip eler.
-    Döndürdüğü tuple: (DownloadRecord | None, reason_code)
+    GeÃ§miÅŸte arar. GeÃ§ersiz/silinmiÅŸ/bozuk dosyasÄ± olan kayÄ±tlarÄ±
+    otomatik 'stale' olarak iÅŸaretleyip eler.
+    DÃ¶ndÃ¼rdÃ¼ÄŸÃ¼ tuple: (DownloadRecord | None, reason_code)
     reason_code: "found", "stale_deleted", "stale_corrupt", "different_quality", "not_found"
     """
     history = load_history()
@@ -357,7 +369,10 @@ def find_completed_record(
             target_quality == "best"
             or item_quality == "best"
             or item_quality == target_quality
-            or (isinstance(target_quality, int) and item.selected_height == target_quality)
+            or (
+                isinstance(target_quality, int)
+                and item.selected_height == target_quality
+            )
         )
 
         if not quality_matches:
@@ -413,8 +428,8 @@ def sanitize_filename(
     default_name: str = "Video",
 ) -> str:
     """
-    Windows dosya adları için geçersiz karakterleri, kontrol karakterlerini (\\n, \\r, \\t),
-    ayrılmış sistem isimlerini ve uzunluk sınırlarını güvenli biçimde temizler.
+    Windows dosya adlarÄ± iÃ§in geÃ§ersiz karakterleri, kontrol karakterlerini (\\n, \\r, \\t),
+    ayrÄ±lmÄ±ÅŸ sistem isimlerini ve uzunluk sÄ±nÄ±rlarÄ±nÄ± gÃ¼venli biÃ§imde temizler.
     """
     import re
 
@@ -455,72 +470,114 @@ def sanitize_filename(
 
 def _is_temp_or_fragment_file(path: Path) -> bool:
     """
-    Geçici veya kısmi (fragment) dosya olup olmadığını döndürür.
-    Bu dosyalar benzersiz isim hesabında tamamlanmış sayılmaz.
+    GeÃ§ici veya kÄ±smi (fragment) dosya olup olmadÄ±ÄŸÄ±nÄ± dÃ¶ndÃ¼rÃ¼r.
+    Bu dosyalar benzersiz isim hesabÄ±nda tamamlanmÄ±ÅŸ sayÄ±lmaz.
     """
     import re
 
     name = path.name.lower()
-    temp_suffixes = (".part", ".temp", ".ytdl", ".hevc_temp")
-    # yt-dlp fragment dosyaları: video.f137.mp4, audio.f140.m4a
-    return any(name.endswith(s) for s in temp_suffixes) or bool(
-        re.search(r"\.f\d{3,}\.(?:mp4|m4a|webm|mkv)$", name)
+    temp_suffixes = (".part", ".temp", ".ytdl", ".hevc_temp", ".tmp")
+    # yt-dlp fragment dosyalarÄ±: video.f137.mp4, audio.f140.m4a
+    return (
+        any(name.endswith(s) for s in temp_suffixes)
+        or name.startswith(".loadvia-")
+        or bool(re.search(r"\.f\d{3,}\.(?:mp4|m4a|webm|mkv)$", name))
     )
 
 
-def get_unique_filepath(target_path: Path) -> Path:
+_reservation_lock = threading.RLock()
+_reserved_paths: set[Path] = set()
+
+
+def release_reserved_path(path: Path) -> None:
+    """Rezerve edilmiÅŸ bir yolu serbest bÄ±rakÄ±r."""
+    with _reservation_lock:
+        _reserved_paths.discard(path)
+
+
+def reserve_unique_media_path(
+    output_dir: Path, base_name: str, target_extension: str
+) -> Path:
     """
-    Tarayıcılar gibi tamamlanmış dosya adı çakışmalarında otomatik benzersiz dosya adı üretir.
-    Örnekler:
-    - İlk indirme: Video.mp4
-    - İkinci indirme: Video (1).mp4
-    - Üçüncü indirme: Video (2).mp4
-    - Belgesel (Final).mp4 -> Belgesel (Final) (1).mp4
+    Ã‡eÅŸitli medya uzantÄ±larÄ± (mp3, mp4 vb.) iÃ§in ortak sayaÃ§ kullanarak
+    Ã§akÄ±ÅŸmalarÄ± Ã¶nleyen benzersiz bir dosya yolu rezerve eder.
+    Paralel indirmelere karÅŸÄ± kilitleme (RLock) kullanÄ±r.
 
-    Yalnızca tamamlanmış dosyalar numaralandırmayı tetikler.
-    .part, .temp, .ytdl, .hevc_temp ve .f137.mp4 tarzı geçici dosyalar yok sayılır.
-
-    Ayrıca tam yolun Windows sınırına (~230 karakter) yaklaşmaması için dosya adını güvenli şekilde kısaltır.
+    KullanÄ±m sonrasÄ± release_reserved_path ile bÄ±rakÄ±lmalÄ±dÄ±r.
     """
-    directory = target_path.parent
-    original_stem = target_path.stem
-    suffix = target_path.suffix
+    if not target_extension.startswith("."):
+        target_extension = "." + target_extension
 
-    import re
+    supported_extensions = (".mp4", ".mp3", ".webm", ".m4a", ".mkv", ".opus", ".wav")
 
-    # Windows MAX_PATH koruması:
-    # 230 karakter limit, dizin uzunluğu, suffix (.mp4) ve potansiyel (999) + .ytdl ekleri için pay
-    try:
-        dir_len = len(str(directory.resolve()))
-    except Exception:  # noqa: BLE001
-        dir_len = len(str(directory))
+    with _reservation_lock:
+        match = re.match(r"^(.*?)\s*\((\d+)\)$", base_name)
+        if match:
+            potential_base = match.group(1).strip()
+            base_exists = False
+            for ext in supported_extensions:
+                check_path = output_dir / f"{potential_base}{ext}"
+                if (check_path.exists() and not _is_temp_or_fragment_file(check_path)) or check_path in _reserved_paths:
+                    base_exists = True
+                    break
 
-    # Pay: \ (1) + (999) (6) + suffix (5) + .ytdl (5) + güvenlik (10) = ~27 karakter
-    max_stem_len = max(30, 230 - dir_len - 27)
+            if base_exists:
+                base_stem = potential_base
+            else:
+                base_stem = base_name
+        else:
+            base_stem = base_name
 
-    match = re.match(r"^(.*?)\s*\((\d+)\)$", original_stem)
-    if match:
-        base_stem = match.group(1).strip()
-    else:
-        base_stem = original_stem
+        base_stem = sanitize_filename(base_stem, max_length=150)
 
-    base_stem = sanitize_filename(base_stem, max_length=max_stem_len)
+        max_counter = 0
+        has_base_file = False
 
-    candidate = directory / f"{base_stem}{suffix}"
-    if not candidate.exists() or _is_temp_or_fragment_file(candidate):
-        return candidate
+        if output_dir.exists() and output_dir.is_dir():
+            for child in output_dir.iterdir():
+                if _is_temp_or_fragment_file(child):
+                    continue
+                if child.suffix.lower() not in supported_extensions:
+                    continue
 
-    counter = 1
-    while True:
-        candidate = directory / f"{base_stem} ({counter}){suffix}"
-        if not candidate.exists() or _is_temp_or_fragment_file(candidate):
-            return candidate
-        counter += 1
+                name_no_ext = child.stem
+                if name_no_ext.lower() == base_stem.lower():
+                    has_base_file = True
+                else:
+                    pat = re.compile(r"^" + re.escape(base_stem) + r"\s*\((\d+)\)$", re.IGNORECASE)
+                    m = pat.match(name_no_ext)
+                    if m:
+                        has_base_file = True
+                        num = int(m.group(1))
+                        max_counter = max(max_counter, num)
+
+        for res_path in _reserved_paths:
+            if res_path.parent == output_dir and res_path.suffix.lower() in supported_extensions:
+                name_no_ext = res_path.stem
+                if name_no_ext.lower() == base_stem.lower():
+                    has_base_file = True
+                else:
+                    pat = re.compile(r"^" + re.escape(base_stem) + r"\s*\((\d+)\)$", re.IGNORECASE)
+                    m = pat.match(name_no_ext)
+                    if m:
+                        has_base_file = True
+                        num = int(m.group(1))
+                        max_counter = max(max_counter, num)
+
+        if not has_base_file:
+            final_path = output_dir / f"{base_stem}{target_extension}"
+        else:
+            next_num = max(1, max_counter + 1)
+            final_path = output_dir / f"{base_stem} ({next_num}){target_extension}"
+
+        _reserved_paths.add(final_path)
+        return final_path
+
 
 def clear_history() -> None:
     """
-    History kayıtlarını tamamen temizler ve boş liste yazar.
-    Diskteki hiçbir fiziksel medyayı silmez.
+    History kayÄ±tlarÄ±nÄ± tamamen temizler ve boÅŸ liste yazar.
+    Diskteki hiÃ§bir fiziksel medyayÄ± silmez.
     """
     temp_file = HISTORY_FILE.with_name(HISTORY_FILE.name + ".tmp")
     try:
@@ -533,13 +590,14 @@ def clear_history() -> None:
             except OSError:
                 pass
 
+
 def get_unique_directory_path(target_dir: Path) -> Path:
     """
-    Oynatma listeleri için benzersiz klasör adı üretir.
-    Örnek:
-    - İlk indirme: Python Dersleri
-    - İkinci indirme: Python Dersleri (1)
-    - Üçüncü indirme: Python Dersleri (2)
+    Oynatma listeleri iÃ§in benzersiz klasÃ¶r adÄ± Ã¼retir.
+    Ã–rnek:
+    - Ä°lk indirme: Python Dersleri
+    - Ä°kinci indirme: Python Dersleri (1)
+    - ÃœÃ§Ã¼ncÃ¼ indirme: Python Dersleri (2)
     """
     directory = target_dir.parent
     original_name = target_dir.name
@@ -564,4 +622,3 @@ def get_unique_directory_path(target_dir: Path) -> Path:
         if not candidate.exists():
             return candidate
         counter += 1
-

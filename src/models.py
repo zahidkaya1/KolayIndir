@@ -74,6 +74,7 @@ def detect_platform_type(url: str) -> PlatformType:
     # URL parse tabanlı kontroller (Facebook, Threads)
     try:
         from urllib.parse import urlparse
+
         url_to_parse = url.strip()
         if "://" not in url_to_parse:
             url_to_parse = f"https://{url_to_parse}"
@@ -85,32 +86,33 @@ def detect_platform_type(url: str) -> PlatformType:
 
     if parsed and host:
         # Threads
-        is_threads_host = (
-            host in ("threads.com", "www.threads.com", "threads.net", "www.threads.net")
-            or host.endswith((".threads.com", ".threads.net"))
-        )
+        is_threads_host = host in (
+            "threads.com",
+            "www.threads.com",
+            "threads.net",
+            "www.threads.net",
+        ) or host.endswith((".threads.com", ".threads.net"))
         if is_threads_host:
             path = parsed.path.strip("/")
-            if re.match(r"^@[a-zA-Z0-9_.]+/post/[a-zA-Z0-9_-]+/?$", path) or re.match(
-                r"^t/[a-zA-Z0-9_-]+/?$", path
+            if (
+                re.match(r"^@[a-zA-Z0-9_.]+/post/[a-zA-Z0-9_-]+/?$", path)
+                or re.match(r"^t/[a-zA-Z0-9_-]+/?$", path)
+                or re.match(r"^share/[a-zA-Z0-9_-]+/?$", path)
             ):
                 return PlatformType.THREADS
             return PlatformType.UNKNOWN
 
         # Facebook
-        is_fb_host = (
-            host in (
-                "facebook.com",
-                "www.facebook.com",
-                "m.facebook.com",
-                "web.facebook.com",
-                "mbasic.facebook.com",
-                "touch.facebook.com",
-                "fb.watch",
-                "www.fb.watch",
-            )
-            or host.endswith((".facebook.com", ".fb.watch"))
-        )
+        is_fb_host = host in (
+            "facebook.com",
+            "www.facebook.com",
+            "m.facebook.com",
+            "web.facebook.com",
+            "mbasic.facebook.com",
+            "touch.facebook.com",
+            "fb.watch",
+            "www.fb.watch",
+        ) or host.endswith((".facebook.com", ".fb.watch"))
         if is_fb_host:
             path = parsed.path.lower().strip("/")
             query = parsed.query.lower()
@@ -158,7 +160,11 @@ def detect_platform_type(url: str) -> PlatformType:
             if path.startswith(("share/v/", "share/p/", "share/")):
                 return PlatformType.FACEBOOK_VIDEO
 
-            if "/videos/" in path or path.startswith("videos/") or path.endswith("/videos"):
+            if (
+                "/videos/" in path
+                or path.startswith("videos/")
+                or path.endswith("/videos")
+            ):
                 return PlatformType.FACEBOOK_VIDEO
 
             if (
@@ -203,9 +209,7 @@ def get_platform_badge_text(platform: PlatformType) -> str:
 
 
 KICK_DISABLED_TITLE = "Kick Desteği Geçici Olarak Kullanılamıyor"
-KICK_DISABLED_MESSAGE = (
-    "Kick’in orijinal yayın akışı güvenilir biçimde doğrulanamadığı için Kick VOD indirme özelliği geçici olarak devre dışı bırakıldı."
-)
+KICK_DISABLED_MESSAGE = "Kick’in orijinal yayın akışı güvenilir biçimde doğrulanamadığı için Kick VOD indirme özelliği geçici olarak devre dışı bırakıldı."
 
 
 def is_platform_temporarily_disabled(platform: PlatformType, url: str = "") -> bool:
@@ -218,7 +222,10 @@ def is_rehydration_error(error_msg: str) -> bool:
     if not error_msg:
         return False
     msg_lower = error_msg.lower()
-    return "universal data for rehydration" in msg_lower or "unable to extract universal data" in msg_lower
+    return (
+        "universal data for rehydration" in msg_lower
+        or "unable to extract universal data" in msg_lower
+    )
 
 
 def translate_social_error(exc_or_msg: Exception | str, url: str) -> str:
@@ -229,96 +236,306 @@ def translate_social_error(exc_or_msg: Exception | str, url: str) -> str:
     if is_platform_temporarily_disabled(platform, url):
         return f"Kick desteği geçici olarak kullanılamıyor\n\n{KICK_DISABLED_MESSAGE}"
 
-    if platform == PlatformType.THREADS or "threads.net" in url.lower() or "threads.com" in url.lower():
+    if (
+        platform == PlatformType.THREADS
+        or "threads.net" in url.lower()
+        or "threads.com" in url.lower()
+    ):
         if "video içermiyor" in msg_lower or "photo post" in msg_lower:
             return "Bu Threads gönderisi video içermiyor."
-        if any(term in msg_lower for term in ("tarayıcı oturumu", "oturum", "login", "sign in", "authentication", "private", "checkpoint")):
-            return "Bu Threads gönderisini görüntülemek için tarayıcı oturumu gerekebilir."
-        if any(term in msg_lower for term in ("silinmiş", "gizlenmiş", "kullanılamıyor", "not found", "deleted", "unavailable", "404")):
+        if any(
+            term in msg_lower
+            for term in (
+                "tarayıcı oturumu",
+                "oturum",
+                "login",
+                "sign in",
+                "authentication",
+                "private",
+                "checkpoint",
+            )
+        ):
+            return (
+                "Bu Threads gönderisini görüntülemek için tarayıcı oturumu gerekebilir."
+            )
+        if any(
+            term in msg_lower
+            for term in (
+                "silinmiş",
+                "gizlenmiş",
+                "kullanılamıyor",
+                "not found",
+                "deleted",
+                "unavailable",
+                "404",
+            )
+        ):
             return "Threads gönderisi silinmiş, gizlenmiş veya kullanılamıyor olabilir."
-        if any(term in msg_lower for term in ("rate limit", "429", "too many requests", "sınırlandırdı")):
+        if any(
+            term in msg_lower
+            for term in ("rate limit", "429", "too many requests", "sınırlandırdı")
+        ):
             return "Threads isteği geçici olarak sınırlandırdı. Bir süre sonra yeniden deneyin."
-        if any(term in msg_lower for term in ("kısıtlama", "age restricted", "region blocked")):
-            return "Bu Threads içeriği hesap, yaş veya bölge kısıtlamasına tabi olabilir."
+        if any(
+            term in msg_lower
+            for term in ("kısıtlama", "age restricted", "region blocked")
+        ):
+            return (
+                "Bu Threads içeriği hesap, yaş veya bölge kısıtlamasına tabi olabilir."
+            )
         if "video kaynağı alınamadı" in msg_lower:
             return "Threads gönderisi bulundu ancak video kaynağı alınamadı. Threads sayfa yapısını değiştirmiş olabilir."
-        if any(term in msg_lower for term in ("sayfa yapısını", "video bilgileri alınamadı", "extractor", "unable to extract")):
+        if any(
+            term in msg_lower
+            for term in (
+                "sayfa yapısını",
+                "video bilgileri alınamadı",
+                "extractor",
+                "unable to extract",
+            )
+        ):
             return "Threads video bilgileri alınamadı. Threads sayfa yapısını değiştirmiş olabilir."
-        if any(term in msg_lower for term in ("no downloadable video", "indirilebilir bir video bulunamadı", "there is no video")):
+        if any(
+            term in msg_lower
+            for term in (
+                "no downloadable video",
+                "indirilebilir bir video bulunamadı",
+                "there is no video",
+            )
+        ):
             return "Bu Threads gönderisinde indirilebilir bir video bulunamadı."
 
-    if platform in (PlatformType.FACEBOOK_VIDEO, PlatformType.FACEBOOK_REEL) or "facebook" in url.lower() or "fb.watch" in url.lower():
+    if (
+        platform in (PlatformType.FACEBOOK_VIDEO, PlatformType.FACEBOOK_REEL)
+        or "facebook" in url.lower()
+        or "fb.watch" in url.lower()
+    ):
         if "cannot parse data" in msg_lower:
             return "Facebook video bilgileri alınamadı. Facebook sayfa yapısını değiştirmiş olabilir veya bu bağlantı şu anda desteklenmiyor."
-        if any(term in msg_lower for term in ("no video formats", "no video format", "no downloadable video", "there is no video", "there's no video")):
+        if any(
+            term in msg_lower
+            for term in (
+                "no video formats",
+                "no video format",
+                "no downloadable video",
+                "there is no video",
+                "there's no video",
+            )
+        ):
             return "Bu Facebook bağlantısında indirilebilir video bulunamadı."
-        if any(term in msg_lower for term in ("only photo", "only photos", "photo post", "contains photo", "no media")):
+        if any(
+            term in msg_lower
+            for term in (
+                "only photo",
+                "only photos",
+                "photo post",
+                "contains photo",
+                "no media",
+            )
+        ):
             return "Bu Facebook gönderisinde indirilebilir bir video bulunamadı."
-        if any(term in msg_lower for term in ("login required", "sign in required", "log in", "registered users", "this content isn't available", "private", "must log in", "cookies required", "authentication required")):
+        if any(
+            term in msg_lower
+            for term in (
+                "login required",
+                "sign in required",
+                "log in",
+                "registered users",
+                "this content isn't available",
+                "private",
+                "must log in",
+                "cookies required",
+                "authentication required",
+            )
+        ):
             return "Bu Facebook içeriğini görüntülemek için tarayıcı oturumu gerekebilir. Oturumla Tekrar Dene seçeneğini kullanabilirsiniz."
-        if any(term in msg_lower for term in ("unavailable", "removed", "deleted", "does not exist", "not found", "404", "content is not available")):
-            return "Facebook videosu kaldırılmış, gizlenmiş veya kullanılamıyor olabilir."
-        if any(term in msg_lower for term in ("rate limit", "429", "too many requests", "temporarily blocked", "temporary block", "ip block", "banned")):
+        if any(
+            term in msg_lower
+            for term in (
+                "unavailable",
+                "removed",
+                "deleted",
+                "does not exist",
+                "not found",
+                "404",
+                "content is not available",
+            )
+        ):
+            return (
+                "Facebook videosu kaldırılmış, gizlenmiş veya kullanılamıyor olabilir."
+            )
+        if any(
+            term in msg_lower
+            for term in (
+                "rate limit",
+                "429",
+                "too many requests",
+                "temporarily blocked",
+                "temporary block",
+                "ip block",
+                "banned",
+            )
+        ):
             return "Facebook isteği geçici olarak sınırlandırdı. Bir süre sonra yeniden deneyin."
         if any(term in msg_lower for term in ("unable to extract", "extractor")):
             return "Facebook video bilgileri şu anda alınamadı. Facebook sayfa yapısını değiştirmiş olabilir veya bu bağlantı şu anda desteklenmiyor."
 
-    if platform in (
-        PlatformType.TIKTOK_VIDEO,
-        PlatformType.TIKTOK_SHORT_LINK,
-        PlatformType.TIKTOK_PROFILE,
-        PlatformType.TIKTOK_LIVE,
-        PlatformType.TIKTOK_SLIDESHOW,
-    ) or "tiktok" in url.lower():
+    if (
+        platform
+        in (
+            PlatformType.TIKTOK_VIDEO,
+            PlatformType.TIKTOK_SHORT_LINK,
+            PlatformType.TIKTOK_PROFILE,
+            PlatformType.TIKTOK_LIVE,
+            PlatformType.TIKTOK_SLIDESHOW,
+        )
+        or "tiktok" in url.lower()
+    ):
         if is_rehydration_error(msg_lower):
             return (
                 "TikTok bağlantısı çözüldü ancak bu videonun verileri şu anda yt-dlp tarafından okunamadı. "
                 "Bu sorun bazı TikTok videolarında oluşabilir. Başka bir video deneyin veya yt-dlp güncellemesini kontrol edin."
             )
-        if any(term in msg_lower for term in ("impersonation", "impersonate", "curl_cffi")):
+        if any(
+            term in msg_lower for term in ("impersonation", "impersonate", "curl_cffi")
+        ):
             return "TikTok bağlantısını çözmek için gereken tarayıcı taklidi bileşeni bulunamadı."
-        if "unable to extract webpage video data" in msg_lower or "unable to extract video data" in msg_lower:
+        if (
+            "unable to extract webpage video data" in msg_lower
+            or "unable to extract video data" in msg_lower
+        ):
             return "TikTok video bilgileri şu anda alınamadı. TikTok geçici olarak değişmiş olabilir; yt-dlp güncellemesini kontrol edin."
         if "429" in msg_lower or "too many requests" in msg_lower:
             return "TikTok geçici olarak çok fazla istek algıladı. Bir süre bekleyip yeniden deneyin."
-        if "ip" in msg_lower and any(term in msg_lower for term in ("block", "banned", "deny", "denied")):
+        if "ip" in msg_lower and any(
+            term in msg_lower for term in ("block", "banned", "deny", "denied")
+        ):
             return "TikTok bu bağlantıya mevcut internet bağlantınızdan erişimi engelledi. Daha sonra yeniden deneyin."
         if any(term in msg_lower for term in ("private", "protected")):
             return "Bu TikTok videosu özel bir hesaba ait. İçeriğe erişebilen bir tarayıcı oturumu gerekiyor."
-        if any(term in msg_lower for term in ("login required", "sign in required", "log in", "cookies required", "authentication required")):
+        if any(
+            term in msg_lower
+            for term in (
+                "login required",
+                "sign in required",
+                "log in",
+                "cookies required",
+                "authentication required",
+            )
+        ):
             return "TikTok bu içerik için giriş yapılmış bir oturum istiyor."
-        if any(term in msg_lower for term in ("not found", "deleted", "404", "video unavailable", "does not exist")):
-            return "TikTok videosu bulunamadı, silinmiş veya artık erişilemiyor olabilir."
+        if any(
+            term in msg_lower
+            for term in (
+                "not found",
+                "deleted",
+                "404",
+                "video unavailable",
+                "does not exist",
+            )
+        ):
+            return (
+                "TikTok videosu bulunamadı, silinmiş veya artık erişilemiyor olabilir."
+            )
         if any(term in msg_lower for term in ("short link", "could not resolve")):
             return "TikTok kısa bağlantısı çözümlenemedi. Bağlantıyı TikTok uygulamasından yeniden kopyalayın."
 
     if platform == PlatformType.TWITTER_POST:
-        if any(term in msg_lower for term in ("protected", "private account", "not authorized", "this tweet is from a protected account")):
+        if any(
+            term in msg_lower
+            for term in (
+                "protected",
+                "private account",
+                "not authorized",
+                "this tweet is from a protected account",
+            )
+        ):
             return "Bu gönderi korumalı bir hesaba ait. İçeriğe tarayıcıda erişebildiğiniz bir oturum gerekebilir."
-        if any(term in msg_lower for term in ("no video", "there's no video", "no media", "no downloadable video", "unsupported url", "did not find any video")):
+        if any(
+            term in msg_lower
+            for term in (
+                "no video",
+                "there's no video",
+                "no media",
+                "no downloadable video",
+                "unsupported url",
+                "did not find any video",
+            )
+        ):
             return "Bu X gönderisinde indirilebilir video bulunamadı."
-        if any(term in msg_lower for term in ("extractor", "unable to extract", "twitter", "x.com")):
-            return "X bağlantısı şu anda çözümlenemedi. yt-dlp güncellemesi gerekebilir."
+        if any(
+            term in msg_lower
+            for term in ("extractor", "unable to extract", "twitter", "x.com")
+        ):
+            return (
+                "X bağlantısı şu anda çözümlenemedi. yt-dlp güncellemesi gerekebilir."
+            )
 
     if platform in (PlatformType.INSTAGRAM_STORY, PlatformType.INSTAGRAM_HIGHLIGHT):
-        if any(term in msg_lower for term in ("login", "cookie", "log in", "redirect", "private")):
+        if any(
+            term in msg_lower
+            for term in ("login", "cookie", "log in", "redirect", "private")
+        ):
             return "Bu hikâyeye erişmek için Instagram oturumu gerekiyor."
-        if any(term in msg_lower for term in ("expired", "not available", "404", "does not exist", "unavailable")):
+        if any(
+            term in msg_lower
+            for term in (
+                "expired",
+                "not available",
+                "404",
+                "does not exist",
+                "unavailable",
+            )
+        ):
             return "Instagram hikâyesi artık erişilebilir değil veya hesabınızın erişimi bulunmuyor."
 
     if platform in (PlatformType.INSTAGRAM_REEL, PlatformType.INSTAGRAM_POST):
-        if any(term in msg_lower for term in ("no video", "there is no video", "there's no video", "only photo", "only photos", "contains photo", "photo post", "no media")):
+        if any(
+            term in msg_lower
+            for term in (
+                "no video",
+                "there is no video",
+                "there's no video",
+                "only photo",
+                "only photos",
+                "contains photo",
+                "photo post",
+                "no media",
+            )
+        ):
             return "Bu gönderide indirilebilir video bulunamadı. Fotoğraf indirme desteği henüz eklenmedi."
-        if any(term in msg_lower for term in ("login", "cookie", "log in", "redirect", "private", "require")):
+        if any(
+            term in msg_lower
+            for term in ("login", "cookie", "log in", "redirect", "private", "require")
+        ):
             return "Instagram bu içerik için oturum isteyebilir. Firefox oturumunu seçip yeniden deneyin."
 
-    if any(term in msg_lower for term in ("no video", "there is no video", "only photo", "only photos", "contains photo")):
+    if any(
+        term in msg_lower
+        for term in (
+            "no video",
+            "there is no video",
+            "only photo",
+            "only photos",
+            "contains photo",
+        )
+    ):
         if "instagram" in url.lower():
             return "Bu gönderide indirilebilir video bulunamadı. Fotoğraf indirme desteği henüz eklenmedi."
         if "twitter" in url.lower() or "x.com" in url.lower():
             return "Bu X gönderisinde indirilebilir video bulunamadı."
 
-    if any(term in msg_lower for term in ("stall_timeout", "veri akışı durdu", "read timed out", "socket timeout", "connection timed out", "download timeout")):
+    if any(
+        term in msg_lower
+        for term in (
+            "stall_timeout",
+            "veri akışı durdu",
+            "read timed out",
+            "socket timeout",
+            "connection timed out",
+            "download timeout",
+        )
+    ):
         if platform == PlatformType.KICK_VIDEO:
             return "Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin."
         return "İndirme sırasında uzun süre veri alınamadı. İnternet bağlantınızı kontrol edip yeniden deneyin."
@@ -352,8 +569,8 @@ class DownloadRequest:
     job_id: str = ""
     target_final_path: Path | None = None
     rate_limit_bps: int | None = None
-    session_method: str | SessionMethod = SessionMethod.AUTO
-    cookie_file_path: str | Path | None = None
+    session_method: SessionMethod = SessionMethod.AUTO
+    cookie_file_path: Path | None = None
 
 
 @dataclass(slots=True)

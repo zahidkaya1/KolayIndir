@@ -126,7 +126,9 @@ class QueueItemEditDialog(QDialog):
 
         self.custom_rate_limit_unit_combo = QComboBox()
         self.custom_rate_limit_unit_combo.addItems(["MB/sn", "KB/sn"])
-        self.custom_rate_limit_unit_combo.currentTextChanged.connect(self._on_custom_unit_changed)
+        self.custom_rate_limit_unit_combo.currentTextChanged.connect(
+            self._on_custom_unit_changed
+        )
 
         custom_layout.addWidget(self.custom_rate_limit_spin)
         custom_layout.addWidget(self.custom_rate_limit_unit_combo)
@@ -147,7 +149,9 @@ class QueueItemEditDialog(QDialog):
         row2.setSpacing(8)
         folder_label = QLabel("Klasör:")
         self.folder_input = QLineEdit()
-        self.folder_input.setText(str(item.output_dir) if item.output_dir else str(Path.home() / "Downloads"))
+        self.folder_input.setText(
+            str(item.output_dir) if item.output_dir else str(Path.home() / "Downloads")
+        )
 
         self.browse_btn = QPushButton("Klasör Seç")
         self.browse_btn.setObjectName("secondaryButton")
@@ -258,20 +262,24 @@ class QueueItemEditDialog(QDialog):
         current = self.quality_combo.currentText()
         self.quality_combo.clear()
         if "Ses" in media_text or "MP3" in media_text:
-            self.quality_combo.addItems([
-                "320 kbps (En iyi)",
-                "256 kbps",
-                "192 kbps",
-                "128 kbps",
-            ])
+            self.quality_combo.addItems(
+                [
+                    "320 kbps (En iyi)",
+                    "256 kbps",
+                    "192 kbps",
+                    "128 kbps",
+                ]
+            )
         else:
-            self.quality_combo.addItems([
-                "En iyi kullanılabilir kalite",
-                "1080p'ye kadar",
-                "720p'ye kadar",
-                "480p'ye kadar",
-                "360p'ye kadar",
-            ])
+            self.quality_combo.addItems(
+                [
+                    "En iyi kullanılabilir kalite",
+                    "1080p'ye kadar",
+                    "720p'ye kadar",
+                    "480p'ye kadar",
+                    "360p'ye kadar",
+                ]
+            )
         idx = self.quality_combo.findText(current)
         if idx >= 0:
             self.quality_combo.setCurrentIndex(idx)
@@ -298,8 +306,12 @@ class DownloadQueueDialog(QDialog):
     """Çoklu indirme kuyruğunu görüntüleyen ve yöneten diyalog penceresi."""
 
     # Sinyaller (MainWindow koordinasyonu için)
-    urls_added = Signal(list, str, str, bool, Path, object)  # urls, media_type, quality, playlist, output_dir, rate_limit_bps
-    current_url_added = Signal(str, str, bool, Path, object)  # media_type, quality, playlist, output_dir, rate_limit_bps
+    urls_added = Signal(
+        list, str, str, bool, Path, object
+    )  # urls, media_type, quality, playlist, output_dir, rate_limit_bps
+    current_url_added = Signal(
+        str, str, bool, Path, object
+    )  # media_type, quality, playlist, output_dir, rate_limit_bps
     start_queue_requested = Signal()
     stop_queue_requested = Signal()
     delete_selected_requested = Signal(str)
@@ -307,7 +319,9 @@ class DownloadQueueDialog(QDialog):
     retry_failed_requested = Signal()
     item_edited = Signal(str)  # item_id
 
-    def __init__(self, default_folder: Path | None = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, default_folder: Path | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("downloadQueueDialog")
         self.setWindowTitle(f"{APP_NAME} — İndirme Kuyruğu")
@@ -336,7 +350,9 @@ class DownloadQueueDialog(QDialog):
         settings_layout.setContentsMargins(12, 10, 12, 10)
         settings_layout.setSpacing(8)
 
-        settings_title = QLabel("<b>Kuyruk Ayarları (Yeni Eklenen Bağlantılar İçin)</b>")
+        settings_title = QLabel(
+            "<b>Kuyruk Ayarları (Yeni Eklenen Bağlantılar İçin)</b>"
+        )
         settings_title.setStyleSheet("color: #334155; font-size: 13px;")
         settings_layout.addWidget(settings_title)
 
@@ -379,7 +395,9 @@ class DownloadQueueDialog(QDialog):
         self.custom_rate_limit_unit_combo = QComboBox()
         self.custom_rate_limit_unit_combo.setObjectName("queueCustomRateLimitUnitCombo")
         self.custom_rate_limit_unit_combo.addItems(["MB/sn", "KB/sn"])
-        self.custom_rate_limit_unit_combo.currentTextChanged.connect(self._on_custom_unit_changed)
+        self.custom_rate_limit_unit_combo.currentTextChanged.connect(
+            self._on_custom_unit_changed
+        )
 
         custom_layout.addWidget(self.custom_rate_limit_spin)
         custom_layout.addWidget(self.custom_rate_limit_unit_combo)
@@ -402,7 +420,9 @@ class DownloadQueueDialog(QDialog):
 
         folder_label = QLabel("Klasör:")
         self.folder_input = QLineEdit()
-        initial_dir = str(default_folder) if default_folder else str(Path.home() / "Downloads")
+        initial_dir = (
+            str(default_folder) if default_folder else str(Path.home() / "Downloads")
+        )
         self.folder_input.setText(initial_dir)
 
         self.browse_btn = QPushButton("Klasör Seç")
@@ -427,7 +447,9 @@ class DownloadQueueDialog(QDialog):
             "İndirilecek bağlantıları buraya yapıştırın (Her satıra bir bağlantı veya metin içinde karışık bağlantılar)."
         )
         self.urls_input.setMaximumHeight(70)
-        self.urls_input.viewport().setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.urls_input.viewport().setAttribute(
+            Qt.WidgetAttribute.WA_StyledBackground, True
+        )
         input_layout.addWidget(self.urls_input)
 
         add_buttons_layout = QHBoxLayout()
@@ -498,28 +520,46 @@ class DownloadQueueDialog(QDialog):
         self.table = QTableWidget()
         self.table.setObjectName("queueTable")
         self.table.setColumnCount(8)
-        self.table.setHorizontalHeaderLabels([
-            "Başlık / URL",
-            "Platform",
-            "Tür",
-            "Kalite",
-            "Hız Sınırı",
-            "Klasör",
-            "Durum",
-            "İlerleme",
-        ])
+        self.table.setHorizontalHeaderLabels(
+            [
+                "Başlık / URL",
+                "Platform",
+                "Tür",
+                "Kalite",
+                "Hız Sınırı",
+                "Klasör",
+                "Durum",
+                "İlerleme",
+            ]
+        )
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            5, QHeaderView.ResizeMode.Interactive
+        )
         self.table.setColumnWidth(5, 130)
-        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(
+            6, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            7, QHeaderView.ResizeMode.Fixed
+        )
         self.table.setColumnWidth(7, 130)
         self.table.viewport().setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
@@ -531,7 +571,9 @@ class DownloadQueueDialog(QDialog):
         layout.addWidget(self.table)
 
         # Alt bölüm: Durum özeti
-        self.summary_label = QLabel("0 bekliyor • 0 indiriliyor • 0 tamamlandı • 0 başarısız")
+        self.summary_label = QLabel(
+            "0 bekliyor • 0 indiriliyor • 0 tamamlandı • 0 başarısız"
+        )
         self.summary_label.setObjectName("queueSummary")
         layout.addWidget(self.summary_label)
 
@@ -575,20 +617,24 @@ class DownloadQueueDialog(QDialog):
         current = self.quality_combo.currentText()
         self.quality_combo.clear()
         if "Ses" in media_text or "MP3" in media_text:
-            self.quality_combo.addItems([
-                "320 kbps (En iyi)",
-                "256 kbps",
-                "192 kbps",
-                "128 kbps",
-            ])
+            self.quality_combo.addItems(
+                [
+                    "320 kbps (En iyi)",
+                    "256 kbps",
+                    "192 kbps",
+                    "128 kbps",
+                ]
+            )
         else:
-            self.quality_combo.addItems([
-                "En iyi kullanılabilir kalite",
-                "1080p'ye kadar",
-                "720p'ye kadar",
-                "480p'ye kadar",
-                "360p'ye kadar",
-            ])
+            self.quality_combo.addItems(
+                [
+                    "En iyi kullanılabilir kalite",
+                    "1080p'ye kadar",
+                    "720p'ye kadar",
+                    "480p'ye kadar",
+                    "360p'ye kadar",
+                ]
+            )
         idx = self.quality_combo.findText(current)
         if idx >= 0:
             self.quality_combo.setCurrentIndex(idx)
@@ -615,13 +661,21 @@ class DownloadQueueDialog(QDialog):
             return
 
         urls = extract_supported_urls_from_text(text)
-        media_type, quality, playlist, output_dir, rate_limit_bps = self.get_current_settings()
-        self.urls_added.emit(urls, media_type, quality, playlist, output_dir, rate_limit_bps)
+        media_type, quality, playlist, output_dir, rate_limit_bps = (
+            self.get_current_settings()
+        )
+        self.urls_added.emit(
+            urls, media_type, quality, playlist, output_dir, rate_limit_bps
+        )
         self.urls_input.clear()
 
     def _on_add_current_clicked(self) -> None:
-        media_type, quality, playlist, output_dir, rate_limit_bps = self.get_current_settings()
-        self.current_url_added.emit(media_type, quality, playlist, output_dir, rate_limit_bps)
+        media_type, quality, playlist, output_dir, rate_limit_bps = (
+            self.get_current_settings()
+        )
+        self.current_url_added.emit(
+            media_type, quality, playlist, output_dir, rate_limit_bps
+        )
 
     def _on_delete_clicked(self) -> None:
         selected_items = self.table.selectedItems()
@@ -665,7 +719,9 @@ class DownloadQueueDialog(QDialog):
         for i, item in enumerate(queue_items):
             self.table.insertRow(i)
 
-            title_text = item.title if item.title and item.title != "Video" else item.url
+            title_text = (
+                item.title if item.title and item.title != "Video" else item.url
+            )
             title_widget = QTableWidgetItem(title_text)
             title_widget.setData(Qt.ItemDataRole.UserRole, item.id)
             title_widget.setToolTip(item.url)
@@ -704,14 +760,18 @@ class DownloadQueueDialog(QDialog):
                 progress = QProgressBar()
                 progress.setRange(0, 100)
                 progress.setValue(item.progress_percent)
-                progress.setFormat(f"%p% - {item.progress_text}" if item.progress_text else "%p%")
+                progress.setFormat(
+                    f"%p% - {item.progress_text}" if item.progress_text else "%p%"
+                )
                 self.table.setCellWidget(i, 7, progress)
             else:
                 self.table.setItem(i, 7, QTableWidgetItem(item.progress_text))
 
         self._update_summary(queue_items)
 
-    def update_item_progress(self, item_id: str, percent: int | None = None, text: str | None = None) -> None:
+    def update_item_progress(
+        self, item_id: str, percent: int | None = None, text: str | None = None
+    ) -> None:
         """Kuyruk listesini tamamen baştan oluşturmadan tek bir öğenin ilerleme hücresini günceller."""
         for row in range(self.table.rowCount()):
             item_widget = self.table.item(row, 0)
@@ -726,7 +786,9 @@ class DownloadQueueDialog(QDialog):
 
     def _update_summary(self, items: list[QueueItem]) -> None:
         waiting = sum(1 for x in items if x.status == "Bekliyor")
-        downloading = sum(1 for x in items if x.status in ("Analiz ediliyor", "İndiriliyor"))
+        downloading = sum(
+            1 for x in items if x.status in ("Analiz ediliyor", "İndiriliyor")
+        )
         completed = sum(1 for x in items if x.status == "Tamamlandı")
         failed = sum(1 for x in items if x.status == "Başarısız")
 

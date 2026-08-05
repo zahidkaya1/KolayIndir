@@ -1,7 +1,5 @@
 """Tests for the clipboard functionality."""
 
-
-
 from src.utils import extract_supported_url_from_text
 
 
@@ -11,12 +9,30 @@ def test_extract_supported_url_empty():
 
 
 def test_extract_supported_url_plain():
-    assert extract_supported_url_from_text("https://youtube.com/watch?v=abc") == "https://youtube.com/watch?v=abc"
-    assert extract_supported_url_from_text("https://youtu.be/abc") == "https://youtu.be/abc"
-    assert extract_supported_url_from_text("https://www.instagram.com/reel/abc/") == "https://www.instagram.com/reel/abc/"
-    assert extract_supported_url_from_text("https://x.com/abc/status/123") == "https://x.com/abc/status/123"
-    assert extract_supported_url_from_text("https://twitter.com/abc/status/123") == "https://twitter.com/abc/status/123"
-    assert extract_supported_url_from_text("https://vm.tiktok.com/abc/") == "https://vm.tiktok.com/abc/"
+    assert (
+        extract_supported_url_from_text("https://youtube.com/watch?v=abc")
+        == "https://youtube.com/watch?v=abc"
+    )
+    assert (
+        extract_supported_url_from_text("https://youtu.be/abc")
+        == "https://youtu.be/abc"
+    )
+    assert (
+        extract_supported_url_from_text("https://www.instagram.com/reel/abc/")
+        == "https://www.instagram.com/reel/abc/"
+    )
+    assert (
+        extract_supported_url_from_text("https://x.com/abc/status/123")
+        == "https://x.com/abc/status/123"
+    )
+    assert (
+        extract_supported_url_from_text("https://twitter.com/abc/status/123")
+        == "https://twitter.com/abc/status/123"
+    )
+    assert (
+        extract_supported_url_from_text("https://vm.tiktok.com/abc/")
+        == "https://vm.tiktok.com/abc/"
+    )
 
 
 def test_extract_supported_url_in_text():
@@ -25,11 +41,26 @@ def test_extract_supported_url_in_text():
 
 
 def test_extract_supported_url_trailing_punctuation():
-    assert extract_supported_url_from_text("Video: https://youtube.com/watch?v=abc.") == "https://youtube.com/watch?v=abc"
-    assert extract_supported_url_from_text("(https://www.instagram.com/reel/abc/)") == "https://www.instagram.com/reel/abc/"
-    assert extract_supported_url_from_text("Link: https://vm.tiktok.com/abc/, baksana") == "https://vm.tiktok.com/abc/"
-    assert extract_supported_url_from_text("'https://youtube.com/watch?v=abc'") == "https://youtube.com/watch?v=abc"
-    assert extract_supported_url_from_text('"https://youtube.com/watch?v=abc"') == "https://youtube.com/watch?v=abc"
+    assert (
+        extract_supported_url_from_text("Video: https://youtube.com/watch?v=abc.")
+        == "https://youtube.com/watch?v=abc"
+    )
+    assert (
+        extract_supported_url_from_text("(https://www.instagram.com/reel/abc/)")
+        == "https://www.instagram.com/reel/abc/"
+    )
+    assert (
+        extract_supported_url_from_text("Link: https://vm.tiktok.com/abc/, baksana")
+        == "https://vm.tiktok.com/abc/"
+    )
+    assert (
+        extract_supported_url_from_text("'https://youtube.com/watch?v=abc'")
+        == "https://youtube.com/watch?v=abc"
+    )
+    assert (
+        extract_supported_url_from_text('"https://youtube.com/watch?v=abc"')
+        == "https://youtube.com/watch?v=abc"
+    )
 
 
 def test_extract_supported_url_unsupported():
@@ -38,7 +69,9 @@ def test_extract_supported_url_unsupported():
 
 
 def test_extract_supported_url_kick_rejected():
-    assert extract_supported_url_from_text("https://kick.com/test/videos/12345678") is None
+    assert (
+        extract_supported_url_from_text("https://kick.com/test/videos/12345678") is None
+    )
 
 
 def test_extract_supported_url_multiple():
@@ -61,9 +94,11 @@ def test_ui_paste_valid_url(main_window, qapp, monkeypatch):
 
         # Monkeypatch analyze_url to track if it's called
         analyze_called = False
+
         def mock_analyze():
             nonlocal analyze_called
             analyze_called = True
+
         monkeypatch.setattr(main_window, "analyze_url", mock_analyze)
 
         main_window.paste_button.click()

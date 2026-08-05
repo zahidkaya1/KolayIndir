@@ -1,37 +1,48 @@
-# Değişiklik Günlüğü
+﻿# Changelog
+Tüm önemli değişiklikler bu dosyada belgelenmektedir.
+
+## [1.1.1] - 2026-08-06
+### Eklenenler & Düzeltilenler
+- Bütün MP4 indirmelerinde otomatik H.264/AAC uyumluluğu sağlandı.
+- Uyumsuz videoların güvenli şekilde MP4 biçimine dönüştürülmesi eklendi.
+- Threads normal ve kuyruk indirmelerinde format fallback düzeltmesi yapıldı.
+- Firefox aktif profil algılama iyileştirmesi eklendi.
+- MP3 ve MP4 dosyalarında ortak sıra numarası kullanılması düzeltmesi eklendi.
+- Alt işlemlerde siyah CMD/PowerShell pencerelerinin görünmesi engellendi.
+# DeÄŸiÅŸiklik GÃ¼nlÃ¼ÄŸÃ¼
 
 ## [1.1.0] - 2026-08-04
 
 ### Eklendi
 
-- Facebook video ve Reels desteği
-- Threads video desteği
-- Otomatik, Firefox, Chrome, Edge ve Brave oturum seçenekleri
-- Netscape çerez dosyası desteği
-- İndirme hızı sınırı
+- Facebook video ve Reels desteÄŸi
+- Threads video desteÄŸi
+- Otomatik, Firefox, Chrome, Edge ve Brave oturum seÃ§enekleri
+- Netscape Ã§erez dosyasÄ± desteÄŸi
+- Ä°ndirme hÄ±zÄ± sÄ±nÄ±rÄ±
 
-### İyileştirildi
+### Ä°yileÅŸtirildi
 
-- Tarayıcı profili ve oturum algılama
-- Oturum gerektiren içeriklerde hata mesajları
-- İndirme kuyruğunda oturum bilgilerinin korunması
-- Sosyal medya bağlantısı algılama
-- Geçmiş ekranında platform gösterimi
-- Threads tek video ve çoklu video ayrımı
+- TarayÄ±cÄ± profili ve oturum algÄ±lama
+- Oturum gerektiren iÃ§eriklerde hata mesajlarÄ±
+- Ä°ndirme kuyruÄŸunda oturum bilgilerinin korunmasÄ±
+- Sosyal medya baÄŸlantÄ±sÄ± algÄ±lama
+- GeÃ§miÅŸ ekranÄ±nda platform gÃ¶sterimi
+- Threads tek video ve Ã§oklu video ayrÄ±mÄ±
 
-### Düzeltildi
+### DÃ¼zeltildi
 
-- Aynı Threads videosunun farklı kaynaklar nedeniyle birden fazla video olarak görünmesi
-- Chrome çerez veritabanı hatalarında tekrarlanan başarısız denemeler
-- Threads test dosyasındaki sözdizimi bozulması
-- Çeşitli arayüz ve hata mesajı sorunları
+- AynÄ± Threads videosunun farklÄ± kaynaklar nedeniyle birden fazla video olarak gÃ¶rÃ¼nmesi
+- Chrome Ã§erez veritabanÄ± hatalarÄ±nda tekrarlanan baÅŸarÄ±sÄ±z denemeler
+- Threads test dosyasÄ±ndaki sÃ¶zdizimi bozulmasÄ±
+- Ã‡eÅŸitli arayÃ¼z ve hata mesajÄ± sorunlarÄ±
 
 ### Bilinen Sorunlar
 
-- Bazı Threads bağlantılarında indirme kuyruğu, seçilen video formatını yeniden
+- BazÄ± Threads baÄŸlantÄ±larÄ±nda indirme kuyruÄŸu, seÃ§ilen video formatÄ±nÄ± yeniden
   bulamayabilir.
-- Kick indirme desteği bu sürüme dahil değildir.
+- Kick indirme desteÄŸi bu sÃ¼rÃ¼me dahil deÄŸildir.
 
 ## [1.0.0]
 
-İlk kararlı sürüm.
+Ä°lk kararlÄ± sÃ¼rÃ¼m.

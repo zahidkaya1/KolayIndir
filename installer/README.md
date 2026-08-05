@@ -1,6 +1,6 @@
 # Loadvia Windows Installer (Inno Setup)
 
-Bu klasör, Loadvia 1.1.0 Windows x64 Inno Setup kurulum altyapısını içerir.
+Bu klasör, Loadvia 1.1.1 Windows x64 Inno Setup kurulum altyapısını içerir.
 
 ## Dosya Mimarisi
 
@@ -13,7 +13,7 @@ Bu klasör, Loadvia 1.1.0 Windows x64 Inno Setup kurulum altyapısını içerir.
 - **Kurulum Kapsamı:** `PrivilegesRequired=lowest`, `PrivilegesRequiredOverridesAllowed=dialog` (Varsayılan: Mevcut kullanıcı; İsteğe bağlı: Tüm kullanıcılar / UAC).
 - **Varsayılan Kurulum Dizin:** `{autopf}\Loadvia` (C:\Program Files\Loadvia veya %LocalAppData%\Programs\Loadvia).
 - **Kaynak Dizin:** `dist/Loadvia/` (Önce `scripts/build_windows.ps1` veya portable build hazırlanmış olmalıdır).
-- **Çıktı:** `release/Loadvia-Setup-1.1.0.exe`
+- **Çıktı:** `release/Loadvia-Setup-1.1.1.exe`
 
 ## Derleme Komutu
 

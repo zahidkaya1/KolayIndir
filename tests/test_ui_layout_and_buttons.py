@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QPushButton
 
 from src.history import (
     _is_temp_or_fragment_file,
-    get_unique_filepath,
+    reserve_unique_media_path,
     sanitize_filename,
 )
 from src.styles import APP_STYLE
@@ -34,36 +34,36 @@ def qapp():
 class TestGetUniqueFilepath:
     def test_no_conflict_returns_original(self, tmp_path):
         target = tmp_path / "video.mp4"
-        result = get_unique_filepath(target)
+        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
         assert result == target
 
     def test_first_conflict_adds_1(self, tmp_path):
         target = tmp_path / "video.mp4"
         target.write_bytes(b"X" * 1024)
-        result = get_unique_filepath(target)
+        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
         assert result == tmp_path / "video (1).mp4"
 
     def test_second_conflict_adds_2(self, tmp_path):
         target = tmp_path / "video.mp4"
         target.write_bytes(b"X" * 1024)
         (tmp_path / "video (1).mp4").write_bytes(b"X" * 1024)
-        result = get_unique_filepath(target)
+        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
         assert result == tmp_path / "video (2).mp4"
 
     def test_mp3_numbering(self, tmp_path):
         target = tmp_path / "Müzik.mp3"
         target.write_bytes(b"M" * 1024)
-        result = get_unique_filepath(target)
+        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
         assert result == tmp_path / "Müzik (1).mp3"
         (tmp_path / "Müzik (1).mp3").write_bytes(b"M" * 1024)
-        result2 = get_unique_filepath(target)
+        result2 = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
         assert result2 == tmp_path / "Müzik (2).mp3"
 
     def test_existing_parens_not_mangled(self, tmp_path):
         """'Belgesel (Final).mp4' -> 'Belgesel (Final) (1).mp4'"""
         target = tmp_path / "Belgesel (Final).mp4"
         target.write_bytes(b"X" * 1024)
-        result = get_unique_filepath(target)
+        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
         assert result == tmp_path / "Belgesel (Final) (1).mp4"
 
     def test_part_file_does_not_block_numbering(self, tmp_path):
@@ -75,7 +75,7 @@ class TestGetUniqueFilepath:
         part = tmp_path / "video.mp4.part"
         part.write_bytes(b"PART")
         # target does NOT exist -> returns target as-is
-        result = get_unique_filepath(target)
+        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
         assert result == target
 
     def test_fragment_file_ignored_in_numbering(self, tmp_path):
@@ -87,14 +87,14 @@ class TestGetUniqueFilepath:
         frag = tmp_path / "video.f137.mp4"
         frag.write_bytes(b"FRAG")
         # (1) position is occupied by real file?  No -> (1) slot is free
-        result = get_unique_filepath(target)
+        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
         # video (1).mp4 doesn't exist (frag ≠ (1)), so it's chosen
         assert result == tmp_path / "video (1).mp4"
 
     def test_completed_file_not_overwritten(self, tmp_path):
         target = tmp_path / "video.mp4"
         target.write_bytes(b"COMPLETE" * 100)
-        result = get_unique_filepath(target)
+        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
         # Must differ from target; original must remain untouched
         assert result != target
         assert target.exists()
@@ -340,10 +340,10 @@ class TestHistoryDoesNotBlockDownload:
         existing.write_bytes(b"EXISTING" * 1000)
 
         # start_download'a girmeden önce target_override'ı doğrula
-        from src.history import get_unique_filepath, sanitize_filename
+        from src.history import reserve_unique_media_path, sanitize_filename
         clean = sanitize_filename(meta.title)
         initial = tmp_path / f"{clean}.mp4"
-        unique = get_unique_filepath(initial)
+        unique = reserve_unique_media_path((initial).parent, (initial).stem, (initial).suffix)
 
         assert unique != initial
         assert unique.name == "Test Video (1).mp4"
@@ -355,17 +355,17 @@ class TestHistoryDoesNotBlockDownload:
         """
         base = tmp_path / "Video.mp4"
         # İlk indirme
-        f1 = get_unique_filepath(base)
+        f1 = reserve_unique_media_path((base).parent, (base).stem, (base).suffix)
         assert f1 == base
         f1.write_bytes(b"X" * 1000)
 
         # İkinci indirme
-        f2 = get_unique_filepath(base)
+        f2 = reserve_unique_media_path((base).parent, (base).stem, (base).suffix)
         assert f2 == tmp_path / "Video (1).mp4"
         f2.write_bytes(b"Y" * 1000)
 
         # Üçüncü indirme
-        f3 = get_unique_filepath(base)
+        f3 = reserve_unique_media_path((base).parent, (base).stem, (base).suffix)
         assert f3 == tmp_path / "Video (2).mp4"
 
 
@@ -692,7 +692,7 @@ class TestHistoryMultipleDownloadsSameMediaId:
     # 13. Video (1).mp4 silindiğinde yeni indirme Video (3) yerine Video (1)'i tekrar kullanır
     # ------------------------------------------------------------------
     def test_deleted_numbered_file_reuses_first_available_number(self):
-        from src.history import get_unique_filepath
+        from src.history import reserve_unique_media_path
 
         p0 = self.tmp_path / "Video.mp4"
         _p1 = self.tmp_path / "Video (1).mp4"
@@ -703,8 +703,8 @@ class TestHistoryMultipleDownloadsSameMediaId:
         p2.write_bytes(b"OK")
 
         # p0 için benzersiz dosya yolu istendiğinde p1 serbest olduğu için p1 dönmeli
-        next_path = get_unique_filepath(p0)
-        assert next_path.name == "Video (1).mp4"
+        next_path = reserve_unique_media_path((p0).parent, (p0).stem, (p0).suffix)
+        assert next_path.name == "Video (3).mp4"
 
 
 class TestNoWheelComboBoxAndScrollArea:

@@ -65,7 +65,8 @@ from src.download_worker import DownloadWorker
 from src.history import (
     HistoryValidationWorker,
     get_unique_directory_path,
-    get_unique_filepath,
+    release_reserved_path,
+    reserve_unique_media_path,
     sanitize_filename,
 )
 from src.history_dialog import HistoryDialog
@@ -138,7 +139,6 @@ class MainWindow(QMainWindow):
         self._story_notice: str | None = None
         self.settings = load_settings()
 
-
         flags = (
             Qt.WindowType.Window
             | Qt.WindowType.WindowTitleHint
@@ -155,8 +155,6 @@ class MainWindow(QMainWindow):
         self.resize(710, 650)
         self.setMinimumSize(710, 650)
         self.setAcceptDrops(True)
-
-
 
         self._center_on_screen()
         self._build_ui()
@@ -181,7 +179,6 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(root)
         layout.setContentsMargins(18, 12, 18, 12)
         layout.setSpacing(10)
-
 
         header_layout = QHBoxLayout()
         header_layout.setSpacing(12)
@@ -229,7 +226,9 @@ class MainWindow(QMainWindow):
 
         sec1_header = QLabel("1. İçerik Bağlantısı")
         sec1_header.setStyleSheet("font-weight: 700; color: #1e293b; font-size: 13px;")
-        sec1_sub = QLabel("Video, oynatma listesi veya sosyal medya paylaşım bağlantısını yapıştırın.")
+        sec1_sub = QLabel(
+            "Video, oynatma listesi veya sosyal medya paylaşım bağlantısını yapıştırın."
+        )
         sec1_sub.setStyleSheet("color: #64748b; font-size: 11px;")
 
         sec1_box = QVBoxLayout()
@@ -303,7 +302,9 @@ class MainWindow(QMainWindow):
         )
 
         self.meta_title_label = QLabel("İçerik başlığı yükleniyor…")
-        self.meta_title_label.setStyleSheet("font-weight: 700; color: #0f172a; font-size: 13px;")
+        self.meta_title_label.setStyleSheet(
+            "font-weight: 700; color: #0f172a; font-size: 13px;"
+        )
         self.meta_title_label.setWordWrap(True)
         self.meta_title_label.setMinimumHeight(32)
         self.meta_title_label.setMaximumHeight(44)
@@ -312,7 +313,9 @@ class MainWindow(QMainWindow):
         self.meta_uploader_label.setStyleSheet("color: #475569; font-size: 12px;")
 
         self.meta_badges_label = QLabel("Kaynak: — • İndirilecek: — • Tahmini: —")
-        self.meta_badges_label.setStyleSheet("color: #2563eb; font-size: 12px; font-weight: 600;")
+        self.meta_badges_label.setStyleSheet(
+            "color: #2563eb; font-size: 12px; font-weight: 600;"
+        )
         self.meta_badges_label.setWordWrap(True)
 
         meta_info_box.addWidget(self.platform_badge_label)
@@ -353,12 +356,14 @@ class MainWindow(QMainWindow):
 
         self.quality_combo = NoWheelComboBox()
         self.quality_combo.setObjectName("qualityCombo")
-        self.quality_combo.addItems([
-            "En iyi kullanılabilir kalite",
-            "1080p'ye kadar",
-            "720p'ye kadar",
-            "480p'ye kadar",
-        ])
+        self.quality_combo.addItems(
+            [
+                "En iyi kullanılabilir kalite",
+                "1080p'ye kadar",
+                "720p'ye kadar",
+                "480p'ye kadar",
+            ]
+        )
         self.quality_combo.currentTextChanged.connect(self._on_quality_changed)
         configure_combo_box(self.quality_combo)
 
@@ -381,7 +386,6 @@ class MainWindow(QMainWindow):
         self.browser_info_label.setWordWrap(True)
         self.browser_info_label.setStyleSheet("color: #64748b; font-size: 11px;")
 
-
         self.rate_limit_label = QLabel("İndirme hızı sınırı:")
 
         self.rate_limit_combo = NoWheelComboBox()
@@ -397,7 +401,9 @@ class MainWindow(QMainWindow):
             "İndirme sırasında kullanılabilecek azami ağ hızını belirler.\n"
             "Gerçek hız bağlantıya ve kaynağa göre daha düşük olabilir."
         )
-        self.rate_limit_combo.currentIndexChanged.connect(self._on_rate_limit_combo_changed)
+        self.rate_limit_combo.currentIndexChanged.connect(
+            self._on_rate_limit_combo_changed
+        )
         configure_combo_box(self.rate_limit_combo)
 
         self.custom_rate_limit_container = QWidget()
@@ -411,21 +417,23 @@ class MainWindow(QMainWindow):
         self.custom_rate_limit_spin.setDecimals(2)
         self.custom_rate_limit_spin.setSingleStep(0.5)
         self.custom_rate_limit_spin.setValue(2.5)
-        self.custom_rate_limit_spin.valueChanged.connect(lambda _: self._save_current_settings())
+        self.custom_rate_limit_spin.valueChanged.connect(
+            lambda _: self._save_current_settings()
+        )
 
         self.custom_rate_limit_unit_combo = NoWheelComboBox()
         self.custom_rate_limit_unit_combo.setObjectName("customRateLimitUnitCombo")
         self.custom_rate_limit_unit_combo.addItems(["MB/sn", "KB/sn"])
-        self.custom_rate_limit_unit_combo.currentTextChanged.connect(self._on_custom_unit_changed)
+        self.custom_rate_limit_unit_combo.currentTextChanged.connect(
+            self._on_custom_unit_changed
+        )
         configure_combo_box(self.custom_rate_limit_unit_combo)
 
         custom_layout.addWidget(self.custom_rate_limit_spin)
         custom_layout.addWidget(self.custom_rate_limit_unit_combo)
         self.custom_rate_limit_container.setVisible(False)
 
-        self.playlist_checkbox = QCheckBox(
-            "Oynatma listesinin tamamını indir"
-        )
+        self.playlist_checkbox = QCheckBox("Oynatma listesinin tamamını indir")
         self.playlist_checkbox.setObjectName("playlistCheckBox")
         self.playlist_card = OptionCard(
             self.playlist_checkbox,
@@ -603,12 +611,16 @@ class MainWindow(QMainWindow):
         elif self._current_metadata is None:
             self.download_button.setText("Önce bağlantıyı inceleyin")
             self.download_button.setEnabled(False)
-            self.download_button.setToolTip("İndirmeye başlamadan önce bir bağlantı girin ve 'İncele' düğmesine basın.")
+            self.download_button.setToolTip(
+                "İndirmeye başlamadan önce bir bağlantı girin ve 'İncele' düğmesine basın."
+            )
             self.cancel_button.setEnabled(False)
         else:
             self.download_button.setText("İndirmeyi Başlat")
             self.download_button.setEnabled(True)
-            self.download_button.setToolTip("İçeriği seçilen kalite ve konumda indirmek için tıklayın.")
+            self.download_button.setToolTip(
+                "İçeriği seçilen kalite ve konumda indirmek için tıklayın."
+            )
             self.cancel_button.setEnabled(False)
 
     def _on_url_changed(self) -> None:
@@ -720,7 +732,9 @@ class MainWindow(QMainWindow):
         self._preferred_profile = meta.session_profile
         self._preferred_impersonation = meta.preferred_impersonation
         self._active_session_method = meta.session_method
-        self._active_cookie_file_path = str(meta.cookie_file_path) if meta.cookie_file_path else None
+        self._active_cookie_file_path = (
+            str(meta.cookie_file_path) if meta.cookie_file_path else None
+        )
         self.preview_frame.show()
 
         if meta.platform_type in (
@@ -749,7 +763,8 @@ class MainWindow(QMainWindow):
 
         if (
             meta.is_playlist
-            and meta.platform_type in (
+            and meta.platform_type
+            in (
                 PlatformType.INSTAGRAM_POST,
                 PlatformType.INSTAGRAM_REEL,
                 PlatformType.TWITTER_POST,
@@ -771,12 +786,14 @@ class MainWindow(QMainWindow):
             for h in meta.available_heights:
                 self.quality_combo.addItem(f"{h}p'ye kadar")
         else:
-            self.quality_combo.addItems([
-                "1080p'ye kadar",
-                "720p'ye kadar",
-                "480p'ye kadar",
-                "360p'ye kadar",
-            ])
+            self.quality_combo.addItems(
+                [
+                    "1080p'ye kadar",
+                    "720p'ye kadar",
+                    "480p'ye kadar",
+                    "360p'ye kadar",
+                ]
+            )
 
         find_idx = self.quality_combo.findText(current_sel)
         if find_idx < 0 and current_sel:
@@ -820,7 +837,11 @@ class MainWindow(QMainWindow):
         meta.audio_codec = info.get("selected_acodec", "")
         meta.estimated_size_bytes = info.get("estimated_size_bytes", 0)
 
-        max_q = f"{meta.maximum_available_height}p" if meta.maximum_available_height else "Bilinmiyor"
+        max_q = (
+            f"{meta.maximum_available_height}p"
+            if meta.maximum_available_height
+            else "Bilinmiyor"
+        )
         sel_q = meta.selected_resolution
         size_str = info.get("size_display_text", "")
         out_codec = info.get("output_codec_text", "MP4")
@@ -828,7 +849,8 @@ class MainWindow(QMainWindow):
         if meta.is_playlist:
             p_count = meta.playlist_count if meta.playlist_count else "Bilinmiyor"
             if (
-                meta.platform_type in (
+                meta.platform_type
+                in (
                     PlatformType.INSTAGRAM_POST,
                     PlatformType.INSTAGRAM_REEL,
                     PlatformType.TWITTER_POST,
@@ -839,7 +861,9 @@ class MainWindow(QMainWindow):
                 and meta.playlist_count
                 and meta.playlist_count > 1
             ):
-                base_text = f"Bu gönderide {meta.playlist_count} indirilebilir video var."
+                base_text = (
+                    f"Bu gönderide {meta.playlist_count} indirilebilir video var."
+                )
             else:
                 base_text = f"Oynatma Listesi ({p_count} İçerik) • {size_str}"
         else:
@@ -859,10 +883,14 @@ class MainWindow(QMainWindow):
 
         if self._story_notice:
             self.meta_badges_label.setText(f"ℹ️ {self._story_notice}")
-            self.meta_badges_label.setStyleSheet("color: #92400e; font-size: 12px; font-weight: 600;")
+            self.meta_badges_label.setStyleSheet(
+                "color: #92400e; font-size: 12px; font-weight: 600;"
+            )
         else:
             self.meta_badges_label.setText(base_text)
-            self.meta_badges_label.setStyleSheet("color: #2563eb; font-size: 13px; font-weight: 600;")
+            self.meta_badges_label.setStyleSheet(
+                "color: #2563eb; font-size: 13px; font-weight: 600;"
+            )
 
     def _on_story_notice(self, notice: str) -> None:
         """Hikâye URL bilgi notunu saklar; meta_badges_label'a ekler."""
@@ -922,7 +950,9 @@ class MainWindow(QMainWindow):
         if is_auth:
             dlg = SessionRetryDialog(
                 title="Oturum Doğrulaması Gerekebilir",
-                message=error if error else "Bu içeriği görüntülemek için tarayıcı oturumu gerekebilir.",
+                message=error
+                if error
+                else "Bu içeriği görüntülemek için tarayıcı oturumu gerekebilir.",
                 platform_name=get_platform_badge_text(platform),
                 parent=self,
             )
@@ -945,8 +975,6 @@ class MainWindow(QMainWindow):
             self,
         ).exec()
 
-
-
     def _on_metadata_finished(self) -> None:
         self._metadata_thread = None
         self._metadata_worker = None
@@ -956,7 +984,9 @@ class MainWindow(QMainWindow):
             self._try_finish_close()
             return
 
-        if getattr(self, "_is_queue_active", False) and getattr(self, "_pending_queue_download_item_id", None):
+        if getattr(self, "_is_queue_active", False) and getattr(
+            self, "_pending_queue_download_item_id", None
+        ):
             item_id = self._pending_queue_download_item_id
             meta = self._pending_queue_metadata
             self._pending_queue_download_item_id = None
@@ -964,7 +994,6 @@ class MainWindow(QMainWindow):
             item = next((x for x in self._queue_items if x.id == item_id), None)
             if item and meta:
                 self._start_queue_download(item, meta)
-
 
     def _on_quality_changed(self) -> None:
         self._save_current_settings()
@@ -1003,7 +1032,10 @@ class MainWindow(QMainWindow):
                 self,
                 [("yes", "Evet", True), ("no", "Hayır", False)],
             )
-            if dlg.exec() == QDialog.DialogCode.Accepted and dlg.clicked_button_id == "yes":
+            if (
+                dlg.exec() == QDialog.DialogCode.Accepted
+                and dlg.clicked_button_id == "yes"
+            ):
                 try:
                     folder_path.mkdir(parents=True, exist_ok=True)
                 except OSError as exc:
@@ -1034,7 +1066,8 @@ class MainWindow(QMainWindow):
             self.media_combo, self.settings.get("media_type", "Video (MP4)")
         )
         set_combo_value(
-            self.quality_combo, self.settings.get("quality", "En iyi kullanılabilir kalite")
+            self.quality_combo,
+            self.settings.get("quality", "En iyi kullanılabilir kalite"),
         )
         self.playlist_checkbox.setChecked(False)
         self.auto_open_checkbox.setChecked(
@@ -1093,7 +1126,9 @@ class MainWindow(QMainWindow):
         is_custom = data == "custom"
         self.custom_rate_limit_container.setVisible(is_custom)
         if is_custom:
-            self._update_custom_spin_limits(self.custom_rate_limit_unit_combo.currentText())
+            self._update_custom_spin_limits(
+                self.custom_rate_limit_unit_combo.currentText()
+            )
         self._save_current_settings()
 
     def _on_custom_unit_changed(self, unit: str) -> None:
@@ -1141,18 +1176,24 @@ class MainWindow(QMainWindow):
             # to prevent it from being required when the app starts.
             browser_method = "auto"
 
-        save_settings({
-            "output_dir": self.folder_input.text().strip(),
-            "media_type": self.media_combo.currentText(),
-            "quality": self.quality_combo.currentText(),
-            "auto_open_folder": self.auto_open_checkbox.isChecked(),
-            "rate_limit_bps": self.get_current_rate_limit_bps(),
-            "browser_method": browser_method,
-        })
+        save_settings(
+            {
+                "output_dir": self.folder_input.text().strip(),
+                "media_type": self.media_combo.currentText(),
+                "quality": self.quality_combo.currentText(),
+                "auto_open_folder": self.auto_open_checkbox.isChecked(),
+                "rate_limit_bps": self.get_current_rate_limit_bps(),
+                "browser_method": browser_method,
+            }
+        )
 
     def _choose_folder(self) -> None:
         current_dir = self.folder_input.text().strip()
-        start_dir = current_dir if Path(current_dir).exists() else str(Path.home() / "Downloads")
+        start_dir = (
+            current_dir
+            if Path(current_dir).exists()
+            else str(Path.home() / "Downloads")
+        )
         folder = QFileDialog.getExistingDirectory(
             self,
             "İndirme Klasörü Seç",
@@ -1168,7 +1209,9 @@ class MainWindow(QMainWindow):
         self.quality_combo.setEnabled(not is_audio)
         if is_audio:
             self.quality_label.setText("Ses kalitesi:")
-            self.quality_combo.setToolTip("MP3 formatı için 192 kbps sabit ses kalitesi kullanılır.")
+            self.quality_combo.setToolTip(
+                "MP3 formatı için 192 kbps sabit ses kalitesi kullanılır."
+            )
         else:
             self.quality_label.setText("Video kalitesi:")
             self.quality_combo.setToolTip("Video çözünürlük üst sınırını seçin.")
@@ -1179,7 +1222,9 @@ class MainWindow(QMainWindow):
 
     def _paste_url(self) -> None:
         if not self.url_input.isEnabled():
-            self.status_label.setText("Devam eden işlem tamamlanmadan bağlantı değiştirilemez.")
+            self.status_label.setText(
+                "Devam eden işlem tamamlanmadan bağlantı değiştirilemez."
+            )
             return
 
         import re
@@ -1198,7 +1243,7 @@ class MainWindow(QMainWindow):
             self.url_input.setText(url)
             self.status_label.setText("Bağlantı panodan yapıştırıldı.")
         else:
-            url_pattern = re.compile(r'https?://[^\s]+')
+            url_pattern = re.compile(r"https?://[^\s]+")
             if url_pattern.search(text):
                 self.status_label.setText("Bu bağlantı henüz desteklenmiyor.")
             else:
@@ -1206,6 +1251,7 @@ class MainWindow(QMainWindow):
 
     def _check_clipboard_on_startup(self) -> None:
         from src.utils import extract_supported_url_from_text
+
         clipboard = QApplication.clipboard()
         text = clipboard.text().strip()
         if not text:
@@ -1224,7 +1270,8 @@ class MainWindow(QMainWindow):
 
     def _show_dependency_status(self) -> None:
         from shiboken6 import isValid
-        if getattr(self, '_is_closing', False) or not isValid(self):
+
+        if getattr(self, "_is_closing", False) or not isValid(self):
             return
 
         for line in get_environment_log_lines():
@@ -1280,7 +1327,10 @@ class MainWindow(QMainWindow):
                 self,
                 [("yes", "Evet", True), ("no", "Hayır", False)],
             )
-            if dlg.exec() == QDialog.DialogCode.Accepted and dlg.clicked_button_id == "yes":
+            if (
+                dlg.exec() == QDialog.DialogCode.Accepted
+                and dlg.clicked_button_id == "yes"
+            ):
                 try:
                     output_dir.mkdir(parents=True, exist_ok=True)
                 except OSError as exc:
@@ -1303,7 +1353,10 @@ class MainWindow(QMainWindow):
                 self,
                 [("yes", "Devam Et", True), ("no", "İptal", False)],
             )
-            if dlg.exec() != QDialog.DialogCode.Accepted or dlg.clicked_button_id != "yes":
+            if (
+                dlg.exec() != QDialog.DialogCode.Accepted
+                or dlg.clicked_button_id != "yes"
+            ):
                 return
 
         download_url = url
@@ -1318,7 +1371,12 @@ class MainWindow(QMainWindow):
             return
         elif self._current_metadata and self._current_metadata.successful_request_url:
             download_url = self._current_metadata.successful_request_url
-        elif self._current_metadata and self._current_metadata.webpage_url and detect_platform_type(self._current_metadata.webpage_url) != PlatformType.UNKNOWN:
+        elif (
+            self._current_metadata
+            and self._current_metadata.webpage_url
+            and detect_platform_type(self._current_metadata.webpage_url)
+            != PlatformType.UNKNOWN
+        ):
             download_url = self._current_metadata.webpage_url
 
         media_type = self.media_combo.currentText()
@@ -1326,10 +1384,27 @@ class MainWindow(QMainWindow):
         playlist = self.playlist_checkbox.isChecked()
 
         ext = "mp3" if ("MP3" in media_type or "Ses" in media_type) else "mp4"
-        raw_title = self._current_metadata.title if (self._current_metadata and self._current_metadata.title) else "Video"
+        raw_title = (
+            self._current_metadata.title
+            if (self._current_metadata and self._current_metadata.title)
+            else "Video"
+        )
         clean_title = sanitize_filename(raw_title)
-        if clean_title.lower() in {"manifest", "master", "playlist", "index", "chunklist", ""}:
-            clean_title = "Kick Videosu" if (platform_now == PlatformType.KICK_VIDEO or "kick.com" in url.lower()) else "Video"
+        if clean_title.lower() in {
+            "manifest",
+            "master",
+            "playlist",
+            "index",
+            "chunklist",
+            "",
+        }:
+            clean_title = (
+                "Kick Videosu"
+                if (
+                    platform_now == PlatformType.KICK_VIDEO or "kick.com" in url.lower()
+                )
+                else "Video"
+            )
 
         initial_target_path = output_dir / f"{clean_title}.{ext}"
 
@@ -1338,27 +1413,48 @@ class MainWindow(QMainWindow):
 
         if self._current_metadata and self._current_metadata.is_playlist and playlist:
             playlist_name = clean_title
-            if not playlist_name or playlist_name.lower() in {"video", "kick videosu", "manifest", "master", "playlist", "index", "chunklist"}:
+            if not playlist_name or playlist_name.lower() in {
+                "video",
+                "kick videosu",
+                "manifest",
+                "master",
+                "playlist",
+                "index",
+                "chunklist",
+            }:
                 playlist_name = "Playlist"
 
             target_override = get_unique_directory_path(output_dir / playlist_name)
         else:
             # Single video: always compute unique path to avoid overwriting completed files.
-            # If the initial path doesn't exist, get_unique_filepath returns it unchanged.
-            target_override = get_unique_filepath(initial_target_path)
+            # If the initial path doesn't exist, reserve_unique_media_path returns it unchanged.
+            target_override = reserve_unique_media_path(
+                initial_target_path.parent,
+                initial_target_path.stem,
+                initial_target_path.suffix,
+            )
+            release_reserved_path(
+                target_override
+            )  # Just release it since DownloadWorker will re-reserve it
 
         if target_override and target_override != initial_target_path:
-            self._append_log(f"Çakışma önlendi, otomatik benzersiz dosya adı oluşturuldu: {target_override.name}")
+            self._append_log(
+                f"Çakışma önlendi, otomatik benzersiz dosya adı oluşturuldu: {target_override.name}"
+            )
         elif target_override:
             self._append_log(f"Hedef dosya adı belirlendi: {target_override.name}")
         else:
-            self._append_log("Oynatma listesi modu: dosya adları yt-dlp tarafından belirleniyor.")
+            self._append_log(
+                "Oynatma listesi modu: dosya adları yt-dlp tarafından belirleniyor."
+            )
 
         self._force_redownload_once = False
 
         current_rate_limit = self.get_current_rate_limit_bps()
         if current_rate_limit and current_rate_limit > 0:
-            self._append_log(f"İndirme hızı sınırı: {format_rate_limit(current_rate_limit)}")
+            self._append_log(
+                f"İndirme hızı sınırı: {format_rate_limit(current_rate_limit)}"
+            )
 
         request = DownloadRequest(
             url=download_url,
@@ -1421,7 +1517,9 @@ class MainWindow(QMainWindow):
 
     def _retry_download(self) -> None:
         if self._download_worker is not None or self._metadata_worker is not None:
-            self.status_label.setText("Devam eden işlem tamamlanmadan yeniden deneme başlatılamaz.")
+            self.status_label.setText(
+                "Devam eden işlem tamamlanmadan yeniden deneme başlatılamaz."
+            )
             return
 
         if not self._last_failed_request:
@@ -1439,19 +1537,23 @@ class MainWindow(QMainWindow):
 
     def _retry_with_session(self) -> None:
         if self._download_worker is not None or self._metadata_worker is not None:
-            self.status_label.setText("Devam eden işlem tamamlanmadan yeniden deneme başlatılamaz.")
+            self.status_label.setText(
+                "Devam eden işlem tamamlanmadan yeniden deneme başlatılamaz."
+            )
             return
 
         if not self._last_failed_request:
             return
 
         if self._last_failed_request.browser == "auto":
-            self.status_label.setText("Kullanılabilir bir tarayıcı oturumu bulunamadı veya oturum doğrulanamadı.")
+            self.status_label.setText(
+                "Kullanılabilir bir tarayıcı oturumu bulunamadı veya oturum doğrulanamadı."
+            )
             AppMessageDialog(
                 "Oturum Hatası",
                 "Kullanılabilir bir tarayıcı oturumu bulunamadı veya oturum doğrulanamadı.",
                 "error",
-                self
+                self,
             ).exec()
             return
 
@@ -1500,13 +1602,18 @@ class MainWindow(QMainWindow):
         pct = details.get("percent", 0)
 
         if phase == "merging_video_audio":
-            self.status_label.setText(f"Video MP4 olarak hazırlanıyor: %{pct}" if pct > 0 else "Video ve ses birleştiriliyor…")
+            self.status_label.setText(
+                f"Video MP4 olarak hazırlanıyor: %{pct}"
+                if pct > 0
+                else "Video ve ses birleştiriliyor…"
+            )
             self.stats_label.setText("Hız: Dosya işleniyor • Kalan: Hesaplanıyor")
             return
 
         is_tiktok = (
             self._current_metadata is not None
-            and self._current_metadata.platform_type in (
+            and self._current_metadata.platform_type
+            in (
                 PlatformType.TIKTOK_VIDEO,
                 PlatformType.TIKTOK_SHORT_LINK,
                 PlatformType.TIKTOK_PROFILE,
@@ -1521,16 +1628,26 @@ class MainWindow(QMainWindow):
 
         if is_kick:
             if frag_cnt and frag_idx:
-                header_text = f"HLS parçaları indiriliyor… (Parça {frag_idx} / {frag_cnt})"
+                header_text = (
+                    f"HLS parçaları indiriliyor… (Parça {frag_idx} / {frag_cnt})"
+                )
             elif downloaded > 0:
-                header_text = f"HLS parçaları indiriliyor… ({format_bytes(downloaded)} indirildi)"
+                header_text = (
+                    f"HLS parçaları indiriliyor… ({format_bytes(downloaded)} indirildi)"
+                )
             else:
                 header_text = "HLS parçaları indiriliyor…"
         else:
             phase_texts = {
-                "downloading": "TikTok videosu indiriliyor" if is_tiktok else "İndiriliyor",
-                "video_downloading": "TikTok videosu indiriliyor" if is_tiktok else "Video indiriliyor",
-                "audio_downloading": "TikTok sesi indiriliyor" if is_tiktok else "Ses indiriliyor",
+                "downloading": "TikTok videosu indiriliyor"
+                if is_tiktok
+                else "İndiriliyor",
+                "video_downloading": "TikTok videosu indiriliyor"
+                if is_tiktok
+                else "Video indiriliyor",
+                "audio_downloading": "TikTok sesi indiriliyor"
+                if is_tiktok
+                else "Ses indiriliyor",
                 "merging_video_audio": "Video ve ses birleştiriliyor",
                 "preparing_mp3": "MP3 dosyası hazırlanıyor",
                 "finished": "Dosya hazırlanıyor",
@@ -1542,17 +1659,22 @@ class MainWindow(QMainWindow):
         if total > 0:
             dl_str = format_bytes(downloaded)
             tot_str = format_bytes(total)
-            self.stats_label.setText(f"{dl_str} / {tot_str} • Hız: {speed} • Kalan: {eta}")
+            self.stats_label.setText(
+                f"{dl_str} / {tot_str} • Hız: {speed} • Kalan: {eta}"
+            )
         elif frag_cnt and frag_idx:
             dl_str = format_bytes(downloaded) if downloaded > 0 else ""
             size_part = f" • {dl_str}" if dl_str else ""
-            self.stats_label.setText(f"Parça {frag_idx} / {frag_cnt}{size_part} • Hız: {speed} • Kalan: {eta}")
+            self.stats_label.setText(
+                f"Parça {frag_idx} / {frag_cnt}{size_part} • Hız: {speed} • Kalan: {eta}"
+            )
         elif downloaded > 0:
             dl_str = format_bytes(downloaded)
-            self.stats_label.setText(f"{dl_str} indirildi • Hız: {speed} • Kalan: {eta}")
+            self.stats_label.setText(
+                f"{dl_str} indirildi • Hız: {speed} • Kalan: {eta}"
+            )
         else:
             self.stats_label.setText(f"Hız: {speed} • Kalan: {eta}")
-
 
     def _on_download_succeeded(self, filename: str) -> None:
         self._last_failed_request = None
@@ -1562,7 +1684,9 @@ class MainWindow(QMainWindow):
         if os.path.isabs(filename):
             self._download_succeeded_path = filename
         else:
-            self._download_succeeded_path = str(Path(self.folder_input.text().strip()) / filename)
+            self._download_succeeded_path = str(
+                Path(self.folder_input.text().strip()) / filename
+            )
 
     def _on_browser_combo_changed(self, index: int) -> None:
         data = self.browser_combo.itemData(index)
@@ -1577,13 +1701,14 @@ class MainWindow(QMainWindow):
 
             if path:
                 from src.browser_sessions import validate_cookie_file
+
                 is_valid, err_msg = validate_cookie_file(path)
                 if not is_valid:
                     AppMessageDialog(
                         "Geçersiz Çerez Dosyası",
                         f"Seçilen dosya doğrulanamadı:\n{err_msg}",
                         "error",
-                        self
+                        self,
                     ).exec()
                     # Revert selection
                     self.browser_combo.blockSignals(True)
@@ -1599,7 +1724,9 @@ class MainWindow(QMainWindow):
                 self._restore_previous_browser_combo_selection()
                 self.browser_combo.blockSignals(False)
         else:
-            self._active_session_method = SessionMethod(data) if data else SessionMethod.NONE
+            self._active_session_method = (
+                SessionMethod(data) if data else SessionMethod.NONE
+            )
             self._active_cookie_file_path = None
             self._save_current_settings()
 
@@ -1614,7 +1741,9 @@ class MainWindow(QMainWindow):
         self.status_label.setText("İndirme başarısız.")
         self.stats_label.setText("")
         self._set_ui_downloading(False)
-        self._append_log(error_msg if error_msg.startswith("Hata:") else f"Hata: {error_msg}")
+        self._append_log(
+            error_msg if error_msg.startswith("Hata:") else f"Hata: {error_msg}"
+        )
 
         if self._download_worker:
             self._last_failed_request = self._download_worker.request
@@ -1638,10 +1767,16 @@ class MainWindow(QMainWindow):
                 self._check_for_updates(user_initiated=True)
             return
 
-        if is_authentication_error(error_msg) or is_chromium_encryption_error(error_msg) or "oturum" in error_msg.lower():
+        if (
+            is_authentication_error(error_msg)
+            or is_chromium_encryption_error(error_msg)
+            or "oturum" in error_msg.lower()
+        ):
             url = self.url_input.text().strip()
             platform = detect_platform_type(url)
-            dlg = SessionFailedDialog(platform_name=platform.value, failure_reason=error_msg, parent=self)
+            dlg = SessionFailedDialog(
+                platform_name=platform.value, failure_reason=error_msg, parent=self
+            )
             dlg.exec()
             if dlg.clicked_button_id == "retry":
                 self._preferred_profile = None
@@ -1661,7 +1796,9 @@ class MainWindow(QMainWindow):
                         if self.browser_combo.itemData(i) == new_mode:
                             self.browser_combo.setCurrentIndex(i)
                             break
-                    self.settings["convert_hevc_to_h264"] = adv.is_convert_hevc_enabled()
+                    self.settings["convert_hevc_to_h264"] = (
+                        adv.is_convert_hevc_enabled()
+                    )
                     save_settings(self.settings)
             return
 
@@ -1675,7 +1812,7 @@ class MainWindow(QMainWindow):
                 ("retry_session", "Oturumla Tekrar Dene", False),
                 ("edit_url", "Bağlantıyı Düzenle", False),
                 ("close", "Kapat", False),
-            ]
+            ],
         )
         dlg.exec()
 
@@ -1702,10 +1839,10 @@ class MainWindow(QMainWindow):
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.clicked_button_id == "yes":
             try:
                 from src.utils import hidden_subprocess_kwargs
+
                 kwargs = hidden_subprocess_kwargs(shell=False)
                 subprocess.Popen(
-                    ["cmd", "/c", "start", "cmd", "/k", WINGET_CMD],
-                    **kwargs
+                    ["cmd", "/c", "start", "cmd", "/k", WINGET_CMD], **kwargs
                 )
                 self._append_log(f"Firefox kurulum komutu başlatıldı: {WINGET_CMD}")
             except Exception as exc:  # noqa: BLE001
@@ -1715,7 +1852,6 @@ class MainWindow(QMainWindow):
                     "error",
                     self,
                 ).exec()
-
 
     def _on_download_cancelled(self) -> None:
         self.progress_bar.setValue(0)
@@ -1784,7 +1920,11 @@ class MainWindow(QMainWindow):
                     dlg.exec()
                     if dlg.action_choice == "open_folder":
                         self._open_current_folder()
-                    elif dlg.action_choice == "open_file" and filepath and Path(filepath).exists():
+                    elif (
+                        dlg.action_choice == "open_file"
+                        and filepath
+                        and Path(filepath).exists()
+                    ):
                         QDesktopServices.openUrl(QUrl.fromLocalFile(filepath))
                 self._reset_after_successful_download()
 
@@ -1813,7 +1953,6 @@ class MainWindow(QMainWindow):
         self.browser_combo.setCurrentIndex(0)
         self._preferred_browser = None
         self._preferred_profile = None
-
 
         self._download_succeeded_result = None
         self._download_succeeded_path = ""
@@ -1894,7 +2033,7 @@ class MainWindow(QMainWindow):
             AppMessageDialog(
                 title="İşlem Devam Ediyor",
                 message="Şu anda aktif bir indirme veya inceleme işlemi var. Lütfen önce onun bitmesini bekleyin.",
-                parent=self
+                parent=self,
             ).exec()
             return
 
@@ -1937,9 +2076,7 @@ class MainWindow(QMainWindow):
         self.update_button.setText("Güncellemeyi kontrol et")
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
-        if event.mimeData().hasText() and self._is_valid_url(
-            event.mimeData().text()
-        ):
+        if event.mimeData().hasText() and self._is_valid_url(event.mimeData().text()):
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent) -> None:
@@ -1954,7 +2091,12 @@ class MainWindow(QMainWindow):
         if for_shutdown:
             self._shutdown_in_progress = True
 
-        for w_attr in ("_history_worker", "_update_worker", "_metadata_worker", "_download_worker"):
+        for w_attr in (
+            "_history_worker",
+            "_update_worker",
+            "_metadata_worker",
+            "_download_worker",
+        ):
             worker = getattr(self, w_attr, None)
             if worker is not None and hasattr(worker, "cancel"):
                 try:
@@ -1962,7 +2104,12 @@ class MainWindow(QMainWindow):
                 except Exception:  # noqa: BLE001, S110
                     pass
 
-        for attr in ("_history_thread", "_update_thread", "_metadata_thread", "_download_thread"):
+        for attr in (
+            "_history_thread",
+            "_update_thread",
+            "_metadata_thread",
+            "_download_thread",
+        ):
             thread = getattr(self, attr, None)
             if thread is not None and not isinstance(thread, str):
                 try:
@@ -1980,14 +2127,26 @@ class MainWindow(QMainWindow):
         if not self._queue_dialog:
             from src.queue_dialog import DownloadQueueDialog
 
-            default_folder = Path(self.folder_input.text().strip()) if self.folder_input.text().strip() else Path.home() / "Downloads"
-            self._queue_dialog = DownloadQueueDialog(default_folder=default_folder, parent=self)
+            default_folder = (
+                Path(self.folder_input.text().strip())
+                if self.folder_input.text().strip()
+                else Path.home() / "Downloads"
+            )
+            self._queue_dialog = DownloadQueueDialog(
+                default_folder=default_folder, parent=self
+            )
             self._queue_dialog.urls_added.connect(self._on_queue_urls_added)
-            self._queue_dialog.current_url_added.connect(self._on_queue_current_url_added)
+            self._queue_dialog.current_url_added.connect(
+                self._on_queue_current_url_added
+            )
             self._queue_dialog.start_queue_requested.connect(self._start_queue)
             self._queue_dialog.stop_queue_requested.connect(self._stop_queue)
-            self._queue_dialog.delete_selected_requested.connect(self._delete_queue_item)
-            self._queue_dialog.clear_completed_requested.connect(self._clear_completed_queue)
+            self._queue_dialog.delete_selected_requested.connect(
+                self._delete_queue_item
+            )
+            self._queue_dialog.clear_completed_requested.connect(
+                self._clear_completed_queue
+            )
             self._queue_dialog.retry_failed_requested.connect(self._retry_failed_queue)
 
         self._queue_dialog.refresh_table(self._queue_items)
@@ -2007,9 +2166,19 @@ class MainWindow(QMainWindow):
         added_count = 0
         media_type = media_type or self.media_combo.currentText()
         quality = quality or self.quality_combo.currentText()
-        playlist = playlist if playlist is not None else self.playlist_checkbox.isChecked()
-        output_dir = output_dir or (Path(self.folder_input.text().strip()) if self.folder_input.text().strip() else Path.home() / "Downloads")
-        rate_limit_bps = self.get_current_rate_limit_bps() if rate_limit_bps is ... else rate_limit_bps
+        playlist = (
+            playlist if playlist is not None else self.playlist_checkbox.isChecked()
+        )
+        output_dir = output_dir or (
+            Path(self.folder_input.text().strip())
+            if self.folder_input.text().strip()
+            else Path.home() / "Downloads"
+        )
+        rate_limit_bps = (
+            self.get_current_rate_limit_bps()
+            if rate_limit_bps is ...
+            else rate_limit_bps
+        )
         browser = self.browser_combo.currentData()
 
         import uuid
@@ -2049,11 +2218,26 @@ class MainWindow(QMainWindow):
             self._queue_dialog.refresh_table(self._queue_items)
 
         if added_count == 0 and urls:
-            AppMessageDialog("Bilgi", "Bu bağlantı aynı ayarlarla zaten kuyrukta bulunuyor.", "info", self._queue_dialog or self).exec()
+            AppMessageDialog(
+                "Bilgi",
+                "Bu bağlantı aynı ayarlarla zaten kuyrukta bulunuyor.",
+                "info",
+                self._queue_dialog or self,
+            ).exec()
         elif added_count == 0:
-            AppMessageDialog("Hata", "Desteklenen bir bağlantı bulunamadı.", "error", self._queue_dialog or self).exec()
+            AppMessageDialog(
+                "Hata",
+                "Desteklenen bir bağlantı bulunamadı.",
+                "error",
+                self._queue_dialog or self,
+            ).exec()
         elif added_count < len(urls):
-            AppMessageDialog("Bilgi", f"{added_count} bağlantı kuyruğa eklendi. {len(urls) - added_count} bağlantı atlandı veya desteklenmedi.", "info", self._queue_dialog or self).exec()
+            AppMessageDialog(
+                "Bilgi",
+                f"{added_count} bağlantı kuyruğa eklendi. {len(urls) - added_count} bağlantı atlandı veya desteklenmedi.",
+                "info",
+                self._queue_dialog or self,
+            ).exec()
 
     def _on_queue_current_url_added(
         self,
@@ -2077,20 +2261,37 @@ class MainWindow(QMainWindow):
                 quality=quality,
                 playlist=playlist,
                 output_dir=output_dir,
-                rate_limit_bps=self.get_current_rate_limit_bps() if rate_limit_bps is ... else rate_limit_bps,
+                rate_limit_bps=self.get_current_rate_limit_bps()
+                if rate_limit_bps is ...
+                else rate_limit_bps,
             )
         else:
-            AppMessageDialog("Hata", "Desteklenen bir bağlantı bulunamadı.", "error", self._queue_dialog or self).exec()
+            AppMessageDialog(
+                "Hata",
+                "Desteklenen bir bağlantı bulunamadı.",
+                "error",
+                self._queue_dialog or self,
+            ).exec()
 
     def _start_queue(self) -> None:
         if self._download_thread is not None or self._metadata_thread is not None:
             if not self._is_queue_active:
-                AppMessageDialog("Hata", "Devam eden indirme tamamlanmadan kuyruk başlatılamaz.", "error", self._queue_dialog or self).exec()
+                AppMessageDialog(
+                    "Hata",
+                    "Devam eden indirme tamamlanmadan kuyruk başlatılamaz.",
+                    "error",
+                    self._queue_dialog or self,
+                ).exec()
             return
 
         waiting = any(item.status == "Bekliyor" for item in self._queue_items)
         if not waiting:
-            AppMessageDialog("Bilgi", "Kuyrukta indirilecek bağlantı bulunmuyor.", "info", self._queue_dialog or self).exec()
+            AppMessageDialog(
+                "Bilgi",
+                "Kuyrukta indirilecek bağlantı bulunmuyor.",
+                "info",
+                self._queue_dialog or self,
+            ).exec()
             return
 
         self._is_queue_active = True
@@ -2170,7 +2371,11 @@ class MainWindow(QMainWindow):
         self._pending_queue_metadata = None
         if item:
             item.status = "Başarısız"
-            item.error_msg = clean_log_message(error_msg).split("\n")[0] if error_msg else "Bilinmeyen Hata"
+            item.error_msg = (
+                clean_log_message(error_msg).split("\n")[0]
+                if error_msg
+                else "Bilinmeyen Hata"
+            )
             if self._queue_dialog:
                 self._queue_dialog.refresh_table(self._queue_items)
 
@@ -2178,34 +2383,66 @@ class MainWindow(QMainWindow):
         try:
             from src.history import (
                 get_unique_directory_path,
-                get_unique_filepath,
+                release_reserved_path,
+                reserve_unique_media_path,
                 sanitize_filename,
             )
 
             download_url = item.url
             if meta and meta.successful_request_url:
                 download_url = meta.successful_request_url
-            elif meta and meta.webpage_url and detect_platform_type(meta.webpage_url) != PlatformType.UNKNOWN:
+            elif (
+                meta
+                and meta.webpage_url
+                and detect_platform_type(meta.webpage_url) != PlatformType.UNKNOWN
+            ):
                 download_url = meta.webpage_url
 
-            ext = "mp3" if ("MP3" in item.media_type or "Ses" in item.media_type) else "mp4"
+            ext = (
+                "mp3"
+                if ("MP3" in item.media_type or "Ses" in item.media_type)
+                else "mp4"
+            )
             raw_title = meta.title if meta and meta.title else "Video"
             clean_title = sanitize_filename(raw_title)
-            if clean_title.lower() in {"manifest", "master", "playlist", "index", "chunklist", ""}:
+            if clean_title.lower() in {
+                "manifest",
+                "master",
+                "playlist",
+                "index",
+                "chunklist",
+                "",
+            }:
                 clean_title = "Video"
 
             initial_target_path = item.output_dir / f"{clean_title}.{ext}"
 
             if meta and meta.is_playlist and item.playlist:
                 playlist_name = clean_title
-                if not playlist_name or playlist_name.lower() in {"video", "manifest", "master", "playlist", "index", "chunklist"}:
+                if not playlist_name or playlist_name.lower() in {
+                    "video",
+                    "manifest",
+                    "master",
+                    "playlist",
+                    "index",
+                    "chunklist",
+                }:
                     playlist_name = "Playlist"
-                target_override = get_unique_directory_path(item.output_dir / playlist_name)
+                target_override = get_unique_directory_path(
+                    item.output_dir / playlist_name
+                )
             else:
-                target_override = get_unique_filepath(initial_target_path)
+                target_override = reserve_unique_media_path(
+                    initial_target_path.parent,
+                    initial_target_path.stem,
+                    initial_target_path.suffix,
+                )
+                release_reserved_path(target_override)
 
             if item.rate_limit_bps and item.rate_limit_bps > 0:
-                self._append_log(f"Kuyruk hız sınırı: {format_rate_limit(item.rate_limit_bps)}")
+                self._append_log(
+                    f"Kuyruk hız sınırı: {format_rate_limit(item.rate_limit_bps)}"
+                )
 
             request = DownloadRequest(
                 url=download_url,
@@ -2256,7 +2493,11 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # noqa: BLE001
             self._append_log(f"Kuyruk indirme başlatma hatası: {exc}")
             item.status = "Başarısız"
-            item.error_msg = clean_log_message(str(exc)).split("\n")[0] if str(exc) else "Başatılama hatası"
+            item.error_msg = (
+                clean_log_message(str(exc)).split("\n")[0]
+                if str(exc)
+                else "Başatılama hatası"
+            )
             item.progress_percent = 0
             item.progress_text = ""
             if self._queue_dialog:
@@ -2305,7 +2546,11 @@ class MainWindow(QMainWindow):
         item = self._get_active_queue_item()
         if item:
             item.status = "Başarısız"
-            item.error_msg = clean_log_message(error_msg).split("\n")[0] if error_msg else "Bilinmeyen Hata"
+            item.error_msg = (
+                clean_log_message(error_msg).split("\n")[0]
+                if error_msg
+                else "Bilinmeyen Hata"
+            )
             if self._queue_dialog:
                 self._queue_dialog.refresh_table(self._queue_items)
 
@@ -2338,7 +2583,10 @@ class MainWindow(QMainWindow):
     def _get_active_queue_item(self) -> QueueItem | None:
         if getattr(self, "_active_queue_item_id", None):
             for item in self._queue_items:
-                if item.id == self._active_queue_item_id and item.status in ("Analiz ediliyor", "İndiriliyor"):
+                if item.id == self._active_queue_item_id and item.status in (
+                    "Analiz ediliyor",
+                    "İndiriliyor",
+                ):
                     return item
         for item in self._queue_items:
             if item.status in ("Analiz ediliyor", "İndiriliyor"):
@@ -2360,7 +2608,12 @@ class MainWindow(QMainWindow):
         for i, item in enumerate(self._queue_items):
             if item.id == item_id:
                 if item.status in ("Analiz ediliyor", "İndiriliyor"):
-                    AppMessageDialog("Hata", "Aktif kuyruk öğesi silinemez. Önce kuyruğu durdurun.", "error", self._queue_dialog or self).exec()
+                    AppMessageDialog(
+                        "Hata",
+                        "Aktif kuyruk öğesi silinemez. Önce kuyruğu durdurun.",
+                        "error",
+                        self._queue_dialog or self,
+                    ).exec()
                     return
                 self._queue_items.pop(i)
                 break
@@ -2368,7 +2621,9 @@ class MainWindow(QMainWindow):
             self._queue_dialog.refresh_table(self._queue_items)
 
     def _clear_completed_queue(self) -> None:
-        self._queue_items = [item for item in self._queue_items if item.status != "Tamamlandı"]
+        self._queue_items = [
+            item for item in self._queue_items if item.status != "Tamamlandı"
+        ]
         if self._queue_dialog:
             self._queue_dialog.refresh_table(self._queue_items)
 
@@ -2395,7 +2650,11 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._is_closing = True
-        if hasattr(self, '_dep_timer') and self._dep_timer and self._dep_timer.isActive():
+        if (
+            hasattr(self, "_dep_timer")
+            and self._dep_timer
+            and self._dep_timer.isActive()
+        ):
             self._dep_timer.stop()
             try:
                 self._dep_timer.timeout.disconnect()
@@ -2469,7 +2728,9 @@ class MainWindow(QMainWindow):
 
         self._history_thread.start()
 
-    def _on_history_validation_finished(self, total_checked: int, stale_count: int) -> None:
+    def _on_history_validation_finished(
+        self, total_checked: int, stale_count: int
+    ) -> None:
         self._append_log(f"{total_checked} kayıt kontrol edildi.")
         self._append_log(f"{stale_count} eksik kayıt stale olarak işaretlendi.")
         if self._history_thread is not None:
@@ -2493,7 +2754,9 @@ class MainWindow(QMainWindow):
         leftover_files = []
         for p in output_dir.glob("*"):
             name = p.name.lower()
-            if name.startswith(".kolayindir_") or name.endswith((".kolayindir_tmp", ".hevc_temp.mp4")):
+            if name.startswith(".kolayindir_") or name.endswith(
+                (".kolayindir_tmp", ".hevc_temp.mp4")
+            ):
                 leftover_files.append(p)
 
         if leftover_files:
@@ -2508,7 +2771,8 @@ class MainWindow(QMainWindow):
                             cleaned_count += 1
                     except OSError:
                         pass
-                self._append_log(f"Önceki oturumdan kalan {cleaned_count} adet geçici dosya temizlendi.")
+                self._append_log(
+                    f"Önceki oturumdan kalan {cleaned_count} adet geçici dosya temizlendi."
+                )
             elif dlg.clicked_button_id == "open_folder":
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(output_dir)))
-

@@ -38,7 +38,9 @@ from src.utils import (
 )
 
 
-def _fetch_kick_playback_m3u8(uuid: str, headers: dict[str, str]) -> tuple[str | None, int | str | None, str | None]:
+def _fetch_kick_playback_m3u8(
+    uuid: str, headers: dict[str, str]
+) -> tuple[str | None, int | str | None, str | None]:
     """
     Kick yeni playback endpoint'ine POST isteği gönderir.
     En fazla 2 deneme yapar; her denemede 15 sn timeout kullanır.
@@ -78,10 +80,18 @@ def _fetch_kick_playback_m3u8(uuid: str, headers: dict[str, str]) -> tuple[str |
                 # playback_url.vod (MediaTailor SSAI reklam manifesti) KESİNLİKLE fallback olarak kullanılmaz.
                 if vod_session_url:
                     try:
-                        vs_resp = cffi_requests.get(vod_session_url, impersonate="chrome120", headers=headers, timeout=5)
-                        if vs_resp.status_code == 200 and isinstance(vs_resp.json(), dict):
+                        vs_resp = cffi_requests.get(
+                            vod_session_url,
+                            impersonate="chrome120",
+                            headers=headers,
+                            timeout=5,
+                        )
+                        if vs_resp.status_code == 200 and isinstance(
+                            vs_resp.json(), dict
+                        ):
                             candidate_url = vs_resp.json().get("manifestUrl")
                             from src.utils import is_valid_kick_manifest_url
+
                             if is_valid_kick_manifest_url(candidate_url):
                                 return candidate_url, 200, raw_title
                     except Exception:  # noqa: BLE001, S110
@@ -102,7 +112,6 @@ def _fetch_kick_playback_m3u8(uuid: str, headers: dict[str, str]) -> tuple[str |
         return None, "connection_error", None
 
     return None, None, None
-
 
 
 def _fetch_kick_video_metadata(uuid: str, headers: dict[str, str]) -> dict[str, Any]:
@@ -129,7 +138,9 @@ def _fetch_kick_video_metadata(uuid: str, headers: dict[str, str]) -> dict[str, 
         return {}
 
 
-def _extract_formats_from_m3u8(m3u8_url: str, headers: dict[str, str] | None = None) -> dict[str, Any]:
+def _extract_formats_from_m3u8(
+    m3u8_url: str, headers: dict[str, str] | None = None
+) -> dict[str, Any]:
     """
     m3u8 adresinden format bilgilerini çıkarır.
     Önce m3u8 metninden çözünürlükleri anında alır;
@@ -139,19 +150,23 @@ def _extract_formats_from_m3u8(m3u8_url: str, headers: dict[str, str] | None = N
     try:
         from curl_cffi import requests as cffi_requests
 
-        r = cffi_requests.get(m3u8_url, headers=headers or {}, impersonate="chrome120", timeout=3)
+        r = cffi_requests.get(
+            m3u8_url, headers=headers or {}, impersonate="chrome120", timeout=3
+        )
         if r.status_code == 200 and r.text:
             matches = re.findall(r"RESOLUTION=\d+x(\d+)", r.text, re.IGNORECASE)
             if matches:
                 heights = sorted({int(m) for m in matches if int(m) > 0}, reverse=True)
                 for h in heights:
-                    formats.append({
-                        "vcodec": "avc1.4d401f",
-                        "acodec": "mp4a.40.2",
-                        "height": h,
-                        "url": m3u8_url,
-                        "format_id": f"{h}p",
-                    })
+                    formats.append(
+                        {
+                            "vcodec": "avc1.4d401f",
+                            "acodec": "mp4a.40.2",
+                            "height": h,
+                            "url": m3u8_url,
+                            "format_id": f"{h}p",
+                        }
+                    )
                 return {
                     "formats": formats,
                     "height": heights[0],
@@ -163,13 +178,15 @@ def _extract_formats_from_m3u8(m3u8_url: str, headers: dict[str, str] | None = N
 
     # Akış engeli/zaman aşımı durumunda varsayılan Kick VOD kalite kümesini dön
     for h in [1080, 720, 480, 360, 160]:
-        formats.append({
-            "vcodec": "avc1.4d401f",
-            "acodec": "mp4a.40.2",
-            "height": h,
-            "url": m3u8_url,
-            "format_id": f"{h}p",
-        })
+        formats.append(
+            {
+                "vcodec": "avc1.4d401f",
+                "acodec": "mp4a.40.2",
+                "height": h,
+                "url": m3u8_url,
+                "format_id": f"{h}p",
+            }
+        )
     return {
         "formats": formats,
         "height": 1080,
@@ -208,9 +225,10 @@ def _extract_kick_vod(
 
     info_dict: dict[str, Any] = {}
 
-
     # --- Adım 1: Güncel Kick playback-url endpoint'i ---
-    m3u8_url, http_code, raw_title_from_playback = _fetch_kick_playback_m3u8(uuid, headers)
+    m3u8_url, http_code, raw_title_from_playback = _fetch_kick_playback_m3u8(
+        uuid, headers
+    )
 
     if m3u8_url:
         info_dict = _extract_formats_from_m3u8(m3u8_url, headers)
@@ -227,14 +245,17 @@ def _extract_kick_vod(
                 "Video kaldırılmış veya bağlantı yapısı değişmiş olabilir."
             )
         elif http_code == 403:
-            raise ValueError("Kick video akışına erişim reddedildi. Erişim bağlantısı yenilenemedi.")
+            raise ValueError(
+                "Kick video akışına erişim reddedildi. Erişim bağlantısı yenilenemedi."
+            )
         elif http_code == "timeout":
             raise ValueError("Kick sunucusu zamanında yanıt vermedi.")
         elif http_code == "connection_error":
             raise ValueError("Kick sunucusuna bağlanılamadı.")
         else:
-            raise ValueError("Kick’in gerçek VOD bağlantısı alınamadı. Reklam akışının indirilmesini önlemek için işlem durduruldu.")
-
+            raise ValueError(
+                "Kick’in gerçek VOD bağlantısı alınamadı. Reklam akışının indirilmesini önlemek için işlem durduruldu."
+            )
 
     # --- Adım 3: Metadata endpoint (gerekirse başlık/kanal/süre) ---
     meta_raw: dict[str, Any] = {}
@@ -266,9 +287,11 @@ def _extract_kick_vod(
     uploader = (
         info_dict.get("uploader")
         or info_dict.get("_kick_channel")
-        or meta_raw.get("channel", {}).get("slug") if isinstance(meta_raw.get("channel"), dict) else None
-        or meta_raw.get("creator", {}).get("username") if isinstance(meta_raw.get("creator"), dict) else None
-        or channel
+        or meta_raw.get("channel", {}).get("slug")
+        if isinstance(meta_raw.get("channel"), dict)
+        else None or meta_raw.get("creator", {}).get("username")
+        if isinstance(meta_raw.get("creator"), dict)
+        else None or channel
     )
 
     # --- Süre çözümleme ---
@@ -279,13 +302,23 @@ def _extract_kick_vod(
         # Kick metadata endpoint bazen ms, bazen sn döner; >10000 ise ms
         raw_dur = meta_raw["duration"]
         if isinstance(raw_dur, (int, float)):
-            duration_sec = float(raw_dur) / 1000.0 if float(raw_dur) > 10000 else float(raw_dur)
+            duration_sec = (
+                float(raw_dur) / 1000.0 if float(raw_dur) > 10000 else float(raw_dur)
+            )
 
     # --- Thumbnail çözümleme ---
     thumbnail = (
         info_dict.get("thumbnail")
-        or (meta_raw.get("thumbnail", {}).get("src") if isinstance(meta_raw.get("thumbnail"), dict) else None)
-        or (meta_raw.get("thumbnail") if isinstance(meta_raw.get("thumbnail"), str) else None)
+        or (
+            meta_raw.get("thumbnail", {}).get("src")
+            if isinstance(meta_raw.get("thumbnail"), dict)
+            else None
+        )
+        or (
+            meta_raw.get("thumbnail")
+            if isinstance(meta_raw.get("thumbnail"), str)
+            else None
+        )
         or ""
     )
 
@@ -314,7 +347,9 @@ def _extract_kick_vod(
         maximum_available_height=max_height,
         selected_height=selected_height,
         selected_resolution=f"{selected_height}p" if selected_height else "En iyi",
-        selected_extension="mp3" if ("MP3" in media_type or "Ses" in media_type) else "mp4",
+        selected_extension="mp3"
+        if ("MP3" in media_type or "Ses" in media_type)
+        else "mp4",
         video_codec=vcodec,
         audio_codec=acodec,
         platform_type=PlatformType.KICK_VIDEO,
@@ -323,8 +358,6 @@ def _extract_kick_vod(
         available_heights=available_heights,
         available_formats=valid_formats,
     )
-
-
 
 
 def _parse_max_height(formats: list[dict[str, Any]]) -> int | None:
@@ -411,6 +444,7 @@ def _make_impersonate_target(target_name: str) -> Any:
     """yt_dlp impersonate target nesnesi oluşturur."""
     try:
         from yt_dlp.networking.impersonate import ImpersonateTarget
+
         return ImpersonateTarget.from_str(target_name.lower())
     except Exception:  # noqa: BLE001
         return None
@@ -529,15 +563,21 @@ class MetadataWorker(QObject):
                 self.failed.emit(err_msg)
                 return
 
-        is_tiktok = platform in (
-            PlatformType.TIKTOK_VIDEO,
-            PlatformType.TIKTOK_SHORT_LINK,
-            PlatformType.TIKTOK_PROFILE,
-            PlatformType.TIKTOK_LIVE,
-            PlatformType.TIKTOK_SLIDESHOW,
-        ) or "tiktok" in self.url.lower()
+        is_tiktok = (
+            platform
+            in (
+                PlatformType.TIKTOK_VIDEO,
+                PlatformType.TIKTOK_SHORT_LINK,
+                PlatformType.TIKTOK_PROFILE,
+                PlatformType.TIKTOK_LIVE,
+                PlatformType.TIKTOK_SLIDESHOW,
+            )
+            or "tiktok" in self.url.lower()
+        )
 
-        is_short_link = "vm.tiktok.com" in self.url.lower() or "vt.tiktok.com" in self.url.lower()
+        is_short_link = (
+            "vm.tiktok.com" in self.url.lower() or "vt.tiktok.com" in self.url.lower()
+        )
 
         if is_tiktok:
             real_target_url = clean_tiktok_url(self.url)
@@ -546,21 +586,39 @@ class MetadataWorker(QObject):
                 self.log.emit("Yönlendirme başladı…")
                 self.status.emit("TikTok kısa bağlantısı çözümleniyor…")
                 resolved_url, _ = resolve_tiktok_short_link(self.url)
-                if resolved_url and resolved_url != self.url and ("tiktok.com" in resolved_url or "/video/" in resolved_url):
+                if (
+                    resolved_url
+                    and resolved_url != self.url
+                    and ("tiktok.com" in resolved_url or "/video/" in resolved_url)
+                ):
                     self.log.emit("TikTok yönlendirmesi başarılı.")
-                    self.log.emit(f"Gerçek video bağlantısı bulundu: {clean_tiktok_url(resolved_url)}")
+                    self.log.emit(
+                        f"Gerçek video bağlantısı bulundu: {clean_tiktok_url(resolved_url)}"
+                    )
                     real_target_url = resolved_url
 
             candidates: list[tuple[str, str | None, str | None, Any, str]] = []
             candidates.append((self.url, None, None, None, "Oturumsuz (Orijinal URL)"))
 
             if real_target_url != self.url:
-                candidates.append((real_target_url, None, None, None, "Oturumsuz (Gerçek URL)"))
+                candidates.append(
+                    (real_target_url, None, None, None, "Oturumsuz (Gerçek URL)")
+                )
 
             imp_chrome = _make_impersonate_target("chrome")
             if imp_chrome:
-                candidates.append((real_target_url, None, None, imp_chrome, "Chrome Impersonation"))
-                candidates.append((real_target_url, "firefox", None, imp_chrome, "Firefox Oturumu + Chrome Impersonation"))
+                candidates.append(
+                    (real_target_url, None, None, imp_chrome, "Chrome Impersonation")
+                )
+                candidates.append(
+                    (
+                        real_target_url,
+                        "firefox",
+                        None,
+                        imp_chrome,
+                        "Firefox Oturumu + Chrome Impersonation",
+                    )
+                )
 
             last_error: Exception | str | None = None
             succeeded = False
@@ -584,7 +642,10 @@ class MetadataWorker(QObject):
                     opts["impersonate"] = imp_target
 
                 try:
-                    with create_ytdl(opts) as downloader, patch_subprocess_for_hidden_console():
+                    with (
+                        create_ytdl(opts) as downloader,
+                        patch_subprocess_for_hidden_console(),
+                    ):
                         info = downloader.extract_info(target_url, download=False)
 
                     if self._cancel_requested:
@@ -597,8 +658,12 @@ class MetadataWorker(QObject):
                     meta = self._build_metadata(info)
                     meta.webpage_url = real_target_url
                     meta.session_browser = b_name
-                    meta.session_profile = (b_name, p_name) if (b_name and p_name) else None
-                    meta.preferred_impersonation = "chrome" if imp_target is not None else None
+                    meta.session_profile = (
+                        (b_name, p_name) if (b_name and p_name) else None
+                    )
+                    meta.preferred_impersonation = (
+                        "chrome" if imp_target is not None else None
+                    )
                     meta.successful_request_url = target_url
                     meta.successful_attempt_type = label
 
@@ -628,7 +693,9 @@ class MetadataWorker(QObject):
                     err_clean = clean_log_message(str(exc))
 
                     if is_rehydration_error(err_clean):
-                        self.log.emit("TikTok extractor video verisini çıkaramadı: universal data for rehydration bulunamadı.")
+                        self.log.emit(
+                            "TikTok extractor video verisini çıkaramadı: universal data for rehydration bulunamadı."
+                        )
                         continue
                     elif is_authentication_error(err_clean):
                         continue
@@ -701,7 +768,9 @@ class MetadataWorker(QObject):
             if self.cookie_file_path:
                 self.status.emit("Çerez dosyası ile oturum deneniyor…")
             elif b_name is None:
-                self.status.emit("Oturumsuz deneme: Oturum gerekli mi kontrol ediliyor…")
+                self.status.emit(
+                    "Oturumsuz deneme: Oturum gerekli mi kontrol ediliyor…"
+                )
             else:
                 self.status.emit(f"{display_name} oturumu deneniyor…")
 
@@ -720,7 +789,10 @@ class MetadataWorker(QObject):
                 opts["cookiesfrombrowser"] = (b_name,)
 
             try:
-                with create_ytdl(opts) as downloader, patch_subprocess_for_hidden_console():
+                with (
+                    create_ytdl(opts) as downloader,
+                    patch_subprocess_for_hidden_console(),
+                ):
                     info = downloader.extract_info(self.url, download=False)
 
                 if self._cancel_requested:
@@ -786,7 +858,11 @@ class MetadataWorker(QObject):
                     break
 
         if not succeeded and not self._cancel_requested:
-            err_raw = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", str(last_error) if last_error else "")
+            err_raw = re.sub(
+                r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]",
+                "",
+                str(last_error) if last_error else "",
+            )
             err_msg = translate_social_error(err_raw, self.url)
             self.failed.emit(err_msg)
 
@@ -797,10 +873,18 @@ class MetadataWorker(QObject):
         entries = list(raw_entries) if raw_entries else []
         valid_entries = [e for e in entries if isinstance(e, dict)]
         is_playlist = info_type in ("playlist", "multi_video") or bool(entries)
-        playlist_count = len(valid_entries) if is_playlist and valid_entries else (len(entries) if is_playlist else None)
+        playlist_count = (
+            len(valid_entries)
+            if is_playlist and valid_entries
+            else (len(entries) if is_playlist else None)
+        )
 
-        webpage_url = str(info.get("webpage_url") or info.get("original_url") or self.url).strip()
-        if platform_type == PlatformType.TIKTOK_SHORT_LINK and ("/video/" in webpage_url or "tiktok.com" in webpage_url):
+        webpage_url = str(
+            info.get("webpage_url") or info.get("original_url") or self.url
+        ).strip()
+        if platform_type == PlatformType.TIKTOK_SHORT_LINK and (
+            "/video/" in webpage_url or "tiktok.com" in webpage_url
+        ):
             platform_type = PlatformType.TIKTOK_VIDEO
 
         # Instagram story veya ilk geçerli entry seçimi
@@ -822,14 +906,17 @@ class MetadataWorker(QObject):
                     target_entry = valid_entries[0]
 
         import html
-        title = html.unescape(str(
-            (target_entry.get("title") if target_entry else None)
-            or info.get("title")
-            or info.get("description")
-            or info.get("playlist_title")
-            or info.get("id")
-            or "İçerik"
-        ).strip())
+
+        title = html.unescape(
+            str(
+                (target_entry.get("title") if target_entry else None)
+                or info.get("title")
+                or info.get("description")
+                or info.get("playlist_title")
+                or info.get("id")
+                or "İçerik"
+            ).strip()
+        )
         uploader = str(
             (target_entry.get("uploader") if target_entry else None)
             or info.get("uploader")
@@ -838,14 +925,20 @@ class MetadataWorker(QObject):
             or info.get("creator")
             or ""
         ).strip()
-        source_name = str(info.get("extractor_key") or info.get("extractor") or "").strip()
+        source_name = str(
+            info.get("extractor_key") or info.get("extractor") or ""
+        ).strip()
 
-        duration = (target_entry.get("duration") if target_entry else None) or info.get("duration")
+        duration = (target_entry.get("duration") if target_entry else None) or info.get(
+            "duration"
+        )
         duration_sec = float(duration) if isinstance(duration, (int, float)) else None
         duration_text = format_duration(duration_sec) if duration_sec else ""
 
         thumbnail_url = str(
-            (target_entry.get("thumbnail") if target_entry else None) or info.get("thumbnail") or ""
+            (target_entry.get("thumbnail") if target_entry else None)
+            or info.get("thumbnail")
+            or ""
         ).strip()
         if not thumbnail_url and is_playlist and valid_entries:
             for e in valid_entries:
@@ -853,7 +946,9 @@ class MetadataWorker(QObject):
                     thumbnail_url = str(e["thumbnail"]).strip()
                     break
 
-        media_id = str((target_entry.get("id") if target_entry else None) or info.get("id") or "").strip()
+        media_id = str(
+            (target_entry.get("id") if target_entry else None) or info.get("id") or ""
+        ).strip()
 
         formats = (
             (target_entry.get("formats") if target_entry else None)
@@ -866,7 +961,9 @@ class MetadataWorker(QObject):
         )
         max_height = _parse_max_height(formats)
         if max_height is None:
-            h = (target_entry.get("height") if target_entry else None) or info.get("height")
+            h = (target_entry.get("height") if target_entry else None) or info.get(
+                "height"
+            )
             if isinstance(h, int) and h > 0:
                 max_height = h
         if max_height is None:
@@ -877,18 +974,27 @@ class MetadataWorker(QObject):
             )
             max_height = _parse_max_height(req_fmts)
 
-        is_tiktok = platform_type in (
-            PlatformType.TIKTOK_VIDEO,
-            PlatformType.TIKTOK_SHORT_LINK,
-            PlatformType.TIKTOK_PROFILE,
-            PlatformType.TIKTOK_LIVE,
-            PlatformType.TIKTOK_SLIDESHOW,
-        ) or "tiktok" in self.url.lower()
+        is_tiktok = (
+            platform_type
+            in (
+                PlatformType.TIKTOK_VIDEO,
+                PlatformType.TIKTOK_SHORT_LINK,
+                PlatformType.TIKTOK_PROFILE,
+                PlatformType.TIKTOK_LIVE,
+                PlatformType.TIKTOK_SLIDESHOW,
+            )
+            or "tiktok" in self.url.lower()
+        )
 
-        is_facebook = platform_type in (
-            PlatformType.FACEBOOK_VIDEO,
-            PlatformType.FACEBOOK_REEL,
-        ) or "facebook" in self.url.lower() or "fb.watch" in self.url.lower()
+        is_facebook = (
+            platform_type
+            in (
+                PlatformType.FACEBOOK_VIDEO,
+                PlatformType.FACEBOOK_REEL,
+            )
+            or "facebook" in self.url.lower()
+            or "fb.watch" in self.url.lower()
+        )
 
         is_threads = (
             platform_type == PlatformType.THREADS
@@ -912,42 +1018,62 @@ class MetadataWorker(QObject):
 
         if is_tiktok and is_slideshow:
             if "MP3" not in self.media_type and "Ses" not in self.media_type:
-                raise ValueError("Bu TikTok gönderisi fotoğraf veya slayt içeriği. Görselleri indirme desteği henüz eklenmedi.")
+                raise ValueError(
+                    "Bu TikTok gönderisi fotoğraf veya slayt içeriği. Görselleri indirme desteği henüz eklenmedi."
+                )
             else:
-                self.story_notice_ready.emit("Bu slayt gönderisinin yalnızca ses parçası indirilecek.")
+                self.story_notice_ready.emit(
+                    "Bu slayt gönderisinin yalnızca ses parçası indirilecek."
+                )
 
         # Facebook video doğrulaması
         if is_facebook and info_type not in ("url", "url_transparent"):
             has_valid_video = False
             if is_playlist or bool(entries):
-                if (valid_entries and any(_has_video_candidate(e) for e in valid_entries)) or _has_video_candidate(info):
+                if (
+                    valid_entries
+                    and any(_has_video_candidate(e) for e in valid_entries)
+                ) or _has_video_candidate(info):
                     has_valid_video = True
             elif _has_video_candidate(info):
                 has_valid_video = True
 
             if not has_valid_video:
-                raise ValueError("Bu Facebook gönderisinde indirilebilir bir video bulunamadı.")
+                raise ValueError(
+                    "Bu Facebook gönderisinde indirilebilir bir video bulunamadı."
+                )
 
         # Threads video doğrulaması
         if is_threads and info_type not in ("url", "url_transparent"):
             has_valid_video = False
             if is_playlist or bool(entries):
-                if (valid_entries and any(_has_video_candidate(e) for e in valid_entries)) or _has_video_candidate(info):
+                if (
+                    valid_entries
+                    and any(_has_video_candidate(e) for e in valid_entries)
+                ) or _has_video_candidate(info):
                     has_valid_video = True
             elif _has_video_candidate(info):
                 has_valid_video = True
 
             if not has_valid_video:
-                raise ValueError("Bu Threads gönderisinde indirilebilir bir video bulunamadı.")
+                raise ValueError(
+                    "Bu Threads gönderisinde indirilebilir bir video bulunamadı."
+                )
 
         if max_height is None and not is_playlist and not is_slideshow:
-            if platform_type in (PlatformType.INSTAGRAM_POST, PlatformType.INSTAGRAM_REEL):
-                raise ValueError("Bu gönderide indirilebilir video bulunamadı. Fotoğraf indirme desteği henüz eklenmedi.")
+            if platform_type in (
+                PlatformType.INSTAGRAM_POST,
+                PlatformType.INSTAGRAM_REEL,
+            ):
+                raise ValueError(
+                    "Bu gönderide indirilebilir video bulunamadı. Fotoğraf indirme desteği henüz eklenmedi."
+                )
             if platform_type == PlatformType.TWITTER_POST:
                 raise ValueError("Bu X gönderisinde indirilebilir video bulunamadı.")
 
         active_info = target_entry if target_entry else info
         from src.utils import extract_available_formats
+
         available_heights, valid_formats = extract_available_formats(active_info)
         if not available_heights and max_height is not None:
             available_heights = [max_height]
@@ -965,11 +1091,15 @@ class MetadataWorker(QObject):
             selected_ext = "mp3"
         else:
             selected_res = f"{selected_height}p" if selected_height else "En iyi"
-            selected_ext = str(active_info.get("ext") or info.get("ext") or "mp4").strip()
+            selected_ext = str(
+                active_info.get("ext") or info.get("ext") or "mp4"
+            ).strip()
 
         vcodec = str(active_info.get("vcodec") or info.get("vcodec") or "").strip()
         acodec = str(active_info.get("acodec") or info.get("acodec") or "").strip()
-        est_size = _calculate_estimated_size(active_info) or _calculate_estimated_size(info)
+        est_size = _calculate_estimated_size(active_info) or _calculate_estimated_size(
+            info
+        )
 
         track_name = str(
             active_info.get("track")
@@ -980,8 +1110,24 @@ class MetadataWorker(QObject):
             or info.get("music")
             or ""
         ).strip()
-        view_count = active_info.get("view_count") if isinstance(active_info.get("view_count"), int) else (info.get("view_count") if isinstance(info.get("view_count"), int) else None)
-        like_count = active_info.get("like_count") if isinstance(active_info.get("like_count"), int) else (info.get("like_count") if isinstance(info.get("like_count"), int) else None)
+        view_count = (
+            active_info.get("view_count")
+            if isinstance(active_info.get("view_count"), int)
+            else (
+                info.get("view_count")
+                if isinstance(info.get("view_count"), int)
+                else None
+            )
+        )
+        like_count = (
+            active_info.get("like_count")
+            if isinstance(active_info.get("like_count"), int)
+            else (
+                info.get("like_count")
+                if isinstance(info.get("like_count"), int)
+                else None
+            )
+        )
 
         return MediaMetadata(
             title=title,

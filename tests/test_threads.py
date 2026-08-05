@@ -151,12 +151,18 @@ class TestThreadsExtractorLogic(unittest.TestCase):
         </html>
         """
         with patch.object(self.ie, "_download_webpage", return_value=html_content):
-            result = self.ie._real_extract("https://www.threads.net/@zuck/post/C_123abc_")
+            result = self.ie._real_extract(
+                "https://www.threads.net/@zuck/post/C_123abc_"
+            )
             self.assertEqual(result["id"], "C_123abc_")
             self.assertEqual(result["title"], "Harika bir güncelleme")
-            self.assertEqual(result["thumbnail"], "https://scontent.cdninstagram.com/t123.jpg")
+            self.assertEqual(
+                result["thumbnail"], "https://scontent.cdninstagram.com/t123.jpg"
+            )
             self.assertTrue(len(result["formats"]) >= 1)
-            self.assertEqual(result["formats"][0]["url"], "https://video.fbcdn.net/v/123.mp4")
+            self.assertEqual(
+                result["formats"][0]["url"], "https://video.fbcdn.net/v/123.mp4"
+            )
             self.assertEqual(result["formats"][0]["height"], 1920)
 
     def test_json_ld_extraction(self):
@@ -184,7 +190,9 @@ class TestThreadsExtractorLogic(unittest.TestCase):
             result = self.ie._real_extract("https://www.threads.net/@user/post/POST123")
             self.assertEqual(result["id"], "POST123")
             self.assertEqual(len(result["formats"]), 1)
-            self.assertEqual(result["formats"][0]["url"], "https://video.fbcdn.net/vid_jsonld.mp4")
+            self.assertEqual(
+                result["formats"][0]["url"], "https://video.fbcdn.net/vid_jsonld.mp4"
+            )
             self.assertEqual(result["formats"][0]["height"], 1280)
 
     def test_embedded_json_versions_extraction(self):
@@ -204,7 +212,9 @@ class TestThreadsExtractorLogic(unittest.TestCase):
                                                 "thread_items": [
                                                     {
                                                         "post": {
-                                                            "caption": {"text": "Gömülü JSON Test Başlığı"},
+                                                            "caption": {
+                                                                "text": "Gömülü JSON Test Başlığı"
+                                                            },
                                                             "video_versions": [
                                                                 {
                                                                     "url": "https://video.fbcdn.net/v1080.mp4",
@@ -221,7 +231,9 @@ class TestThreadsExtractorLogic(unittest.TestCase):
                                                             ],
                                                             "image_versions2": {
                                                                 "candidates": [
-                                                                    {"url": "https://scontent.cdninstagram.com/cover.jpg"}
+                                                                    {
+                                                                        "url": "https://scontent.cdninstagram.com/cover.jpg"
+                                                                    }
                                                                 ]
                                                             },
                                                         }
@@ -247,7 +259,9 @@ class TestThreadsExtractorLogic(unittest.TestCase):
         </html>
         """
         with patch.object(self.ie, "_download_webpage", return_value=html_content):
-            result = self.ie._real_extract("https://www.threads.net/@user/post/EMBED123")
+            result = self.ie._real_extract(
+                "https://www.threads.net/@user/post/EMBED123"
+            )
             self.assertEqual(result["id"], "EMBED123")
             self.assertEqual(result["title"], "Threads Paylaşımı")
             self.assertEqual(len(result["formats"]), 2)
@@ -266,9 +280,14 @@ class TestThreadsExtractorLogic(unittest.TestCase):
         </html>
         """
         with patch.object(self.ie, "_download_webpage", return_value=html_content):
-            result = self.ie._real_extract("https://www.threads.net/@user/post/ESCAPED123")
+            result = self.ie._real_extract(
+                "https://www.threads.net/@user/post/ESCAPED123"
+            )
             self.assertEqual(len(result["formats"]), 1)
-            self.assertEqual(result["formats"][0]["url"], "https://video.fbcdn.net/v/t42.1790-2/test123.mp4?a=1&b=2")
+            self.assertEqual(
+                result["formats"][0]["url"],
+                "https://video.fbcdn.net/v/t42.1790-2/test123.mp4?a=1&b=2",
+            )
             self.assertEqual(result["formats"][0]["height"], 1920)
 
     def test_login_shell_raises_login_required(self):
@@ -276,15 +295,24 @@ class TestThreadsExtractorLogic(unittest.TestCase):
         <!DOCTYPE html><html><head><title>Threads • Log in</title></head>
         <body><form id="login_form"></form></body></html>
         """
-        mock_oembed = {"html": "<blockquote data-text-post-permalink='...'></blockquote>", "title": "Test Post"}
-        with patch.object(self.ie, "_download_webpage", return_value=login_html), \
-             patch.object(self.ie, "_fetch_oembed", return_value=mock_oembed):
+        mock_oembed = {
+            "html": "<blockquote data-text-post-permalink='...'></blockquote>",
+            "title": "Test Post",
+        }
+        with (
+            patch.object(self.ie, "_download_webpage", return_value=login_html),
+            patch.object(self.ie, "_fetch_oembed", return_value=mock_oembed),
+        ):
             with self.assertRaises(ExtractorError) as ctx:
                 self.ie._real_extract("https://www.threads.com/@user/post/LOGIN123")
             self.assertIn("tarayıcı oturumu gerekebilir", str(ctx.exception))
 
     def test_http_429_raises_rate_limited(self):
-        with patch.object(self.ie, "_download_webpage", side_effect=ExtractorError("HTTP Error 429: Too Many Requests")):
+        with patch.object(
+            self.ie,
+            "_download_webpage",
+            side_effect=ExtractorError("HTTP Error 429: Too Many Requests"),
+        ):
             with self.assertRaises(ExtractorError) as ctx:
                 self.ie._real_extract("https://www.threads.net/@user/post/RATE429")
             self.assertIn("sınırlandırdı", str(ctx.exception))
@@ -296,18 +324,27 @@ class TestThreadsExtractorLogic(unittest.TestCase):
         <body><script>window.ssr_disabled_reason = "fail_ssr_disabled";</script></body></html>
         """
         mock_oembed = {"html": "<blockquote></blockquote>", "title": "Post"}
-        with patch.object(self.ie, "_download_webpage", return_value=js_shell_html), \
-             patch.object(self.ie, "_fetch_oembed", return_value=mock_oembed):
+        with (
+            patch.object(self.ie, "_download_webpage", return_value=js_shell_html),
+            patch.object(self.ie, "_fetch_oembed", return_value=mock_oembed),
+        ):
             with self.assertRaises(ExtractorError) as ctx:
                 self.ie._real_extract("https://www.threads.net/@user/post/JSSHELL123")
             self.assertIn("sayfa yapısını değiştirmiş olabilir", str(ctx.exception))
             self.assertNotIn("video içermiyor", str(ctx.exception))
 
     def test_oembed_succeeds_but_no_media_url_extracted(self):
-        regular_html = "<html><head><title>Threads Post</title></head><body></body></html>"
-        mock_oembed = {"html": "<blockquote data-text-post-permalink='https://www.threads.net/t/123'></blockquote>", "title": "Test Post"}
-        with patch.object(self.ie, "_download_webpage", return_value=regular_html), \
-             patch.object(self.ie, "_fetch_oembed", return_value=mock_oembed):
+        regular_html = (
+            "<html><head><title>Threads Post</title></head><body></body></html>"
+        )
+        mock_oembed = {
+            "html": "<blockquote data-text-post-permalink='https://www.threads.net/t/123'></blockquote>",
+            "title": "Test Post",
+        }
+        with (
+            patch.object(self.ie, "_download_webpage", return_value=regular_html),
+            patch.object(self.ie, "_fetch_oembed", return_value=mock_oembed),
+        ):
             with self.assertRaises(ExtractorError) as ctx:
                 self.ie._real_extract("https://www.threads.net/@user/post/NOMEDIA123")
             self.assertIn("video kaynağı alınamadı", str(ctx.exception))
@@ -315,8 +352,10 @@ class TestThreadsExtractorLogic(unittest.TestCase):
 
     def test_post_not_found_raises_deleted_or_unavailable(self):
         html_content = "<html><body>Sorry, this page isn't available.</body></html>"
-        with patch.object(self.ie, "_download_webpage", return_value=html_content), \
-             patch.object(self.ie, "_fetch_oembed", return_value=None):
+        with (
+            patch.object(self.ie, "_download_webpage", return_value=html_content),
+            patch.object(self.ie, "_fetch_oembed", return_value=None),
+        ):
             with self.assertRaises(ExtractorError) as ctx:
                 self.ie._real_extract("https://www.threads.net/@user/post/NOTFOUND")
             self.assertIn("silinmiş", str(ctx.exception))
@@ -325,7 +364,9 @@ class TestThreadsExtractorLogic(unittest.TestCase):
         # Fotoğraf paylaşımı (video_versions yok) + oembed var → "video kaynağı alınamadı"
         # Gerçek dünyada: oembed erişilebilir ama sayfa render'ında video formatsız kaldı
         photo_json = {
-            "image_versions2": {"candidates": [{"url": "https://scontent.cdninstagram.com/photo.jpg"}]},
+            "image_versions2": {
+                "candidates": [{"url": "https://scontent.cdninstagram.com/photo.jpg"}]
+            },
             "caption": {"text": "Yalnızca fotoğraf paylaşımı"},
         }
         html_content = f"""
@@ -340,8 +381,17 @@ class TestThreadsExtractorLogic(unittest.TestCase):
         </html>
         """
         # Case 1: oembed returns data → posts exist but no video formats → "kaynağı alınamadı"
-        with patch.object(self.ie, "_download_webpage", return_value=html_content), \
-             patch.object(self.ie, "_fetch_oembed", return_value={"title": "Photo Post", "html": "<blockquote></blockquote>"}):
+        with (
+            patch.object(self.ie, "_download_webpage", return_value=html_content),
+            patch.object(
+                self.ie,
+                "_fetch_oembed",
+                return_value={
+                    "title": "Photo Post",
+                    "html": "<blockquote></blockquote>",
+                },
+            ),
+        ):
             with self.assertRaises(ExtractorError) as ctx:
                 self.ie._real_extract("https://www.threads.net/@user/post/PHOTO123")
             exc_str = str(ctx.exception)
@@ -353,18 +403,20 @@ class TestThreadsExtractorLogic(unittest.TestCase):
 
         # Case 2: oembed None + page rendered = silinmiş/kullanılamıyor
         # (Gerçek fotoğraf postunda oembed normalde başarılı olur; bu simüle edilmiş bir case)
-        with patch.object(self.ie, "_download_webpage", return_value=html_content), \
-             patch.object(self.ie, "_fetch_oembed", return_value=None):
+        with (
+            patch.object(self.ie, "_download_webpage", return_value=html_content),
+            patch.object(self.ie, "_fetch_oembed", return_value=None),
+        ):
             with self.assertRaises(ExtractorError) as ctx2:
                 self.ie._real_extract("https://www.threads.net/@user/post/PHOTO456")
             exc_str2 = str(ctx2.exception)
             # When oembed fails, page classification determines the error
             self.assertTrue(
-                "video içermiyor" in exc_str2 or "silinmiş" in exc_str2 or "kullanılamıyor" in exc_str2,
+                "video içermiyor" in exc_str2
+                or "silinmiş" in exc_str2
+                or "kullanılamıyor" in exc_str2,
                 msg=f"Beklenen hata alınamadı: {exc_str2}",
             )
-
-
 
 
 class TestThreadsIntegrationAndErrorHandling(unittest.TestCase):
@@ -387,23 +439,47 @@ class TestThreadsIntegrationAndErrorHandling(unittest.TestCase):
 
     def test_translate_social_error_threads(self):
         url = "https://www.threads.net/@user/post/123"
-        msg_no_video = translate_social_error("Bu Threads gönderisi video içermiyor.", url)
+        msg_no_video = translate_social_error(
+            "Bu Threads gönderisi video içermiyor.", url
+        )
         self.assertEqual(msg_no_video, "Bu Threads gönderisi video içermiyor.")
 
-        msg_video_source = translate_social_error("Threads gönderisi bulundu ancak video kaynağı alınamadı. Threads sayfa yapısını değiştirmiş olabilir.", url)
-        self.assertEqual(msg_video_source, "Threads gönderisi bulundu ancak video kaynağı alınamadı. Threads sayfa yapısını değiştirmiş olabilir.")
+        msg_video_source = translate_social_error(
+            "Threads gönderisi bulundu ancak video kaynağı alınamadı. Threads sayfa yapısını değiştirmiş olabilir.",
+            url,
+        )
+        self.assertEqual(
+            msg_video_source,
+            "Threads gönderisi bulundu ancak video kaynağı alınamadı. Threads sayfa yapısını değiştirmiş olabilir.",
+        )
 
-        msg_auth = translate_social_error("Bu Threads gönderisini görüntülemek için tarayıcı oturumu gerekebilir.", url)
-        self.assertEqual(msg_auth, "Bu Threads gönderisini görüntülemek için tarayıcı oturumu gerekebilir.")
+        msg_auth = translate_social_error(
+            "Bu Threads gönderisini görüntülemek için tarayıcı oturumu gerekebilir.",
+            url,
+        )
+        self.assertEqual(
+            msg_auth,
+            "Bu Threads gönderisini görüntülemek için tarayıcı oturumu gerekebilir.",
+        )
 
         msg_not_found = translate_social_error("HTTP Error 404: Not Found", url)
-        self.assertEqual(msg_not_found, "Threads gönderisi silinmiş, gizlenmiş veya kullanılamıyor olabilir.")
+        self.assertEqual(
+            msg_not_found,
+            "Threads gönderisi silinmiş, gizlenmiş veya kullanılamıyor olabilir.",
+        )
 
         msg_rate = translate_social_error("HTTP Error 429: Too Many Requests", url)
-        self.assertEqual(msg_rate, "Threads isteği geçici olarak sınırlandırdı. Bir süre sonra yeniden deneyin.")
+        self.assertEqual(
+            msg_rate,
+            "Threads isteği geçici olarak sınırlandırdı. Bir süre sonra yeniden deneyin.",
+        )
 
     def test_is_authentication_error_detects_threads_session(self):
-        self.assertTrue(is_authentication_error("Bu Threads gönderisini görüntülemek için tarayıcı oturumu gerekebilir."))
+        self.assertTrue(
+            is_authentication_error(
+                "Bu Threads gönderisini görüntülemek için tarayıcı oturumu gerekebilir."
+            )
+        )
         self.assertTrue(is_authentication_error("oturum gerekebilir"))
 
     def test_browser_sessions_priority_includes_threads(self):
@@ -414,11 +490,15 @@ class TestThreadsIntegrationAndErrorHandling(unittest.TestCase):
     def test_live_threads_url_if_configured(self):
         test_url = os.environ.get("LOADVIA_THREADS_TEST_URL")
         if not test_url:
-            self.skipTest("LOADVIA_THREADS_TEST_URL ayarlanmamış, canlı ağ testi atlanıyor.")
+            self.skipTest(
+                "LOADVIA_THREADS_TEST_URL ayarlanmamış, canlı ağ testi atlanıyor."
+            )
         ydl = create_ytdl({"quiet": True})
         info = ydl.extract_info(test_url, download=False)
         self.assertIsNotNone(info)
-        self.assertTrue(len(info.get("formats", [])) > 0 or info.get("_type") == "playlist")
+        self.assertTrue(
+            len(info.get("formats", [])) > 0 or info.get("_type") == "playlist"
+        )
 
 
 class TestThreadsSessionAndMetadataFlow(unittest.TestCase):
@@ -450,7 +530,9 @@ class TestThreadsSessionAndMetadataFlow(unittest.TestCase):
                 mock_downloader.extract_info.return_value = {
                     "id": "123",
                     "title": "Test Threads Post",
-                    "formats": [{"url": "https://video.fbcdn.net/v/1.mp4", "format_id": "0"}],
+                    "formats": [
+                        {"url": "https://video.fbcdn.net/v/1.mp4", "format_id": "0"}
+                    ],
                 }
                 mock_create_ytdl.return_value.__enter__.return_value = mock_downloader
 
@@ -461,7 +543,9 @@ class TestThreadsSessionAndMetadataFlow(unittest.TestCase):
                 # create_ytdl should have been called with firefox, not None
                 called_opts = mock_create_ytdl.call_args[0][0]
                 self.assertIn("cookiesfrombrowser", called_opts)
-                self.assertEqual(called_opts["cookiesfrombrowser"], ("firefox", "default"))
+                self.assertEqual(
+                    called_opts["cookiesfrombrowser"], ("firefox", "default")
+                )
                 self.assertEqual(len(received_meta), 1)
 
     def test_metadata_worker_prioritizes_preferred_browser(self):
@@ -483,7 +567,9 @@ class TestThreadsSessionAndMetadataFlow(unittest.TestCase):
                 mock_downloader.extract_info.return_value = {
                     "id": "123",
                     "title": "Test Threads Post",
-                    "formats": [{"url": "https://video.fbcdn.net/v/1.mp4", "format_id": "0"}],
+                    "formats": [
+                        {"url": "https://video.fbcdn.net/v/1.mp4", "format_id": "0"}
+                    ],
                 }
                 mock_create_ytdl.return_value.__enter__.return_value = mock_downloader
 
@@ -519,13 +605,18 @@ class TestThreadsSessionAndMetadataFlow(unittest.TestCase):
                     mock_downloader.extract_info.return_value = {
                         "id": "123",
                         "title": "Success on Firefox",
-                        "formats": [{"url": "https://video.fbcdn.net/v/1.mp4", "format_id": "0"}],
+                        "formats": [
+                            {"url": "https://video.fbcdn.net/v/1.mp4", "format_id": "0"}
+                        ],
                     }
                 ctx = MagicMock()
                 ctx.__enter__.return_value = mock_downloader
                 return ctx
 
-            with patch("src.metadata_worker.create_ytdl", side_effect=mock_create_ytdl_side_effect):
+            with patch(
+                "src.metadata_worker.create_ytdl",
+                side_effect=mock_create_ytdl_side_effect,
+            ):
                 received_meta = []
                 worker.metadata_ready.connect(lambda m: received_meta.append(m))
                 worker.run()
@@ -560,11 +651,26 @@ class TestThreadsSessionAndMetadataFlow(unittest.TestCase):
                 self.assertIn("tarayıcı oturumu gerekebilir", received_errors[0])
 
     def test_other_platforms_detection_unaffected(self):
-        self.assertEqual(detect_platform_type("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), PlatformType.YOUTUBE_VIDEO)
-        self.assertEqual(detect_platform_type("https://www.facebook.com/reel/123456789/"), PlatformType.FACEBOOK_REEL)
-        self.assertEqual(detect_platform_type("https://www.instagram.com/reel/C_12345/"), PlatformType.INSTAGRAM_REEL)
-        self.assertEqual(detect_platform_type("https://twitter.com/user/status/123456"), PlatformType.TWITTER_POST)
-        self.assertEqual(detect_platform_type("https://www.tiktok.com/@user/video/123456"), PlatformType.TIKTOK_VIDEO)
+        self.assertEqual(
+            detect_platform_type("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+            PlatformType.YOUTUBE_VIDEO,
+        )
+        self.assertEqual(
+            detect_platform_type("https://www.facebook.com/reel/123456789/"),
+            PlatformType.FACEBOOK_REEL,
+        )
+        self.assertEqual(
+            detect_platform_type("https://www.instagram.com/reel/C_12345/"),
+            PlatformType.INSTAGRAM_REEL,
+        )
+        self.assertEqual(
+            detect_platform_type("https://twitter.com/user/status/123456"),
+            PlatformType.TWITTER_POST,
+        )
+        self.assertEqual(
+            detect_platform_type("https://www.tiktok.com/@user/video/123456"),
+            PlatformType.TIKTOK_VIDEO,
+        )
 
     def test_main_window_auth_failure_triggers_session_retry_dialog(self):
         from PySide6.QtWidgets import QApplication
@@ -601,7 +707,9 @@ class TestThreadsSessionAndMetadataFlow(unittest.TestCase):
                     session_method="auto",
                     cookie_file_path=None,
                 )
-                self.assertEqual(win.url_input.text(), "https://www.threads.com/@user/post/123")
+                self.assertEqual(
+                    win.url_input.text(), "https://www.threads.com/@user/post/123"
+                )
                 self.assertEqual(win.media_combo.currentText(), "Video (MP4)")
 
     def test_session_retry_dialog_cookie_file_method(self):
@@ -620,7 +728,9 @@ class TestThreadsSessionAndMetadataFlow(unittest.TestCase):
         self.assertEqual(dlg.clicked_button_id, "close")
         self.assertIsNone(dlg.selected_cookie_file)
         # Method combo has cookie_file option
-        methods = [dlg.method_combo.itemData(i) for i in range(dlg.method_combo.count())]
+        methods = [
+            dlg.method_combo.itemData(i) for i in range(dlg.method_combo.count())
+        ]
         self.assertIn("cookie_file", methods)
         self.assertIn("firefox", methods)
         self.assertIn("auto", methods)
@@ -634,7 +744,9 @@ class TestThreadsSessionAndMetadataFlow(unittest.TestCase):
 
         _ = QApplication.instance() or QApplication([])
         dlg = SessionRetryDialog()
-        methods = {dlg.method_combo.itemData(i) for i in range(dlg.method_combo.count())}
+        methods = {
+            dlg.method_combo.itemData(i) for i in range(dlg.method_combo.count())
+        }
         for expected in ("auto", "firefox", "chrome", "edge", "brave", "cookie_file"):
             self.assertIn(expected, methods, msg=f"'{expected}' metodu bulunamadı")
         dlg.destroy()
@@ -653,10 +765,20 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
             "id": "DbnFT1TjdLL",
             "pk": "DbnFT1TjdLL",
             "video_versions": [
-                {"url": "https://video.fbcdn.net/v/hd.mp4", "width": 720, "height": 1280},
-                {"url": "https://video.fbcdn.net/v/sd.mp4", "width": 540, "height": 960},
+                {
+                    "url": "https://video.fbcdn.net/v/hd.mp4",
+                    "width": 720,
+                    "height": 1280,
+                },
+                {
+                    "url": "https://video.fbcdn.net/v/sd.mp4",
+                    "width": 540,
+                    "height": 960,
+                },
             ],
-            "image_versions2": {"candidates": [{"url": "https://scontent.cdninstagram.com/thumb.jpg"}]},
+            "image_versions2": {
+                "candidates": [{"url": "https://scontent.cdninstagram.com/thumb.jpg"}]
+            },
             "caption": {"text": "Test caption"},
         }
         # Simulate two separate JSON trees with same media data (different structural nesting)
@@ -672,14 +794,22 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
         </html>
         """
         with patch.object(self.ie, "_download_webpage", return_value=html):
-            result = self.ie._real_extract("https://www.threads.com/@sueermurat/post/DbnFT1TjdLL")
+            result = self.ie._real_extract(
+                "https://www.threads.com/@sueermurat/post/DbnFT1TjdLL"
+            )
             # Should be a single video, not a playlist
-            self.assertNotIn("_type", result, "Tek video playlist olarak döndürülmemeli")
+            self.assertNotIn(
+                "_type", result, "Tek video playlist olarak döndürülmemeli"
+            )
             self.assertIn("formats", result)
             self.assertGreaterEqual(len(result["formats"]), 1)
             # format deduplication: same URL should only appear once
             seen_urls = [f["url"] for f in result["formats"]]
-            self.assertEqual(len(seen_urls), len(set(seen_urls)), "Aynı URL birden fazla kez eklenmemeli")
+            self.assertEqual(
+                len(seen_urls),
+                len(set(seen_urls)),
+                "Aynı URL birden fazla kez eklenmemeli",
+            )
 
     def test_carousel_returns_playlist(self):
         """Carousel (çoklu medya) playlist olarak döndürülmeli."""
@@ -687,11 +817,23 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
             "carousel_media": [
                 {
                     "id": "media1",
-                    "video_versions": [{"url": "https://video.fbcdn.net/v/vid1.mp4", "width": 720, "height": 1280}],
+                    "video_versions": [
+                        {
+                            "url": "https://video.fbcdn.net/v/vid1.mp4",
+                            "width": 720,
+                            "height": 1280,
+                        }
+                    ],
                 },
                 {
                     "id": "media2",
-                    "video_versions": [{"url": "https://video.fbcdn.net/v/vid2.mp4", "width": 720, "height": 1280}],
+                    "video_versions": [
+                        {
+                            "url": "https://video.fbcdn.net/v/vid2.mp4",
+                            "width": 720,
+                            "height": 1280,
+                        }
+                    ],
                 },
             ],
             "caption": {"text": "Carousel post"},
@@ -707,7 +849,9 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
         </html>
         """
         with patch.object(self.ie, "_download_webpage", return_value=html):
-            result = self.ie._real_extract("https://www.threads.com/@user/post/CAROUSEL123")
+            result = self.ie._real_extract(
+                "https://www.threads.com/@user/post/CAROUSEL123"
+            )
             self.assertEqual(result.get("_type"), "playlist")
             self.assertEqual(len(result["entries"]), 2)
 
@@ -718,7 +862,9 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
             "# This is a generated file!  Do not edit.\n"
             ".threads.com\tTRUE\t/\tFALSE\t9999999999\tsessionid\tABCD1234\n"
         )
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as f:
             f.write(content)
             tmp_path = f.name
         try:
@@ -730,7 +876,9 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
 
     def test_validate_cookie_file_invalid_content(self):
         """Yanlış içerikli dosya reddedilmeli."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as f:
             f.write("Bu bir metin dosyasıdır\nNetscape formatında değil\n")
             tmp_path = f.name
         try:
@@ -754,7 +902,9 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
     def test_validate_cookie_file_tab_separated_format(self):
         """Sekme-ayrılmış satır içeren dosya kabul edilmeli (eski biçim)."""
         content = ".example.com\tTRUE\t/\tFALSE\t9999999999\tsessionid\tTEST123\n"
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as f:
             f.write(content)
             tmp_path = f.name
         try:
@@ -765,7 +915,9 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
 
     def test_queue_item_has_session_fields(self):
         """QueueItem session_method ve cookie_file_path alanlarına sahip olmalı."""
-        item = QueueItem(id="test-1", url="https://threads.com/@user/post/123", platform="Threads")
+        item = QueueItem(
+            id="test-1", url="https://threads.com/@user/post/123", platform="Threads"
+        )
         self.assertEqual(item.session_method, "auto")
         self.assertIsNone(item.cookie_file_path)
 
@@ -777,8 +929,12 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
 
     def test_queue_item_independent_copy(self):
         """İki QueueItem bağımsız olmalı - biri değişince diğeri etkilenmemeli."""
-        item1 = QueueItem(id="q1", url="https://threads.com/@u/post/A", platform="Threads")
-        item2 = QueueItem(id="q2", url="https://threads.com/@u/post/B", platform="Threads")
+        item1 = QueueItem(
+            id="q1", url="https://threads.com/@u/post/A", platform="Threads"
+        )
+        item2 = QueueItem(
+            id="q2", url="https://threads.com/@u/post/B", platform="Threads"
+        )
         item1.session_method = "chrome"
         item1.cookie_file_path = "/path/to/cookies.txt"
         self.assertEqual(item2.session_method, "auto")
@@ -812,7 +968,9 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
             mock_downloader.extract_info.return_value = {
                 "id": "123",
                 "title": "Çerez Test",
-                "formats": [{"url": "https://video.fbcdn.net/v/1.mp4", "format_id": "0"}],
+                "formats": [
+                    {"url": "https://video.fbcdn.net/v/1.mp4", "format_id": "0"}
+                ],
             }
             mock_create_ytdl.return_value.__enter__.return_value = mock_downloader
             worker.run()
@@ -826,7 +984,10 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
         self.assertIn("cookiefile", call_opts)
         self.assertEqual(call_opts["cookiefile"], "/path/to/cookies.txt")
 
-    @patch("src.main_window.QFileDialog.getOpenFileName", return_value=("/tmp/fake_cookies.txt", ""))
+    @patch(
+        "src.main_window.QFileDialog.getOpenFileName",
+        return_value=("/tmp/fake_cookies.txt", ""),
+    )
     @patch("src.browser_sessions.validate_cookie_file", return_value=(True, ""))
     def test_browser_combo_settings_save_restore(self, mock_val, mock_fd):
         """Ayarlar kaydedilirken cookie_file_path yazılmamalı, cookie_file seçiliyse 'auto' olarak kaydedilmeli."""
@@ -841,7 +1002,9 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
 
         window = MainWindow()
         # Set to cookie_file (mocking QFileDialog)
-        window.browser_combo.setCurrentIndex(6) # cookie_file index is 6 (0: auto, 1: none, 2: firefox, 3: edge, 4: chrome, 5: brave, 6: cookie_file)
+        window.browser_combo.setCurrentIndex(
+            6
+        )  # cookie_file index is 6 (0: auto, 1: none, 2: firefox, 3: edge, 4: chrome, 5: brave, 6: cookie_file)
         self.assertEqual(window.browser_combo.currentData(), "cookie_file")
         window._save_current_settings()
 
@@ -869,7 +1032,7 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
             quality="1080p",
             output_dir=Path("/tmp"),
             browser="firefox",
-            playlist=False
+            playlist=False,
         )
         opts = build_ydl_options(req)
         self.assertNotIn("cookiefile", opts)
@@ -890,7 +1053,7 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
             output_dir=Path("/tmp"),
             browser="cookie_file",
             cookie_file_path="/path/to/cookies.txt",
-            playlist=False
+            playlist=False,
         )
         opts = build_ydl_options(req)
         self.assertIn("cookiefile", opts)
@@ -905,7 +1068,7 @@ class TestThreadsDeduplicationAndCookieFile(unittest.TestCase):
             output_dir=Path("/tmp"),
             browser="cookie_file",
             cookie_file_path=None,
-            playlist=False
+            playlist=False,
         )
         opts_missing = build_ydl_options(req_missing)
         self.assertNotIn("cookiefile", opts_missing)

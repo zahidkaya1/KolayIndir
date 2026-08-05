@@ -12,6 +12,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 try:
     from yt_dlp.utils import DownloadCancelled
 except ImportError:
+
     class DownloadCancelled(Exception):  # type: ignore[no-redef]
         pass
 
@@ -106,12 +107,16 @@ class DownloadWorker(QObject):
         self.job_id = request.job_id or f"job_{int(time.time())}_{uuid.uuid4().hex[:6]}"
         self._created_files: set[Path] = set()
         self._initial_files: dict[Path, tuple[int, float]] = {}
+        self._current_reserved_paths: list[Path] = []
 
         if request.output_dir.exists():
             for p in request.output_dir.glob("*"):
                 if p.is_file():
                     try:
-                        self._initial_files[p.resolve()] = (p.stat().st_size, p.stat().st_mtime)
+                        self._initial_files[p.resolve()] = (
+                            p.stat().st_size,
+                            p.stat().st_mtime,
+                        )
                     except OSError:
                         pass
 
@@ -202,7 +207,11 @@ class DownloadWorker(QObject):
                 last_frag = getattr(self, "_last_fragment_index", 0)
                 last_size = getattr(self, "_last_file_size", 0)
 
-                if downloaded > last_dl or (frag_idx and frag_idx > last_frag) or curr_file_size > last_size:
+                if (
+                    downloaded > last_dl
+                    or (frag_idx and frag_idx > last_frag)
+                    or curr_file_size > last_size
+                ):
                     self._last_activity_time = now
                     self._last_downloaded_bytes = downloaded
                     if frag_idx:
@@ -211,14 +220,26 @@ class DownloadWorker(QObject):
                         self._last_file_size = curr_file_size
 
                 # Stall denetimi (30 saniye boyunca sıfır aktivite)
-                if getattr(self, "_last_activity_time", None) and (now - self._last_activity_time > 30.0):
-                    raise yt_dlp.utils.DownloadError("STALL_TIMEOUT: Kick indirmesi sırasında veri akışı durdu.")
+                if getattr(self, "_last_activity_time", None) and (
+                    now - self._last_activity_time > 30.0
+                ):
+                    raise yt_dlp.utils.DownloadError(
+                        "STALL_TIMEOUT: Kick indirmesi sırasında veri akışı durdu."
+                    )
 
             if filename:
                 self._last_filename = filename
 
-            vcodec = str(data.get("info_dict", {}).get("vcodec", "") if isinstance(data.get("info_dict"), dict) else "")
-            acodec = str(data.get("info_dict", {}).get("acodec", "") if isinstance(data.get("info_dict"), dict) else "")
+            vcodec = str(
+                data.get("info_dict", {}).get("vcodec", "")
+                if isinstance(data.get("info_dict"), dict)
+                else ""
+            )
+            acodec = str(
+                data.get("info_dict", {}).get("acodec", "")
+                if isinstance(data.get("info_dict"), dict)
+                else ""
+            )
             if "MP3" in self.request.media_type or "Ses" in self.request.media_type:
                 phase = "audio_downloading"
             elif vcodec != "none" and acodec == "none":
@@ -230,24 +251,28 @@ class DownloadWorker(QObject):
 
             effective_total = total_bytes or total_estimate
 
-            self.progress_details.emit({
-                "phase": phase,
-                "percent": percentage,
-                "downloaded_bytes": downloaded,
-                "total_bytes": effective_total,
-                "speed": speed_str,
-                "eta": eta_text,
-                "filename": filename or self._last_filename,
-                "format_id": str(data.get("format_id") or ""),
-                "fragment_index": frag_idx,
-                "fragment_count": frag_cnt,
-            })
+            self.progress_details.emit(
+                {
+                    "phase": phase,
+                    "percent": percentage,
+                    "downloaded_bytes": downloaded,
+                    "total_bytes": effective_total,
+                    "speed": speed_str,
+                    "eta": eta_text,
+                    "filename": filename or self._last_filename,
+                    "format_id": str(data.get("format_id") or ""),
+                    "fragment_index": frag_idx,
+                    "fragment_count": frag_cnt,
+                }
+            )
 
             # Status mesajını zenginleştir
             if frag_cnt and frag_idx:
                 status_msg = f"HLS parçaları indiriliyor… (Parça {frag_idx} / {frag_cnt}) • Hız: {speed_str} • Kalan: {eta_text}"
             else:
-                status_msg = f"İndiriliyor: %{percentage} • Hız: {speed_str} • Kalan: {eta_text}"
+                status_msg = (
+                    f"İndiriliyor: %{percentage} • Hız: {speed_str} • Kalan: {eta_text}"
+                )
             self.status.emit(status_msg)
 
         elif state == "finished":
@@ -255,22 +280,26 @@ class DownloadWorker(QObject):
                 self._last_filename = filename
             self.progress.emit(100)
             self.status.emit("İndirme tamamlandı, dosya hazırlanıyor…")
-            self.progress_details.emit({
-                "phase": "finished",
-                "percent": 100,
-                "downloaded_bytes": data.get("downloaded_bytes") or 0,
-                "total_bytes": data.get("total_bytes") or 0,
-                "speed": "—",
-                "eta": "0 sn",
-                "filename": self._last_filename,
-                "format_id": str(data.get("format_id") or ""),
-                "fragment_index": None,
-                "fragment_count": None,
-            })
+            self.progress_details.emit(
+                {
+                    "phase": "finished",
+                    "percent": 100,
+                    "downloaded_bytes": data.get("downloaded_bytes") or 0,
+                    "total_bytes": data.get("total_bytes") or 0,
+                    "speed": "—",
+                    "eta": "0 sn",
+                    "filename": self._last_filename,
+                    "format_id": str(data.get("format_id") or ""),
+                    "fragment_index": None,
+                    "fragment_count": None,
+                }
+            )
 
     def _postprocessor_hook(self, data: dict[str, Any]) -> None:
         if self._cancel_requested:
-            raise yt_dlp.utils.DownloadError("İndirme kullanıcı tarafından iptal edildi.")
+            raise yt_dlp.utils.DownloadError(
+                "İndirme kullanıcı tarafından iptal edildi."
+            )
         if not getattr(self, "_ffmpeg_logged", False):
             self._ffmpeg_logged = True
             if self._platform == PlatformType.KICK_VIDEO:
@@ -298,18 +327,20 @@ class DownloadWorker(QObject):
         if isinstance(info, dict) and info.get("filepath"):
             self._last_filename = str(info["filepath"])
 
-        self.progress_details.emit({
-            "phase": phase,
-            "percent": 100,
-            "downloaded_bytes": 0,
-            "total_bytes": 0,
-            "speed": "—",
-            "eta": "—",
-            "filename": self._last_filename,
-            "format_id": "",
-            "fragment_index": None,
-            "fragment_count": None,
-        })
+        self.progress_details.emit(
+            {
+                "phase": phase,
+                "percent": 100,
+                "downloaded_bytes": 0,
+                "total_bytes": 0,
+                "speed": "—",
+                "eta": "—",
+                "filename": self._last_filename,
+                "format_id": "",
+                "fragment_index": None,
+                "fragment_count": None,
+            }
+        )
 
     def _resolve_kick_playback_url(self, url: str, retry: bool = False) -> str | None:
         """
@@ -319,7 +350,9 @@ class DownloadWorker(QObject):
         """
         import re as _re
 
-        match = _re.search(r"kick\.com/([^/]+)/videos/([a-f0-9\-]{8,})", url, _re.IGNORECASE)
+        match = _re.search(
+            r"kick\.com/([^/]+)/videos/([a-f0-9\-]{8,})", url, _re.IGNORECASE
+        )
         if not match:
             return None
         uuid = match.group(2)
@@ -352,10 +385,18 @@ class DownloadWorker(QObject):
                     vod_session_url = playback_urls.get("vod_session")
                     if vod_session_url:
                         try:
-                            vs_resp = cffi_requests.get(vod_session_url, impersonate="chrome120", headers=headers, timeout=5)
-                            if vs_resp.status_code == 200 and isinstance(vs_resp.json(), dict):
+                            vs_resp = cffi_requests.get(
+                                vod_session_url,
+                                impersonate="chrome120",
+                                headers=headers,
+                                timeout=5,
+                            )
+                            if vs_resp.status_code == 200 and isinstance(
+                                vs_resp.json(), dict
+                            ):
                                 candidate_url = vs_resp.json().get("manifestUrl")
                                 from src.utils import is_valid_kick_manifest_url
+
                                 if is_valid_kick_manifest_url(candidate_url):
                                     return candidate_url
                         except Exception:  # noqa: BLE001, S110
@@ -381,27 +422,45 @@ class DownloadWorker(QObject):
         """
         from yt_dlp.networking.impersonate import ImpersonateTarget
 
-        from src.history import get_unique_filepath, sanitize_filename
+        from src.history import (
+            reserve_unique_media_path,
+            sanitize_filename,
+        )
         from src.utils import is_valid_kick_manifest_url, validate_final_download
 
         is_audio = "MP3" in self.request.media_type or "Ses" in self.request.media_type
-        ext = "mp3" if is_audio else "mp4"
 
-        # 1. Target Final Path Belirleme (İndirmeden önce sabitlenir)
         target_final_path = self.request.target_final_path
         if not target_final_path or target_final_path.stem.lower() in {"manifest", "master", "playlist", "index", "chunklist", ""}:
-            default_title = "Kick Videosu"
-            clean_title = sanitize_filename(default_title)
-            target_final_path = get_unique_filepath(self.request.output_dir / f"{clean_title}.{ext}")
+            clean_title = sanitize_filename("Kick Videosu")
+        else:
+            clean_title = sanitize_filename(target_final_path.stem)
+
+        if is_audio:
+            ext = "mp3"
+            target_final_path = reserve_unique_media_path(
+                self.request.output_dir, clean_title, ext
+            )
+            self._current_reserved_paths.append(target_final_path)
+        else:
+            ext = "mp4"
+            target_final_path = reserve_unique_media_path(
+                self.request.output_dir, clean_title, ext
+            )
+            self._current_reserved_paths.append(target_final_path)
 
         self.log.emit("Kick indirme işlemi başladı")
         self.status.emit("Kick oynatma bağlantısı alınıyor…")
         self.request.output_dir.mkdir(parents=True, exist_ok=True)
 
         # İndirme başlarken vod_session üzerinden güncel ve geçerli manifestUrl alınır
-        m3u8_url = self._resolve_kick_playback_url(self.request.url) or self._kick_m3u8
+        m3u8_url = self._resolve_kick_playback_url(self.request.url) or getattr(
+            self, "_kick_m3u8", None
+        )
         if not is_valid_kick_manifest_url(m3u8_url):
-            self.failed.emit("Kick’in gerçek VOD bağlantısı alınamadı. Reklam akışının indirilmesini önlemek için işlem durduruldu.")
+            self.failed.emit(
+                "Kick’in gerçek VOD bağlantısı alınamadı. Reklam akışının indirilmesini önlemek için işlem durduruldu."
+            )
             return
 
         retry_count = 0
@@ -476,7 +535,10 @@ class DownloadWorker(QObject):
 
             opts = _build_kick_opts(m3u8_url)  # type: ignore[arg-type]
             try:
-                with create_ytdl(opts) as downloader, patch_subprocess_for_hidden_console():
+                with (
+                    create_ytdl(opts) as downloader,
+                    patch_subprocess_for_hidden_console(),
+                ):
                     result = downloader.extract_info(m3u8_url, download=True)
 
                 if self._cancel_requested:
@@ -491,24 +553,34 @@ class DownloadWorker(QObject):
                     return
 
                 err_str = str(exc)
-                is_stall = "STALL_TIMEOUT" in err_str or "veri akışı durdu" in err_str.lower()
+                is_stall = (
+                    "STALL_TIMEOUT" in err_str or "veri akışı durdu" in err_str.lower()
+                )
                 is_403 = "403" in err_str
 
                 if (is_403 or is_stall) and retry_count < max_retries:
                     retry_count += 1
-                    reason_msg = "bağlantı zaman aşımı" if is_stall else "403 erişim hatası"
-                    self.log.emit(f"Kick indirme aksaması ({reason_msg}), oynatma bağlantısı yenileniyor (Deneme {retry_count}/{max_retries})…")
+                    reason_msg = (
+                        "bağlantı zaman aşımı" if is_stall else "403 erişim hatası"
+                    )
+                    self.log.emit(
+                        f"Kick indirme aksaması ({reason_msg}), oynatma bağlantısı yenileniyor (Deneme {retry_count}/{max_retries})…"
+                    )
                     self.status.emit("Kick oynatma bağlantısı yenileniyor…")
                     fresh_url = self._resolve_kick_playback_url(self.request.url)
                     if fresh_url:
                         m3u8_url = fresh_url
                         continue
                     else:
-                        self.failed.emit("Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin.")
+                        self.failed.emit(
+                            "Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin."
+                        )
                         return
 
                 if is_stall:
-                    self.failed.emit("Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin.")
+                    self.failed.emit(
+                        "Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin."
+                    )
                     return
 
                 last_error = exc
@@ -538,12 +610,18 @@ class DownloadWorker(QObject):
 
         if not downloaded_temp_file and self.request.output_dir.exists():
             for p in self.request.output_dir.glob(f".kolayindir_{self.job_id}_kick*"):
-                if p.is_file() and p.stat().st_size > 0 and not p.name.endswith(".part"):
+                if (
+                    p.is_file()
+                    and p.stat().st_size > 0
+                    and not p.name.endswith(".part")
+                ):
                     downloaded_temp_file = p
                     break
 
         if not downloaded_temp_file:
-            self.failed.emit("Kick HLS segmentleri indirilemedi veya geçici medya dosyası bulunamadı.")
+            self.failed.emit(
+                "Kick HLS segmentleri indirilemedi veya geçici medya dosyası bulunamadı."
+            )
             return
 
         self._track_file(downloaded_temp_file)
@@ -586,7 +664,13 @@ class DownloadWorker(QObject):
         self._track_file(target_final_path)
 
         def _run_ffmpeg_cmd(cmd_args: list[str]) -> int:
-            full_cmd = [cmd_args[0], "-y", "-progress", "pipe:1", "-nostats"] + cmd_args[2:]
+            full_cmd = [
+                cmd_args[0],
+                "-y",
+                "-progress",
+                "pipe:1",
+                "-nostats",
+            ] + cmd_args[2:]
             kwargs = hidden_subprocess_kwargs(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -624,18 +708,20 @@ class DownloadWorker(QObject):
                     pct = min(99, max(0, int((curr_sec / duration_sec) * 100)))
                     self.progress.emit(pct)
                     self.status.emit(f"Video MP4 olarak hazırlanıyor: %{pct}")
-                    self.progress_details.emit({
-                        "phase": "merging_video_audio",
-                        "percent": pct,
-                        "downloaded_bytes": 0,
-                        "total_bytes": 0,
-                        "speed": "Dosya işleniyor",
-                        "eta": "Hesaplanıyor",
-                        "filename": target_final_path.name,
-                        "format_id": "",
-                        "fragment_index": None,
-                        "fragment_count": None,
-                    })
+                    self.progress_details.emit(
+                        {
+                            "phase": "merging_video_audio",
+                            "percent": pct,
+                            "downloaded_bytes": 0,
+                            "total_bytes": 0,
+                            "speed": "Dosya işleniyor",
+                            "eta": "Hesaplanıyor",
+                            "filename": target_final_path.name,
+                            "format_id": "",
+                            "fragment_index": None,
+                            "fragment_count": None,
+                        }
+                    )
 
             proc.wait()
             self._active_process = None
@@ -644,12 +730,20 @@ class DownloadWorker(QObject):
         ret = _run_ffmpeg_cmd(cmd)
 
         if ret == -2:
-            self.failed.emit("Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin.")
+            self.failed.emit(
+                "Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin."
+            )
             return
 
         # Remux başarısızsa safe fallback: Re-encode (Kapsayıcı uyumsuzluğu için)
-        if (ret != 0 or not target_final_path.exists() or target_final_path.stat().st_size < 1024) and not is_audio:
-            self.log.emit("Remux işlemi başarısız veya uyumsuz, güvenli re-encode fallback uygulanıyor…")
+        if (
+            ret != 0
+            or not target_final_path.exists()
+            or target_final_path.stat().st_size < 1024
+        ) and not is_audio:
+            self.log.emit(
+                "Remux işlemi başarısız veya uyumsuz, güvenli re-encode fallback uygulanıyor…"
+            )
             cmd_fallback = [
                 "ffmpeg",
                 "-y",
@@ -671,7 +765,9 @@ class DownloadWorker(QObject):
             ]
             ret_fallback = _run_ffmpeg_cmd(cmd_fallback)
             if ret_fallback == -2:
-                self.failed.emit("Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin.")
+                self.failed.emit(
+                    "Kick indirmesi sırasında veri akışı durdu. Bağlantıyı yeniden inceleyip tekrar deneyin."
+                )
                 return
 
         if self._cancel_requested:
@@ -680,15 +776,21 @@ class DownloadWorker(QObject):
 
         # 4. Sıkı FFprobe Doğrulaması
         self.status.emit("MP4 doğrulanıyor…")
-        valid, val_reason = validate_final_download(target_final_path, is_audio_mode=is_audio)
+        valid, val_reason = validate_final_download(
+            target_final_path, is_audio_mode=is_audio
+        )
         if not valid:
-            self.log.emit(f"Hata: Final Kick dosyası doğrulamadan geçemedi: {val_reason}")
+            self.log.emit(
+                f"Hata: Final Kick dosyası doğrulamadan geçemedi: {val_reason}"
+            )
             if target_final_path.exists():
                 try:
                     target_final_path.unlink()
                 except OSError:
                     pass
-            self.failed.emit("Kick tarafından döndürülen akışın orijinal VOD olduğu doğrulanamadı. Reklam akışının kaydedilmesini önlemek için indirme durduruldu.")
+            self.failed.emit(
+                "Kick tarafından döndürülen akışın orijinal VOD olduğu doğrulanamadı. Reklam akışının kaydedilmesini önlemek için indirme durduruldu."
+            )
             return
 
         # HEVC dönüştürme kontrolü
@@ -698,27 +800,30 @@ class DownloadWorker(QObject):
             return
 
         # Transcode sonrası 2. doğrulama
-        valid, val_reason = validate_final_download(target_final_path, is_audio_mode=is_audio)
+        valid, val_reason = validate_final_download(
+            target_final_path, is_audio_mode=is_audio
+        )
         if not valid:
             if target_final_path.exists():
                 try:
                     target_final_path.unlink()
                 except OSError:
                     pass
-            self.failed.emit("Kick tarafından döndürülen akışın orijinal VOD olduğu doğrulanamadı. Reklam akışının kaydedilmesini önlemek için indirme durduruldu.")
+            self.failed.emit(
+                "Kick tarafından döndürülen akışın orijinal VOD olduğu doğrulanamadı. Reklam akışının kaydedilmesini önlemek için indirme durduruldu."
+            )
             return
 
         # 5. Başarılı Tamamlama
-        self._save_completed_record(platform, result, override_target_file=target_final_path)
+        self._save_completed_record(
+            platform, result, override_target_file=target_final_path
+        )
         self.log.emit("Kick videosu başarıyla indirildi")
         final_abs_path = str(target_final_path.resolve())
         self.succeeded.emit(final_abs_path)
 
-
     @Slot()
     def run(self) -> None:
-
-
         last_error: Exception | str | None = None
         succeeded: bool = False
 
@@ -766,7 +871,11 @@ class DownloadWorker(QObject):
                         attempt_order.insert(0, item)
 
             # preferred_browser / preferred_profile / preferred_impersonation öncelikli deneme
-            if self.request.preferred_profile or self.request.preferred_browser or self.request.preferred_impersonation:
+            if (
+                self.request.preferred_profile
+                or self.request.preferred_browser
+                or self.request.preferred_impersonation
+            ):
                 b_name_pref: str | None = None
                 p_name_pref: str | None = None
                 if self.request.preferred_profile:
@@ -775,8 +884,16 @@ class DownloadWorker(QObject):
                     b_name_pref = self.request.preferred_browser
                     p_name_pref = None
 
-                b_label = "Edge" if b_name_pref == "edge" else (b_name_pref or "").capitalize()
-                pref_label = f"{b_label} (varsayılan profil)" if p_name_pref is None else f"{b_label} ({p_name_pref})"
+                b_label = (
+                    "Edge"
+                    if b_name_pref == "edge"
+                    else (b_name_pref or "").capitalize()
+                )
+                pref_label = (
+                    f"{b_label} (varsayılan profil)"
+                    if p_name_pref is None
+                    else f"{b_label} ({p_name_pref})"
+                )
                 pref_req = DownloadRequest(
                     url=self.request.url,
                     output_dir=self.request.output_dir,
@@ -785,7 +902,9 @@ class DownloadWorker(QObject):
                     playlist=self.request.playlist,
                     browser=b_name_pref,
                     preferred_browser=b_name_pref if not p_name_pref else None,
-                    preferred_profile=(b_name_pref, p_name_pref) if (b_name_pref and p_name_pref) else None,
+                    preferred_profile=(b_name_pref, p_name_pref)
+                    if (b_name_pref and p_name_pref)
+                    else None,
                     preferred_impersonation=self.request.preferred_impersonation,
                     successful_request_url=self.request.successful_request_url,
                     convert_hevc_to_h264=self.request.convert_hevc_to_h264,
@@ -807,58 +926,117 @@ class DownloadWorker(QObject):
                     PlatformType.TIKTOK_LIVE,
                     PlatformType.TIKTOK_SLIDESHOW,
                 ):
-                    url_type = "kısa bağlantı" if ("vm.tiktok.com" in self.request.url or "vt.tiktok.com" in self.request.url) else "çözülmüş bağlantı"
+                    url_type = (
+                        "kısa bağlantı"
+                        if (
+                            "vm.tiktok.com" in self.request.url
+                            or "vt.tiktok.com" in self.request.url
+                        )
+                        else "çözülmüş bağlantı"
+                    )
                     imp_text = self.request.preferred_impersonation or "Yok"
                     sess_text = b_name_pref or "Oturumsuz"
-                    self.log.emit(f"TikTok indirme başlatılıyor (URL Türü: {url_type} | Oturum: {sess_text} | Impersonation: {imp_text})…")
+                    self.log.emit(
+                        f"TikTok indirme başlatılıyor (URL Türü: {url_type} | Oturum: {sess_text} | Impersonation: {imp_text})…"
+                    )
                 elif platform == PlatformType.KICK_VIDEO:
                     self.log.emit("Kick indirme işlemi başladı")
                     self.log.emit("Kick HLS akışı indiriliyor")
                 elif platform == PlatformType.THREADS:
                     self.log.emit("Threads indirme işlemi başladı")
 
-                self.status.emit(f"{pref_label} oturumuyla indirme başlatılıyor…" if b_name_pref else "İndirme başlatılıyor…")
+                self.status.emit(
+                    f"{pref_label} oturumuyla indirme başlatılıyor…"
+                    if b_name_pref
+                    else "İndirme başlatılıyor…"
+                )
                 self.log.emit("yt-dlp işlemi başladı.")
                 try:
                     with create_ytdl(pref_options) as downloader:
                         with patch_subprocess_for_hidden_console():
-                            info = downloader.extract_info(self.request.url, download=False)
-                        
+                            info = downloader.extract_info(
+                                self.request.url, download=False
+                            )
+
                         if self._cancel_requested:
                             self.cancelled.emit()
                             return
-                            
-                        is_playlist = self.request.playlist or (isinstance(info, dict) and info.get("_type") == "playlist")
+
+                        is_playlist = self.request.playlist or (
+                            isinstance(info, dict) and info.get("_type") == "playlist"
+                        )
                         if not is_playlist and isinstance(info, dict):
-                            from src.history import get_unique_filepath
+                            from src.history import reserve_unique_media_path
+
                             expected_filename = downloader.prepare_filename(info)
                             if expected_filename:
                                 expected_path = Path(expected_filename)
                                 final_ext = expected_path.suffix
-                                if "MP3" in self.request.media_type or "Ses" in self.request.media_type:
+                                if (
+                                    "MP3" in self.request.media_type
+                                    or "Ses" in self.request.media_type
+                                ):
                                     final_ext = ".mp3"
                                 elif downloader.params.get("merge_output_format"):
-                                    final_ext = "." + downloader.params.get("merge_output_format")
-                                
+                                    final_ext = "." + downloader.params.get(
+                                        "merge_output_format"
+                                    )
+
+                                unique_check_path = reserve_unique_media_path(
+                                    expected_path.parent, expected_path.stem, final_ext
+                                )
+                                self._current_reserved_paths.append(unique_check_path)
+
                                 check_path = expected_path.with_suffix(final_ext)
-                                unique_check_path = get_unique_filepath(check_path)
-                                
                                 if unique_check_path != check_path:
                                     safe_stem = unique_check_path.stem
                                     # Use %(ext)s so yt-dlp can manage intermediate formats (e.g. .webm -> .mp3)
-                                    new_outtmpl = str(expected_path.parent / f"{safe_stem}.%(ext)s")
-                                    if "outtmpl" in downloader.params and isinstance(downloader.params["outtmpl"], dict):
-                                        downloader.params["outtmpl"] = downloader.params["outtmpl"].copy()
-                                        downloader.params["outtmpl"]["default"] = new_outtmpl
+                                    new_outtmpl = str(
+                                        expected_path.parent / f"{safe_stem}.%(ext)s"
+                                    )
+                                    if "outtmpl" in downloader.params and isinstance(
+                                        downloader.params["outtmpl"], dict
+                                    ):
+                                        downloader.params["outtmpl"] = (
+                                            downloader.params["outtmpl"].copy()
+                                        )
+                                        downloader.params["outtmpl"]["default"] = (
+                                            new_outtmpl
+                                        )
                                     else:
-                                        downloader.params["outtmpl"] = {"default": new_outtmpl}
-                                
+                                        downloader.params["outtmpl"] = {
+                                            "default": new_outtmpl
+                                        }
+
                                 downloader.params["overwrites"] = True
                                 downloader.params["continuedl"] = False
 
+                        result = None
                         with patch_subprocess_for_hidden_console():
-                            result = downloader.process_ie_result(info, download=True)
-                        
+                            try:
+                                result = downloader.process_ie_result(
+                                    info, download=True
+                                )
+                            except Exception as dl_err:
+                                if (
+                                    "Requested format is not available" in str(dl_err)
+                                    and self.request.media_type != "Ses (MP3)"
+                                ):
+                                    self.log.emit(
+                                        "İstenen kalite formatı bulunamadı, güvenli genel seçici ile yeniden deneniyor…"
+                                    )
+                                    fallback_options = pref_options.copy()
+                                    fallback_options["format"] = "bv*+ba/b"
+                                    fallback_options.pop("format_sort", None)
+                                    with create_ytdl(
+                                        fallback_options
+                                    ) as fallback_downloader:
+                                        result = fallback_downloader.process_ie_result(
+                                            info, download=True
+                                        )
+                                else:
+                                    raise
+
                     if self._cancel_requested:
                         self.cancelled.emit()
                         return
@@ -868,16 +1046,26 @@ class DownloadWorker(QObject):
                         return
                     title = ""
                     if isinstance(result, dict):
-                        title = str(result.get("title") or result.get("playlist_title") or result.get("id") or "")
-                    
+                        title = str(
+                            result.get("title")
+                            or result.get("playlist_title")
+                            or result.get("id")
+                            or ""
+                        )
+
                     final_saved_path = self._save_completed_record(platform, result)
-                    
+
                     if platform == PlatformType.KICK_VIDEO:
                         self.log.emit("Kick videosu başarıyla indirildi")
                     else:
                         self.log.emit("İndirme tamamlandı.")
-                    
-                    self.succeeded.emit(final_saved_path or title or self._last_filename or "İndirme tamamlandı.")
+
+                    self.succeeded.emit(
+                        final_saved_path
+                        or title
+                        or self._last_filename
+                        or "İndirme tamamlandı."
+                    )
                     succeeded = True
                     return
                 except (DownloadCancelled, Exception) as exc:  # noqa: BLE001
@@ -885,7 +1073,9 @@ class DownloadWorker(QObject):
                         self.cancelled.emit()
                         return
                     last_error = exc
-                    err_clean = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", str(exc))
+                    err_clean = re.sub(
+                        r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", str(exc)
+                    )
                     reason = classify_session_error(err_clean, self.request.url)
                     self.status.emit(f"{pref_label}: {reason} — fallback'e geçiliyor…")
 
@@ -927,12 +1117,18 @@ class DownloadWorker(QObject):
                     PlatformType.TIKTOK_LIVE,
                     PlatformType.TIKTOK_SLIDESHOW,
                 ):
-                    if "MP3" in self.request.media_type or "Ses" in self.request.media_type:
+                    if (
+                        "MP3" in self.request.media_type
+                        or "Ses" in self.request.media_type
+                    ):
                         self.status.emit("TikTok sesi indiriliyor…")
                     else:
                         self.status.emit("TikTok videosu indiriliyor…")
                 elif platform == PlatformType.THREADS:
-                    if "MP3" in self.request.media_type or "Ses" in self.request.media_type:
+                    if (
+                        "MP3" in self.request.media_type
+                        or "Ses" in self.request.media_type
+                    ):
                         self.status.emit("Threads sesi indiriliyor…")
                     else:
                         self.status.emit("Threads videosu indiriliyor…")
@@ -942,42 +1138,88 @@ class DownloadWorker(QObject):
                 try:
                     with create_ytdl(options) as downloader:
                         with patch_subprocess_for_hidden_console():
-                            info = downloader.extract_info(self.request.url, download=False)
-                        
+                            info = downloader.extract_info(
+                                self.request.url, download=False
+                            )
+
                         if self._cancel_requested:
                             self.cancelled.emit()
                             return
-                            
-                        is_playlist = self.request.playlist or (isinstance(info, dict) and info.get("_type") == "playlist")
+
+                        is_playlist = self.request.playlist or (
+                            isinstance(info, dict) and info.get("_type") == "playlist"
+                        )
                         if not is_playlist and isinstance(info, dict):
-                            from src.history import get_unique_filepath
+                            from src.history import reserve_unique_media_path
+
                             expected_filename = downloader.prepare_filename(info)
                             if expected_filename:
                                 expected_path = Path(expected_filename)
                                 final_ext = expected_path.suffix
-                                if "MP3" in self.request.media_type or "Ses" in self.request.media_type:
+                                if (
+                                    "MP3" in self.request.media_type
+                                    or "Ses" in self.request.media_type
+                                ):
                                     final_ext = ".mp3"
                                 elif downloader.params.get("merge_output_format"):
-                                    final_ext = "." + downloader.params.get("merge_output_format")
-                                
+                                    final_ext = "." + downloader.params.get(
+                                        "merge_output_format"
+                                    )
+
+                                unique_check_path = reserve_unique_media_path(
+                                    expected_path.parent, expected_path.stem, final_ext
+                                )
+                                self._current_reserved_paths.append(unique_check_path)
+
                                 check_path = expected_path.with_suffix(final_ext)
-                                unique_check_path = get_unique_filepath(check_path)
-                                
                                 if unique_check_path != check_path:
                                     safe_stem = unique_check_path.stem
-                                    new_outtmpl = str(expected_path.parent / f"{safe_stem}.%(ext)s")
-                                    if "outtmpl" in downloader.params and isinstance(downloader.params["outtmpl"], dict):
-                                        downloader.params["outtmpl"] = downloader.params["outtmpl"].copy()
-                                        downloader.params["outtmpl"]["default"] = new_outtmpl
+                                    new_outtmpl = str(
+                                        expected_path.parent / f"{safe_stem}.%(ext)s"
+                                    )
+                                    if "outtmpl" in downloader.params and isinstance(
+                                        downloader.params["outtmpl"], dict
+                                    ):
+                                        downloader.params["outtmpl"] = (
+                                            downloader.params["outtmpl"].copy()
+                                        )
+                                        downloader.params["outtmpl"]["default"] = (
+                                            new_outtmpl
+                                        )
                                     else:
-                                        downloader.params["outtmpl"] = {"default": new_outtmpl}
-                                
+                                        downloader.params["outtmpl"] = {
+                                            "default": new_outtmpl
+                                        }
+
                                 downloader.params["overwrites"] = True
                                 downloader.params["continuedl"] = False
 
+                        result = None
                         with patch_subprocess_for_hidden_console():
-                            result = downloader.process_ie_result(info, download=True)
-                        
+                            try:
+                                result = downloader.process_ie_result(
+                                    info, download=True
+                                )
+                            except Exception as dl_err:
+                                if (
+                                    "Requested format is not available" in str(dl_err)
+                                    and self.request.media_type != "Ses (MP3)"
+                                ):
+                                    self.log.emit(
+                                        "İstenen kalite formatı bulunamadı, güvenli genel seçici ile yeniden deneniyor…"
+                                    )
+                                    fallback_options = options.copy()
+                                    fallback_options["format"] = "bv*+ba/b"
+                                    fallback_options.pop("format_sort", None)
+                                    with create_ytdl(
+                                        fallback_options
+                                    ) as fallback_downloader:
+                                        result = fallback_downloader.process_ie_result(
+                                            info, download=True
+                                        )
+                                else:
+                                    raise
+
                     if self._cancel_requested:
                         self.cancelled.emit()
                         return
@@ -989,11 +1231,21 @@ class DownloadWorker(QObject):
 
                     title = ""
                     if isinstance(result, dict):
-                        title = str(result.get("title") or result.get("playlist_title") or result.get("id") or "")
-                    
+                        title = str(
+                            result.get("title")
+                            or result.get("playlist_title")
+                            or result.get("id")
+                            or ""
+                        )
+
                     final_saved_path = self._save_completed_record(platform, result)
-                    
-                    self.succeeded.emit(final_saved_path or title or self._last_filename or "İndirme tamamlandı.")
+
+                    self.succeeded.emit(
+                        final_saved_path
+                        or title
+                        or self._last_filename
+                        or "İndirme tamamlandı."
+                    )
                     succeeded = True
                     break
 
@@ -1002,7 +1254,9 @@ class DownloadWorker(QObject):
                         self.cancelled.emit()
                         return
                     last_error = exc
-                    err_clean = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", str(exc))
+                    err_clean = re.sub(
+                        r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", str(exc)
+                    )
                     reason = classify_session_error(err_clean, self.request.url)
                     prefix = display_name if b_name else "Oturumsuz deneme"
                     self.status.emit(f"{prefix}: {reason}")
@@ -1014,7 +1268,8 @@ class DownloadWorker(QObject):
                         is_authentication_error(err_clean)
                         or is_browser_cookie_lock_error(err_clean)
                         or is_chromium_encryption_error(err_clean)
-                        or "could not find firefox cookies database" in err_clean.lower()
+                        or "could not find firefox cookies database"
+                        in err_clean.lower()
                         or "could not find" in err_clean.lower()
                     ):
                         continue
@@ -1030,7 +1285,11 @@ class DownloadWorker(QObject):
                     translated = translate_social_error(err_msg, self.request.url)
                     self.failed.emit(clean_log_message(translated))
         except (DownloadCancelled, Exception) as exc:  # noqa: BLE001
-            if self._cancel_requested or isinstance(exc, DownloadCancelled) or "iptal" in str(exc).lower():
+            if (
+                self._cancel_requested
+                or isinstance(exc, DownloadCancelled)
+                or "iptal" in str(exc).lower()
+            ):
                 self.cancelled.emit()
             else:
                 err_msg = str(exc)
@@ -1043,22 +1302,35 @@ class DownloadWorker(QObject):
                 if clean_ok:
                     self.status.emit("İndirme iptal edildi. Yarım dosyalar temizlendi.")
                 else:
-                    self.status.emit("İndirme iptal edildi ancak bazı geçici dosyalar silinemedi.")
+                    self.status.emit(
+                        "İndirme iptal edildi ancak bazı geçici dosyalar silinemedi."
+                    )
             self.finished.emit()
 
-    def _save_completed_record(self, platform: PlatformType, result: Any, override_target_file: Path | None = None) -> str | None:
+    def _save_completed_record(
+        self,
+        platform: PlatformType,
+        result: Any,
+        override_target_file: Path | None = None,
+    ) -> str | None:
         if self._cancel_requested:
             return None
 
-        is_playlist_download = self.request.playlist or (isinstance(result, dict) and result.get("_type") == "playlist")
+        is_playlist_download = self.request.playlist or (
+            isinstance(result, dict) and result.get("_type") == "playlist"
+        )
 
         if is_playlist_download and isinstance(result, dict):
             entries = result.get("entries") or []
             valid_entries = [e for e in entries if isinstance(e, dict)]
 
             playlist_id = str(result.get("id") or "")
-            playlist_title = str(result.get("title") or result.get("playlist_title") or "")
-            playlist_count = len(valid_entries) or int(result.get("playlist_count") or 0)
+            playlist_title = str(
+                result.get("title") or result.get("playlist_title") or ""
+            )
+            playlist_count = len(valid_entries) or int(
+                result.get("playlist_count") or 0
+            )
 
             video_records: list[DownloadRecord] = []
             max_height = 0
@@ -1085,10 +1357,16 @@ class DownloadWorker(QObject):
                             entry_path = c
                             break
 
-                if not entry_path or not entry_path.exists() or not entry_path.is_file():
+                if (
+                    not entry_path
+                    or not entry_path.exists()
+                    or not entry_path.is_file()
+                ):
                     continue
 
-                if entry_path.stat().st_size == 0 or entry_path.name.endswith((".part", ".ytdl", ".temp")):
+                if entry_path.stat().st_size == 0 or entry_path.name.endswith(
+                    (".part", ".ytdl", ".temp")
+                ):
                     continue
 
                 if not first_folder:
@@ -1102,10 +1380,14 @@ class DownloadWorker(QObject):
                 v_id = str(entry.get("id") or "")
                 v_title = str(entry.get("title") or entry_path.stem)
                 p_idx = int(entry.get("playlist_index") or idx)
-                p_count = int(entry.get("playlist_count") or playlist_count or len(valid_entries))
+                p_count = int(
+                    entry.get("playlist_count") or playlist_count or len(valid_entries)
+                )
 
                 v_rec = DownloadRecord(
-                    platform="youtube_video" if platform == PlatformType.YOUTUBE_PLAYLIST else platform.value,
+                    platform="youtube_video"
+                    if platform == PlatformType.YOUTUBE_PLAYLIST
+                    else platform.value,
                     media_id=v_id,
                     media_type=self.request.media_type,
                     requested_quality=self.request.quality,
@@ -1113,16 +1395,22 @@ class DownloadWorker(QObject):
                     final_path=str(entry_path.resolve()),
                     state="completed",
                     file_size=entry_path.stat().st_size,
-                    completed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    video_codec=probe.get("video_codec", "") or str(entry.get("vcodec") or ""),
-                    audio_codec=probe.get("audio_codec", "") or str(entry.get("acodec") or ""),
+                    completed_at=datetime.datetime.now(
+                        datetime.timezone.utc
+                    ).isoformat(),
+                    video_codec=probe.get("video_codec", "")
+                    or str(entry.get("vcodec") or ""),
+                    audio_codec=probe.get("audio_codec", "")
+                    or str(entry.get("acodec") or ""),
                     playlist=True,
                     playlist_id=playlist_id,
                     playlist_title=playlist_title,
                     playlist_index=p_idx,
                     playlist_count=p_count,
                     title=v_title,
-                    source_url=str(entry.get("webpage_url") or entry.get("url") or self.request.url),
+                    source_url=str(
+                        entry.get("webpage_url") or entry.get("url") or self.request.url
+                    ),
                 )
                 save_record(v_rec)
                 video_records.append(v_rec)
@@ -1131,7 +1419,9 @@ class DownloadWorker(QObject):
             # Playlist Özet Kaydı
             summary_folder = first_folder or self.request.output_dir
             summary_rec = DownloadRecord(
-                platform="youtube_playlist" if platform == PlatformType.YOUTUBE_PLAYLIST else platform.value,
+                platform="youtube_playlist"
+                if platform == PlatformType.YOUTUBE_PLAYLIST
+                else platform.value,
                 media_id=playlist_id,
                 media_type=self.request.media_type,
                 requested_quality=self.request.quality,
@@ -1156,7 +1446,10 @@ class DownloadWorker(QObject):
         # Tekil video indirme akışı (mevcut davranış korunuyor)
         target_file: Path | None = override_target_file
         if not target_file or not target_file.exists():
-            if self.request.target_final_path and self.request.target_final_path.exists():
+            if (
+                self.request.target_final_path
+                and self.request.target_final_path.exists()
+            ):
                 target_file = self.request.target_final_path
             elif self._last_filename and Path(self._last_filename).exists():
                 target_file = Path(self._last_filename)
@@ -1166,14 +1459,21 @@ class DownloadWorker(QObject):
                     target_file = Path(fn)
 
         if not target_file and self.request.output_dir.exists():
-            files = [f for f in self.request.output_dir.glob("*") if f.is_file() and not f.name.endswith((".part", ".ytdl", ".temp"))]
+            files = [
+                f
+                for f in self.request.output_dir.glob("*")
+                if f.is_file() and not f.name.endswith((".part", ".ytdl", ".temp"))
+            ]
             if files:
                 target_file = max(files, key=lambda f: f.stat().st_mtime)
 
         if not target_file or not target_file.exists():
             return None
 
-        if self.request.target_final_path and target_file != self.request.target_final_path:
+        if (
+            self.request.target_final_path
+            and target_file != self.request.target_final_path
+        ):
             try:
                 if not self.request.target_final_path.exists():
                     target_file.rename(self.request.target_final_path)
@@ -1188,8 +1488,17 @@ class DownloadWorker(QObject):
             media_id = str(result.get("id") or "")
             title = str(result.get("title") or "")
 
-        if media_id.lower() in ("manifest", "index", "master", "playlist", "chunklist", ""):
-            match = re.search(r"videos/([a-f0-9\-]{8,})", self.request.url, re.IGNORECASE)
+        if media_id.lower() in (
+            "manifest",
+            "index",
+            "master",
+            "playlist",
+            "chunklist",
+            "",
+        ):
+            match = re.search(
+                r"videos/([a-f0-9\-]{8,})", self.request.url, re.IGNORECASE
+            )
             if match:
                 media_id = match.group(1)
 
@@ -1209,13 +1518,17 @@ class DownloadWorker(QObject):
             audio_codec=probe.get("audio_codec", ""),
             playlist=self.request.playlist,
             title=title or target_file.stem,
-            source_url=str(result.get("webpage_url") if isinstance(result, dict) else "") or self.request.url,
+            source_url=str(
+                result.get("webpage_url") if isinstance(result, dict) else ""
+            )
+            or self.request.url,
         )
         save_record(rec)
         return str(target_file.resolve())
 
     def _cleanup_job_files(self, is_cancel: bool) -> bool:
         import gc
+
         gc.collect()
 
         if self._active_process:
@@ -1248,7 +1561,15 @@ class DownloadWorker(QObject):
                     except Exception:  # noqa: BLE001, S110
                         pass
 
-        temp_suffixes = (".part", ".ytdl", ".temp", ".hevc_temp.mp4", ".ts", ".frag", ".urls")
+        temp_suffixes = (
+            ".part",
+            ".ytdl",
+            ".temp",
+            ".hevc_temp.mp4",
+            ".ts",
+            ".frag",
+            ".urls",
+        )
 
         for path_obj in candidates:
             if not path_obj.exists() or not path_obj.is_file():
@@ -1265,8 +1586,18 @@ class DownloadWorker(QObject):
             except OSError:
                 pass
 
-            if not is_cancel and self.request.target_final_path and path_obj.resolve() == self.request.target_final_path.resolve():
-                valid, _ = validate_final_download(path_obj, is_audio_mode=("MP3" in self.request.media_type or "Ses" in self.request.media_type))
+            if (
+                not is_cancel
+                and self.request.target_final_path
+                and path_obj.resolve() == self.request.target_final_path.resolve()
+            ):
+                valid, _ = validate_final_download(
+                    path_obj,
+                    is_audio_mode=(
+                        "MP3" in self.request.media_type
+                        or "Ses" in self.request.media_type
+                    ),
+                )
                 if valid:
                     continue
 
@@ -1276,7 +1607,8 @@ class DownloadWorker(QObject):
                 or ".f" in name_lower
                 or ".frag" in name_lower
                 or name_lower.startswith(".kolayindir_")
-                or name_lower in ("manifest", "index", "master", "playlist", "chunklist")
+                or name_lower
+                in ("manifest", "index", "master", "playlist", "chunklist")
             )
 
             if is_temp_ext or is_cancel:
@@ -1284,13 +1616,18 @@ class DownloadWorker(QObject):
                     all_clean = False
             elif not self._last_filename:
                 probe = probe_media_codecs(path_obj)
-                if probe.get("duration", 0.0) <= 0.0 and not self._safe_unlink(path_obj):
+                if probe.get("duration", 0.0) <= 0.0 and not self._safe_unlink(
+                    path_obj
+                ):
                     all_clean = False
 
         return all_clean
 
-    def _safe_unlink(self, path_obj: Path, retries: int = 15, delay: float = 0.1) -> bool:
+    def _safe_unlink(
+        self, path_obj: Path, retries: int = 15, delay: float = 0.1
+    ) -> bool:
         import gc
+
         for attempt in range(retries):
             try:
                 if not path_obj.exists():
@@ -1316,7 +1653,13 @@ class DownloadWorker(QObject):
                 target_file = Path(fn)
 
         if not target_file:
-            files = [f for f in self.request.output_dir.glob("*") if f.is_file() and not f.name.endswith(".part") and not f.name.endswith(".temp")]
+            files = [
+                f
+                for f in self.request.output_dir.glob("*")
+                if f.is_file()
+                and not f.name.endswith(".part")
+                and not f.name.endswith(".temp")
+            ]
             if files:
                 target_file = max(files, key=lambda f: f.stat().st_mtime)
 
@@ -1326,12 +1669,161 @@ class DownloadWorker(QObject):
         self.status.emit("Video codec'i kontrol ediliyor…")
         probe = probe_media_codecs(target_file)
         v_codec = probe.get("video_codec", "")
+        a_codec = probe.get("audio_codec", "")
+        pix_fmt = probe.get("pix_fmt", "")
+        width = probe.get("width", 0)
+        height = probe.get("height", 0)
+        channels = probe.get("channels", 0)
 
-        if is_hevc_codec(v_codec) and self.request.convert_hevc_to_h264:
-            self.log.emit("İndirilen video HEVC/H.265 biçiminde. Windows uyumlu H.264 MP4'e dönüştürülüyor…")
+        is_video_ok = (
+            v_codec == "h264"
+            and pix_fmt in ("yuv420p", "yuvj420p")
+            and width % 2 == 0
+            and height % 2 == 0
+        )
+        is_audio_ok = (
+            a_codec == "none"
+            or a_codec == "unknown"
+            or (a_codec == "aac" and channels in (1, 2))
+        )
+        is_ext_ok = target_file.suffix.lower() == ".mp4"
+        needs_compat_convert = not (is_video_ok and is_audio_ok and is_ext_ok)
+
+        if needs_compat_convert:
+            self.log.emit(
+                "Video cihaz ve mesajlaşma uygulamalarıyla tam uyumlu değil. Uyumlu formata (H.264/AAC MP4) dönüştürülüyor…"
+            )
+            self.status.emit(
+                "Video cihaz ve mesajlaşma uygulamalarıyla uyumlu hale getiriliyor…"
+            )
+
+            temp_whatsapp = target_file.with_name(target_file.stem + ".wa_temp.mp4")
+            try:
+                if temp_whatsapp.exists():
+                    temp_whatsapp.unlink()
+            except OSError as exc:
+                self.log.emit(f"Geçici dosya oluşturulamadı: {exc}")
+                return
+
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(target_file),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0?",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "22",
+                "-pix_fmt",
+                "yuv420p",
+                "-vf",
+                "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                "-tag:v",
+                "avc1",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                "-movflags",
+                "+faststart",
+                str(temp_whatsapp),
+            ]
+
+            duration = float(probe.get("duration") or 0.0)
+            process = None
+            try:
+                kwargs = hidden_subprocess_kwargs(
+                    stderr=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                process = subprocess.Popen(cmd, **kwargs)
+                self._active_process = process
+                time_pattern = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+
+                while True:
+                    if self._cancel_requested:
+                        if process:
+                            process.kill()
+                        if temp_whatsapp.exists():
+                            temp_whatsapp.unlink()
+                        return
+
+                    line = process.stderr.readline() if process.stderr else ""
+                    if not line and process.poll() is not None:
+                        break
+
+                    if line:
+                        m = time_pattern.search(line)
+                        if m and duration > 0:
+                            h, m_m, s = (
+                                float(m.group(1)),
+                                float(m.group(2)),
+                                float(m.group(3)),
+                            )
+                            curr_sec = h * 3600 + m_m * 60 + s
+                            pct = min(99, max(0, int((curr_sec / duration) * 100)))
+                            self.status.emit(
+                                f"Video cihaz ve mesajlaşma uygulamalarıyla uyumlu hale getiriliyor… (%{pct})"
+                            )
+
+                process.wait()
+
+                if (
+                    process.returncode == 0
+                    and temp_whatsapp.exists()
+                    and temp_whatsapp.stat().st_size > 0
+                ):
+                    try:
+                        target_file.unlink()
+                    except OSError:
+                        pass
+                    final_path = target_file.with_name(target_file.stem + ".mp4")
+                    temp_whatsapp.rename(final_path)
+                    if self._last_filename:
+                        self._last_filename = str(final_path)
+                    self.status.emit("Video uyumlu MP4 olarak hazırlandı.")
+                    self.log.emit("Video uyumlu MP4 olarak hazırlandı.")
+                else:
+                    if temp_whatsapp.exists():
+                        temp_whatsapp.unlink()
+                    self.log.emit(
+                        "Video indirildi ancak uyumlu MP4 biçimine dönüştürülemedi. Orijinal dosya korundu."
+                    )
+                    self.status.emit(
+                        "Video indirildi ancak uyumlu MP4 biçimine dönüştürülemedi. Orijinal dosya korundu."
+                    )
+            except Exception as exc:  # noqa: BLE001
+                if process:
+                    process.kill()
+                if temp_whatsapp.exists():
+                    temp_whatsapp.unlink()
+                self.log.emit(f"Dönüştürme hatası: {exc}")
+                self.status.emit(
+                    "Video indirildi ancak uyumlu MP4 biçimine dönüştürülemedi. Orijinal dosya korundu."
+                )
+
+        elif is_hevc_codec(v_codec) and self.request.convert_hevc_to_h264:
+            self.log.emit(
+                "İndirilen video HEVC/H.265 biçiminde. Windows uyumlu H.264 MP4'e dönüştürülüyor…"
+            )
             self.status.emit("Video Windows uyumlu H.264 biçimine dönüştürülüyor…")
 
-            temp_hevc = target_file.with_name(target_file.stem + ".hevc_temp" + target_file.suffix)
+            temp_hevc = target_file.with_name(
+                target_file.stem + ".hevc_temp" + target_file.suffix
+            )
             try:
                 if temp_hevc.exists():
                     temp_hevc.unlink()
@@ -1393,14 +1885,24 @@ class DownloadWorker(QObject):
                     if line:
                         m = time_pattern.search(line)
                         if m and duration > 0:
-                            h, m_m, s = float(m.group(1)), float(m.group(2)), float(m.group(3))
+                            h, m_m, s = (
+                                float(m.group(1)),
+                                float(m.group(2)),
+                                float(m.group(3)),
+                            )
                             curr_sec = h * 3600 + m_m * 60 + s
                             pct = min(99, max(0, int((curr_sec / duration) * 100)))
-                            self.status.emit(f"Video Windows uyumlu H.264 biçimine dönüştürülüyor… (%{pct})")
+                            self.status.emit(
+                                f"Video Windows uyumlu H.264 biçimine dönüştürülüyor… (%{pct})"
+                            )
 
                 process.wait()
 
-                if process.returncode == 0 and target_file.exists() and target_file.stat().st_size > 0:
+                if (
+                    process.returncode == 0
+                    and target_file.exists()
+                    and target_file.stat().st_size > 0
+                ):
                     if temp_hevc.exists():
                         temp_hevc.unlink()
                     self.status.emit("Video ve ses hazırlanıyor…")
@@ -1408,12 +1910,18 @@ class DownloadWorker(QObject):
                 else:
                     if temp_hevc.exists() and not target_file.exists():
                         temp_hevc.rename(target_file)
-                    self.log.emit("Video indirildi ancak Windows uyumlu H.264 biçimine dönüştürülemedi.")
-                    self.status.emit("H.264 dönüştürmesi tamamlanamadı (orijinal dosya korundu).")
+                    self.log.emit(
+                        "Video indirildi ancak Windows uyumlu H.264 biçimine dönüştürülemedi."
+                    )
+                    self.status.emit(
+                        "H.264 dönüştürmesi tamamlanamadı (orijinal dosya korundu)."
+                    )
             except Exception as exc:  # noqa: BLE001
                 if process:
                     process.kill()
                 if temp_hevc.exists() and not target_file.exists():
                     temp_hevc.rename(target_file)
                 self.log.emit(f"Dönüştürme hatası: {exc}")
-                self.status.emit("H.264 dönüştürmesi başarısız (orijinal dosya korundu).")
+                self.status.emit(
+                    "H.264 dönüştürmesi başarısız (orijinal dosya korundu)."
+                )

@@ -31,14 +31,26 @@ def load_settings() -> dict[str, Any]:
 
     default_dir = get_default_download_dir()
     if not SETTINGS_FILE.exists():
-        return {"output_dir": default_dir, "auto_open_folder": False, "rate_limit_bps": None}
+        return {
+            "output_dir": default_dir,
+            "auto_open_folder": False,
+            "rate_limit_bps": None,
+        }
     try:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {"output_dir": default_dir, "auto_open_folder": False, "rate_limit_bps": None}
+        return {
+            "output_dir": default_dir,
+            "auto_open_folder": False,
+            "rate_limit_bps": None,
+        }
 
     if not isinstance(data, dict):
-        return {"output_dir": default_dir, "auto_open_folder": False, "rate_limit_bps": None}
+        return {
+            "output_dir": default_dir,
+            "auto_open_folder": False,
+            "rate_limit_bps": None,
+        }
 
     data.pop("browser", None)
     data.pop("playlist", None)
@@ -87,8 +99,6 @@ def load_settings() -> dict[str, Any]:
     return data
 
 
-
-
 def save_settings(settings: dict[str, Any]) -> None:
     excluded_keys = {"browser", "playlist"}
     sanitized = {
@@ -99,5 +109,3 @@ def save_settings(settings: dict[str, Any]) -> None:
         json.dumps(sanitized, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     temporary.replace(SETTINGS_FILE)
-
-

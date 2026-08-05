@@ -515,4 +515,3 @@ QCheckBox#playlistCheckBox::indicator:checked, QCheckBox#autoOpenCheckBox::indic
     border-color: #2563eb;
 }
 """
-

@@ -131,7 +131,10 @@ class TestRateLimitMainWindowUI:
         assert hasattr(main_window, "custom_rate_limit_spin")
         assert main_window.custom_rate_limit_spin.objectName() == "customRateLimitSpin"
         assert hasattr(main_window, "custom_rate_limit_unit_combo")
-        assert main_window.custom_rate_limit_unit_combo.objectName() == "customRateLimitUnitCombo"
+        assert (
+            main_window.custom_rate_limit_unit_combo.objectName()
+            == "customRateLimitUnitCombo"
+        )
 
     def test_rate_limit_combo_presets(self, main_window):
         # Select 1 MB/sn

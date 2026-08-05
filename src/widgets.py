@@ -81,7 +81,6 @@ class OptionCard(QFrame):
             return True
         return super().eventFilter(watched, event)
 
-
     def _update_checked_state(self, checked: bool) -> None:
         self.setProperty("checked", "true" if checked else "false")
         self.style().unpolish(self)
