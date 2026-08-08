@@ -125,12 +125,16 @@ def test_get_unique_filepath_suffixes(tmp_path):
     existing = tmp_path / "Sample.mp4"
     existing.write_text("dummy")
 
-    new_path = reserve_unique_media_path((existing).parent, (existing).stem, (existing).suffix)
+    new_path = reserve_unique_media_path(
+        (existing).parent, (existing).stem, (existing).suffix
+    )
     # Numbering starts at (1)
     assert new_path.name == "Sample (1).mp4"
 
     new_path.write_text("dummy")
-    newer_path = reserve_unique_media_path((existing).parent, (existing).stem, (existing).suffix)
+    newer_path = reserve_unique_media_path(
+        (existing).parent, (existing).stem, (existing).suffix
+    )
     assert newer_path.name == "Sample (2).mp4"
 
 

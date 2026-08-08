@@ -18,7 +18,6 @@ except ImportError:
 
 
 from src.browser_sessions import (
-    build_profile_attempt_order,
     classify_session_error,
     is_authentication_error,
     is_browser_cookie_lock_error,
@@ -431,7 +430,14 @@ class DownloadWorker(QObject):
         is_audio = "MP3" in self.request.media_type or "Ses" in self.request.media_type
 
         target_final_path = self.request.target_final_path
-        if not target_final_path or target_final_path.stem.lower() in {"manifest", "master", "playlist", "index", "chunklist", ""}:
+        if not target_final_path or target_final_path.stem.lower() in {
+            "manifest",
+            "master",
+            "playlist",
+            "index",
+            "chunklist",
+            "",
+        }:
             clean_title = sanitize_filename("Kick Videosu")
         else:
             clean_title = sanitize_filename(target_final_path.stem)
@@ -834,6 +840,17 @@ class DownloadWorker(QObject):
 
             platform = self._platform
 
+            import dataclasses
+
+            from src.session_manager import SessionManager
+            from src.threads_share_resolver import resolve_threads_share_url
+
+            if "threads" in self.request.url.lower() and "/share/" in self.request.url.lower():
+                resolved = resolve_threads_share_url(self.request.url, session_mgr=SessionManager())
+                if resolved and resolved != self.request.url:
+                    self.log.emit("Threads canonical URL bulundu, indirme güncelleniyor.")
+                    self.request = dataclasses.replace(self.request, url=resolved)
+
             # --- Kick VOD: İndirme başlamadan güncel playback URL'sini al ---
             if platform == PlatformType.KICK_VIDEO:
                 kick_m3u8 = self._resolve_kick_playback_url(self.request.url)
@@ -851,24 +868,28 @@ class DownloadWorker(QObject):
                 self._run_kick_download(platform)
                 return
 
-            requested_browser = self.request.browser or "auto"
-            attempt_order = build_profile_attempt_order(platform, requested_browser)
+            method_str = (
+                self.request.session_method.value
+                if hasattr(self.request.session_method, "value")
+                else str(self.request.session_method or "auto")
+            )
 
-            if self.request.preferred_profile:
-                match_idx = next(
-                    (
-                        i
-                        for i, (b, p, _) in enumerate(attempt_order)
-                        if (b, p) == self.request.preferred_profile
-                    ),
-                    None,
-                )
-                if match_idx is not None:
-                    item = attempt_order.pop(match_idx)
-                    if attempt_order and attempt_order[0][0] is None:
-                        attempt_order.insert(1, item)
-                    else:
-                        attempt_order.insert(0, item)
+            if method_str in ("none", "disabled", "off"):
+                attempt_order = [(None, None, "Oturumsuz", None)]
+            elif method_str == "auto":
+                attempt_order = [
+                    (None, None, "Oturumsuz", None),
+                    ("session_center", None, "Kayıtlı Oturum", None),
+                ]
+            else:
+                attempt_order = [
+                    (method_str, None, f"{method_str.capitalize()} Tarayıcısı", None)
+                ]
+
+            if self.request.cookie_file_path:
+                attempt_order = [
+                    (None, None, "Çerez Dosyası", self.request.cookie_file_path)
+                ]
 
             # preferred_browser / preferred_profile / preferred_impersonation öncelikli deneme
             if (
@@ -1079,7 +1100,9 @@ class DownloadWorker(QObject):
                     reason = classify_session_error(err_clean, self.request.url)
                     self.status.emit(f"{pref_label}: {reason} — fallback'e geçiliyor…")
 
-            for b_name, p_name, display_name in attempt_order:
+            session_mgr = SessionManager()
+
+            for b_name, p_name, display_name, static_cookie_path in attempt_order:
                 if self._cancel_requested:
                     self.cancelled.emit()
                     return
@@ -1090,9 +1113,11 @@ class DownloadWorker(QObject):
                     media_type=self.request.media_type,
                     quality=self.request.quality,
                     playlist=self.request.playlist,
-                    browser=b_name,
+                    browser=b_name if b_name != "session_center" else None,
                     preferred_browser=None,
-                    preferred_profile=(b_name, p_name) if (b_name and p_name) else None,
+                    preferred_profile=(b_name, p_name)
+                    if (b_name and p_name and b_name != "session_center")
+                    else None,
                     preferred_impersonation=self.request.preferred_impersonation,
                     successful_request_url=self.request.successful_request_url,
                     convert_hevc_to_h264=self.request.convert_hevc_to_h264,
@@ -1100,7 +1125,7 @@ class DownloadWorker(QObject):
                     target_final_path=self.request.target_final_path,
                     rate_limit_bps=self.request.rate_limit_bps,
                     session_method=self.request.session_method,
-                    cookie_file_path=self.request.cookie_file_path,
+                    cookie_file_path=static_cookie_path,
                 )
 
                 options = build_ydl_options(req_copy)
@@ -1108,8 +1133,21 @@ class DownloadWorker(QObject):
                 options["progress_hooks"] = [self._progress_hook]
                 options["postprocessor_hooks"] = [self._postprocessor_hook]
 
+                temp_cookie_ctx = None
+                if b_name == "session_center":
+                    temp_cookie_ctx = session_mgr.create_temp_cookiefile()
+                    cookie_path = temp_cookie_ctx.__enter__()
+                    if not cookie_path:
+                        temp_cookie_ctx.__exit__(None, None, None)
+                        self.log.emit(
+                            "Kayıtlı oturum bulunamadı. Oturum Merkezi'ni açın."
+                        )
+                        self.failed.emit("Oturumun yenilenmesi gerekiyor.")
+                        return
+                    options["cookiefile"] = cookie_path
+
                 if b_name:
-                    self.status.emit(f"{display_name} oturumuyla indirme başlatılıyor…")
+                    self.status.emit(f"{display_name} ile indirme başlatılıyor…")
                 elif platform in (
                     PlatformType.TIKTOK_VIDEO,
                     PlatformType.TIKTOK_SHORT_LINK,
@@ -1250,6 +1288,9 @@ class DownloadWorker(QObject):
                     break
 
                 except (DownloadCancelled, Exception) as exc:  # noqa: BLE001
+                    if temp_cookie_ctx:
+                        temp_cookie_ctx.__exit__(None, None, None)
+
                     if self._cancel_requested or isinstance(exc, DownloadCancelled):
                         self.cancelled.emit()
                         return
@@ -1261,7 +1302,16 @@ class DownloadWorker(QObject):
                     prefix = display_name if b_name else "Oturumsuz deneme"
                     self.status.emit(f"{prefix}: {reason}")
 
-                    if requested_browser != "auto":
+                    if b_name == "session_center" and is_authentication_error(
+                        err_clean
+                    ):
+                        self.log.emit(
+                            "Oturum süresi dolmuş veya geçersiz. Lütfen Oturum Merkezi'nden yenileyin."
+                        )
+                        self.failed.emit("Oturumun yenilenmesi gerekiyor.")
+                        return
+
+                    if method_str not in ("auto", "none", "disabled", "off"):
                         break
 
                     if (
@@ -1275,6 +1325,9 @@ class DownloadWorker(QObject):
                         continue
                     else:
                         break
+
+                if temp_cookie_ctx:
+                    temp_cookie_ctx.__exit__(None, None, None)
 
             if not succeeded:
                 if self._cancel_requested:

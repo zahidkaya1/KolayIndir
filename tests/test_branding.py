@@ -32,10 +32,10 @@ def qapp():
 
 def test_branding_constants():
     assert APP_NAME == "Loadvia"
-    assert APP_VERSION == "1.1.1"
+    assert APP_VERSION == "1.2.0"
     assert APP_DESCRIPTION == "Hızlı, Kolay ve Yüksek Kaliteli Medya İndirici"
-    assert APP_USER_AGENT == "Loadvia/1.1.1"
-    assert HTTP_USER_AGENT == "Loadvia/1.1.1"
+    assert APP_USER_AGENT == "Loadvia/1.2.0"
+    assert HTTP_USER_AGENT == "Loadvia/1.2.0"
     assert GITHUB_OWNER == "zahidkaya1"
     assert GITHUB_REPO == "KolayIndir"
 
@@ -43,7 +43,7 @@ def test_branding_constants():
 def test_main_window_branding_title_and_icon(qapp, monkeypatch):
     monkeypatch.setattr(MainWindow, "_show_dependency_status", lambda self: None)
     win = MainWindow()
-    assert win.windowTitle() == "Loadvia 1.1.1"
+    assert win.windowTitle() == "Loadvia 1.2.0"
     assert not win.windowIcon().isNull()
     win.close()
     win.deleteLater()

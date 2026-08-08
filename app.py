@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication
 
 from src.config import APP_NAME
 from src.main_window import MainWindow
+from src.session_manager import SessionManager
 from src.styles import APP_STYLE
 from src.utils import get_brand_asset_path, setup_environment_paths
 
@@ -14,11 +15,17 @@ from src.utils import get_brand_asset_path, setup_environment_paths
 def main() -> int:
     setup_environment_paths()
 
+    # Eski gecici session dosyalarini temizle
+    try:
+        SessionManager().cleanup_stale_temp_files()
+    except Exception:  # noqa: BLE001, S110
+        pass
+
     if sys.platform == "win32":
         try:
             import ctypes
 
-            app_id = "zahidkaya.Loadvia.1.1.1"
+            app_id = "zahidkaya.Loadvia.1.2.0"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
         except Exception:  # noqa: BLE001, S110
             pass
