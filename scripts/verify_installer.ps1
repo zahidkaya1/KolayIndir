@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param (
-    [string]$SetupPath = "release\Loadvia-Setup-1.1.1.exe",
+    [string]$SetupPath = "release\Loadvia-Setup-1.2.0.exe",
     [switch]$InstallSmokeTest
 )
 
@@ -41,11 +41,11 @@ if ($ProductName -ne "Loadvia") {
     exit 1
 }
 $FileVersion = if ($VerInfo.FileVersion) { $VerInfo.FileVersion.Trim() } else { "" }
-if ($FileVersion -ne "1.1.1.1") {
-    Write-Error "Setup FileVersion is '$($VerInfo.FileVersion)', expected '1.1.1.1'"
+if ($FileVersion -ne "1.2.0.0") {
+    Write-Error "Setup FileVersion is '$($VerInfo.FileVersion)', expected '1.2.0.0'"
     exit 1
 }
-Write-Host "[OK] Setup version metadata verified (ProductName: Loadvia, FileVersion: 1.1.1.1)" -ForegroundColor Green
+Write-Host "[OK] Setup version metadata verified (ProductName: Loadvia, FileVersion: 1.2.0.0)" -ForegroundColor Green
 
 # 4. Verify ISS Script Safeguards
 $IssPath = Join-Path $ProjectRoot "installer\Loadvia.iss"

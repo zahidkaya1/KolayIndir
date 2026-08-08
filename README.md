@@ -47,8 +47,8 @@ Uygulamayı yalnızca sahibi olduğunuz, açıkça indirme izniniz bulunan veya 
 ## Paketler
 
 Uygulamayı iki şekilde kullanabilirsiniz:
-- Kurulumlu (Installer): `Loadvia-Setup-1.1.1.exe`
-- Taşınabilir (Portable): `Loadvia-1.1.1-windows-x64-portable.zip`
+- Kurulumlu (Installer): `Loadvia-Setup-1.2.0.exe`
+- Taşınabilir (Portable): `Loadvia-1.2.0-windows-x64-portable.zip`
 
 ## Gelecek Geliştirmeler
 

@@ -85,6 +85,7 @@ from src.models import (
     is_platform_temporarily_disabled,
     is_rehydration_error,
 )
+from src.session_center_dialog import SessionCenterDialog
 from src.settings import load_settings, save_settings
 from src.updater import UpdateWorker
 from src.utils import (
@@ -209,6 +210,13 @@ class MainWindow(QMainWindow):
 
         header_layout.addLayout(title_box)
         header_layout.addStretch(1)
+
+        self.session_button = QPushButton("Oturum Merkezi")
+        self.session_button.setObjectName("secondaryButton")
+        self.session_button.setMinimumWidth(110)
+        self.session_button.clicked.connect(self._open_session_center)
+        header_layout.addWidget(self.session_button)
+
         layout.addLayout(header_layout)
 
         scroll_area = QScrollArea()
@@ -578,8 +586,8 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(bottom_box)
 
-        # El imleci (PointingHandCursor) uygulamasını tüm tıklanabilir bileşenlerde etkinleştir
         for w in (
+            self.session_button,
             self.paste_button,
             self.analyze_button,
             self.download_button,
@@ -600,6 +608,10 @@ class MainWindow(QMainWindow):
             apply_pointing_hand_cursor(w)
 
         self.setCentralWidget(root)
+
+    def _open_session_center(self) -> None:
+        dialog = SessionCenterDialog(self)
+        dialog.exec()
 
     def _update_download_button_state(self, is_downloading: bool = False) -> None:
         if is_downloading:

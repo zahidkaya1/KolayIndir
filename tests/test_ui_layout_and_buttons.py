@@ -1,6 +1,7 @@
 """
 Yerleşim, buton QSS durumları ve benzersiz dosya adı üretimi birim testleri.
 """
+
 from __future__ import annotations
 
 import re
@@ -21,6 +22,7 @@ from src.styles import APP_STYLE
 # QApplication singleton
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def qapp():
     app = QApplication.instance() or QApplication([])
@@ -31,39 +33,52 @@ def qapp():
 # 1. Dosya adı benzersizliği
 # ---------------------------------------------------------------------------
 
+
 class TestGetUniqueFilepath:
     def test_no_conflict_returns_original(self, tmp_path):
         target = tmp_path / "video.mp4"
-        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
+        result = reserve_unique_media_path(
+            (target).parent, (target).stem, (target).suffix
+        )
         assert result == target
 
     def test_first_conflict_adds_1(self, tmp_path):
         target = tmp_path / "video.mp4"
         target.write_bytes(b"X" * 1024)
-        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
+        result = reserve_unique_media_path(
+            (target).parent, (target).stem, (target).suffix
+        )
         assert result == tmp_path / "video (1).mp4"
 
     def test_second_conflict_adds_2(self, tmp_path):
         target = tmp_path / "video.mp4"
         target.write_bytes(b"X" * 1024)
         (tmp_path / "video (1).mp4").write_bytes(b"X" * 1024)
-        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
+        result = reserve_unique_media_path(
+            (target).parent, (target).stem, (target).suffix
+        )
         assert result == tmp_path / "video (2).mp4"
 
     def test_mp3_numbering(self, tmp_path):
         target = tmp_path / "Müzik.mp3"
         target.write_bytes(b"M" * 1024)
-        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
+        result = reserve_unique_media_path(
+            (target).parent, (target).stem, (target).suffix
+        )
         assert result == tmp_path / "Müzik (1).mp3"
         (tmp_path / "Müzik (1).mp3").write_bytes(b"M" * 1024)
-        result2 = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
+        result2 = reserve_unique_media_path(
+            (target).parent, (target).stem, (target).suffix
+        )
         assert result2 == tmp_path / "Müzik (2).mp3"
 
     def test_existing_parens_not_mangled(self, tmp_path):
         """'Belgesel (Final).mp4' -> 'Belgesel (Final) (1).mp4'"""
         target = tmp_path / "Belgesel (Final).mp4"
         target.write_bytes(b"X" * 1024)
-        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
+        result = reserve_unique_media_path(
+            (target).parent, (target).stem, (target).suffix
+        )
         assert result == tmp_path / "Belgesel (Final) (1).mp4"
 
     def test_part_file_does_not_block_numbering(self, tmp_path):
@@ -75,7 +90,9 @@ class TestGetUniqueFilepath:
         part = tmp_path / "video.mp4.part"
         part.write_bytes(b"PART")
         # target does NOT exist -> returns target as-is
-        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
+        result = reserve_unique_media_path(
+            (target).parent, (target).stem, (target).suffix
+        )
         assert result == target
 
     def test_fragment_file_ignored_in_numbering(self, tmp_path):
@@ -87,38 +104,48 @@ class TestGetUniqueFilepath:
         frag = tmp_path / "video.f137.mp4"
         frag.write_bytes(b"FRAG")
         # (1) position is occupied by real file?  No -> (1) slot is free
-        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
+        result = reserve_unique_media_path(
+            (target).parent, (target).stem, (target).suffix
+        )
         # video (1).mp4 doesn't exist (frag ≠ (1)), so it's chosen
         assert result == tmp_path / "video (1).mp4"
 
     def test_completed_file_not_overwritten(self, tmp_path):
         target = tmp_path / "video.mp4"
         target.write_bytes(b"COMPLETE" * 100)
-        result = reserve_unique_media_path((target).parent, (target).stem, (target).suffix)
+        result = reserve_unique_media_path(
+            (target).parent, (target).stem, (target).suffix
+        )
         # Must differ from target; original must remain untouched
         assert result != target
         assert target.exists()
 
 
 class TestIsTempOrFragmentFile:
-    @pytest.mark.parametrize("name", [
-        "video.mp4.part",
-        "audio.m4a.temp",
-        "file.ytdl",
-        "clip.hevc_temp",
-        "video.f137.mp4",
-        "audio.f140.m4a",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "video.mp4.part",
+            "audio.m4a.temp",
+            "file.ytdl",
+            "clip.hevc_temp",
+            "video.f137.mp4",
+            "audio.f140.m4a",
+        ],
+    )
     def test_recognized_as_temp(self, tmp_path, name):
         p = tmp_path / name
         assert _is_temp_or_fragment_file(p)
 
-    @pytest.mark.parametrize("name", [
-        "video.mp4",
-        "music.mp3",
-        "clip (1).mp4",
-        "Belgesel (Final).mp4",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "video.mp4",
+            "music.mp3",
+            "clip (1).mp4",
+            "Belgesel (Final).mp4",
+        ],
+    )
     def test_not_temp(self, tmp_path, name):
         p = tmp_path / name
         assert not _is_temp_or_fragment_file(p)
@@ -145,10 +172,13 @@ class TestSanitizeFilename:
 
     def test_invalid_windows_chars_cleared(self):
         assert sanitize_filename("Gündem: Haberler | Bugün?") == "Gündem Haberler Bugün"
-        assert sanitize_filename("Test / : * ? \" < > | File") == "Test File"
+        assert sanitize_filename('Test / : * ? " < > | File') == "Test File"
 
     def test_turkish_and_unicode_preserved(self):
-        assert sanitize_filename("Çığırtkan Öğrenci Şarkısı Ödev") == "Çığırtkan Öğrenci Şarkısı Ödev"
+        assert (
+            sanitize_filename("Çığırtkan Öğrenci Şarkısı Ödev")
+            == "Çığırtkan Öğrenci Şarkısı Ödev"
+        )
 
     def test_leading_trailing_dots_and_spaces_cleared(self):
         assert sanitize_filename(". . .Gizli Dosya. . .") == "Gizli Dosya"
@@ -169,10 +199,10 @@ class TestSanitizeFilename:
         assert sanitize_filename("Video---Title___Test") == "Video-Title_Test"
 
 
-
 # ---------------------------------------------------------------------------
 # 2. Buton QSS durumları
 # ---------------------------------------------------------------------------
+
 
 class TestButtonQSS:
     def test_cancel_button_has_normal_qss(self):
@@ -215,6 +245,7 @@ class TestButtonQSS:
 # 3. UI widget testleri
 # ---------------------------------------------------------------------------
 
+
 class TestMainWindowUI:
     @pytest.fixture(autouse=True)
     def setup(self, qapp, tmp_path, monkeypatch):
@@ -223,6 +254,7 @@ class TestMainWindowUI:
         monkeypatch.setattr("src.settings.SETTINGS_FILE", settings_file)
         monkeypatch.setattr("src.history.HISTORY_FILE", history_file)
         from src.main_window import MainWindow
+
         self.win = MainWindow()
         yield
         self.win.close()
@@ -258,6 +290,7 @@ class TestMainWindowUI:
 
     def test_download_button_enabled_after_metadata_ready(self):
         from src.models import MediaMetadata, PlatformType
+
         meta = MediaMetadata(
             title="Test",
             uploader="Uploader",
@@ -281,9 +314,11 @@ class TestMainWindowUI:
 # 4. Cursor testleri
 # ---------------------------------------------------------------------------
 
+
 class TestPointerCursor:
     def test_active_button_has_pointing_hand(self, qapp):
         from src.utils import apply_pointing_hand_cursor
+
         btn = QPushButton("Test")
         apply_pointing_hand_cursor(btn)
         btn.setEnabled(True)
@@ -291,6 +326,7 @@ class TestPointerCursor:
 
     def test_disabled_button_has_arrow_cursor(self, qapp):
         from src.utils import apply_pointing_hand_cursor
+
         btn = QPushButton("Test")
         apply_pointing_hand_cursor(btn)
         btn.setEnabled(False)
@@ -298,6 +334,7 @@ class TestPointerCursor:
 
     def test_re_enabled_button_gets_hand_cursor(self, qapp):
         from src.utils import apply_pointing_hand_cursor
+
         btn = QPushButton("Test")
         apply_pointing_hand_cursor(btn)
         btn.setEnabled(False)
@@ -308,6 +345,7 @@ class TestPointerCursor:
 # ---------------------------------------------------------------------------
 # 5. History sistemi indirmeyi engellememeli
 # ---------------------------------------------------------------------------
+
 
 class TestHistoryDoesNotBlockDownload:
     def test_no_dialog_when_downloading_same_video(self, qapp, tmp_path, monkeypatch):
@@ -321,10 +359,12 @@ class TestHistoryDoesNotBlockDownload:
         monkeypatch.setattr("src.history.HISTORY_FILE", history_file)
 
         from src.main_window import MainWindow
+
         win = MainWindow()
         win.folder_input.setText(str(tmp_path))
 
         from src.models import MediaMetadata, PlatformType
+
         meta = MediaMetadata(
             title="Test Video",
             uploader="Channel",
@@ -341,9 +381,12 @@ class TestHistoryDoesNotBlockDownload:
 
         # start_download'a girmeden önce target_override'ı doğrula
         from src.history import reserve_unique_media_path, sanitize_filename
+
         clean = sanitize_filename(meta.title)
         initial = tmp_path / f"{clean}.mp4"
-        unique = reserve_unique_media_path((initial).parent, (initial).stem, (initial).suffix)
+        unique = reserve_unique_media_path(
+            (initial).parent, (initial).stem, (initial).suffix
+        )
 
         assert unique != initial
         assert unique.name == "Test Video (1).mp4"
@@ -381,12 +424,18 @@ class TestHistoryMultipleDownloadsSameMediaId:
         self.history_file = tmp_path / "history.json"
         monkeypatch.setattr("src.history.HISTORY_FILE", self.history_file)
 
-    def _make_record(self, path_str: str, media_id: str = "ABCDEF",
-                     media_type: str = "Video (MP4)", quality: str = "720p'ye kadar",
-                     height: int = 720):
+    def _make_record(
+        self,
+        path_str: str,
+        media_id: str = "ABCDEF",
+        media_type: str = "Video (MP4)",
+        quality: str = "720p'ye kadar",
+        height: int = 720,
+    ):
         from datetime import datetime, timezone
 
         from src.history import DownloadRecord
+
         return DownloadRecord(
             platform="youtube_video",
             media_id=media_id,
@@ -607,8 +656,11 @@ class TestHistoryMultipleDownloadsSameMediaId:
             mock_thread = MagicMock()
             mock_worker = MagicMock()
 
-            with patch("src.main_window.QThread", return_value=mock_thread), patch(
-                "src.main_window.HistoryValidationWorker", return_value=mock_worker
+            with (
+                patch("src.main_window.QThread", return_value=mock_thread),
+                patch(
+                    "src.main_window.HistoryValidationWorker", return_value=mock_worker
+                ),
             ):
                 orig_fn(window)
                 assert mock_thread.start.called is True
@@ -664,7 +716,9 @@ class TestHistoryMultipleDownloadsSameMediaId:
     # ------------------------------------------------------------------
     # 12. MainWindow _start_history_validation birden fazla çağrılsa bile 1 worker başlatır
     # ------------------------------------------------------------------
-    def test_multiple_show_events_start_only_one_history_validation_worker(self, qapp, monkeypatch):
+    def test_multiple_show_events_start_only_one_history_validation_worker(
+        self, qapp, monkeypatch
+    ):
         from unittest.mock import MagicMock, patch
 
         from src.main_window import MainWindow
@@ -676,8 +730,11 @@ class TestHistoryMultipleDownloadsSameMediaId:
         try:
             mock_worker = MagicMock()
             mock_thread = MagicMock()
-            with patch("src.main_window.HistoryValidationWorker", return_value=mock_worker) as mock_worker_cls, patch(
-                "src.main_window.QThread", return_value=mock_thread
+            with (
+                patch(
+                    "src.main_window.HistoryValidationWorker", return_value=mock_worker
+                ) as mock_worker_cls,
+                patch("src.main_window.QThread", return_value=mock_thread),
             ):
                 orig_fn(window)
                 orig_fn(window)
@@ -746,8 +803,14 @@ class TestNoWheelComboBoxAndScrollArea:
         scroll_area = win.findChild(QScrollArea, "mainScrollArea")
         assert scroll_area is not None
         assert scroll_area.widgetResizable()
-        assert scroll_area.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        assert scroll_area.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        assert (
+            scroll_area.horizontalScrollBarPolicy()
+            == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        assert (
+            scroll_area.verticalScrollBarPolicy()
+            == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
 
         scroll_content = win.findChild(QWidget, "scrollContent")
         assert scroll_content is not None
@@ -772,29 +835,36 @@ class TestNoWheelComboBoxAndScrollArea:
         assert opts["overwrites"] is True
         assert opts["continuedl"] is False
 
+
 def test_history_top_buttons_sizes(qapp):
     from src.history_dialog import HistoryDialog
+
     dlg = HistoryDialog()
     assert dlg.refresh_btn.minimumWidth() >= 90
     assert dlg.clear_btn.minimumWidth() >= 135
     dlg.close()
 
+
 def test_history_card_buttons_sizes(qapp, tmp_path):
     from src.history_dialog import HistoryCard
     from tests.test_history_ui import _make_record
+
     rec = _make_record(tmp_path)
     card = HistoryCard(rec)
     assert card.open_file_btn.minimumWidth() >= 105
     assert card.open_folder_btn.minimumWidth() >= 105
     assert card.redownload_btn.minimumWidth() >= 110
 
+
 def test_main_window_buttons_sizes(qapp):
     from src.main_window import MainWindow
+
     win = MainWindow()
     assert win.folder_button.minimumWidth() >= 90
     assert win.open_folder_button.minimumWidth() >= 105
     assert win.history_button.minimumWidth() >= 90
     win.close()
+
 
 def test_button_heights_and_overflow(qapp, tmp_path, monkeypatch):
     from src.history_dialog import HistoryDialog
@@ -825,6 +895,7 @@ def test_button_heights_and_overflow(qapp, tmp_path, monkeypatch):
 
     win = MainWindow()
     from src.styles import APP_STYLE
+
     qapp.setStyleSheet(APP_STYLE)
     win.setStyleSheet(APP_STYLE)
     win.resize(1366, 768)
@@ -832,7 +903,11 @@ def test_button_heights_and_overflow(qapp, tmp_path, monkeypatch):
     qapp.processEvents()
 
     from PySide6.QtWidgets import QPushButton
-    paste_btn = next((b for b in win.findChildren(QPushButton) if b.text() == "Panodan Yapıştır"), None)
+
+    paste_btn = next(
+        (b for b in win.findChildren(QPushButton) if b.text() == "Panodan Yapıştır"),
+        None,
+    )
 
     assert paste_btn is not None
     assert paste_btn.height() == win.analyze_button.height()

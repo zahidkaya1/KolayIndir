@@ -518,129 +518,57 @@ class TestThreadsSessionAndMetadataFlow(unittest.TestCase):
         )
         self.assertTrue(worker.force_session)
 
-        # Mock build_profile_attempt_order to verify unauthenticated is excluded
-        with patch("src.metadata_worker.build_profile_attempt_order") as mock_order:
-            mock_order.return_value = [
-                (None, None, "Oturumsuz"),
-                ("firefox", "default", "Firefox (default)"),
-                ("edge", "Default", "Edge (Default)"),
-            ]
-            with patch("src.metadata_worker.create_ytdl") as mock_create_ytdl:
-                mock_downloader = MagicMock()
-                mock_downloader.extract_info.return_value = {
-                    "id": "123",
-                    "title": "Test Threads Post",
-                    "formats": [
-                        {"url": "https://video.fbcdn.net/v/1.mp4", "format_id": "0"}
-                    ],
-                }
-                mock_create_ytdl.return_value.__enter__.return_value = mock_downloader
+    def test_metadata_worker_uses_session_center(self):
+        from unittest.mock import MagicMock, patch
 
-                received_meta = []
-                worker.metadata_ready.connect(lambda m: received_meta.append(m))
-                worker.run()
-
-                # create_ytdl should have been called with firefox, not None
-                called_opts = mock_create_ytdl.call_args[0][0]
-                self.assertIn("cookiesfrombrowser", called_opts)
-                self.assertEqual(
-                    called_opts["cookiesfrombrowser"], ("firefox", "default")
-                )
-                self.assertEqual(len(received_meta), 1)
-
-    def test_metadata_worker_prioritizes_preferred_browser(self):
         from src.metadata_worker import MetadataWorker
 
         worker = MetadataWorker(
             url="https://www.threads.net/@user/post/123",
-            preferred_browser="edge",
-            force_session=True,
         )
-        with patch("src.metadata_worker.build_profile_attempt_order") as mock_order:
-            mock_order.return_value = [
-                (None, None, "Oturumsuz"),
-                ("firefox", "default", "Firefox (default)"),
-                ("edge", "Default", "Edge (Default)"),
-            ]
+
+        with patch("src.metadata_worker.SessionManager") as mock_sm:
+            mock_sm.return_value.create_temp_cookiefile.return_value.__enter__.return_value = "temp_cookie.txt"
+
             with patch("src.metadata_worker.create_ytdl") as mock_create_ytdl:
                 mock_downloader = MagicMock()
-                mock_downloader.extract_info.return_value = {
-                    "id": "123",
-                    "title": "Test Threads Post",
-                    "formats": [
-                        {"url": "https://video.fbcdn.net/v/1.mp4", "format_id": "0"}
-                    ],
-                }
-                mock_create_ytdl.return_value.__enter__.return_value = mock_downloader
-
-                worker.run()
-                called_opts = mock_create_ytdl.call_args[0][0]
-                self.assertEqual(called_opts["cookiesfrombrowser"], ("edge", "Default"))
-
-    def test_metadata_worker_fallback_on_locked_or_failed_profile(self):
-        from src.metadata_worker import MetadataWorker
-
-        worker = MetadataWorker(
-            url="https://www.threads.net/@user/post/123",
-            force_session=True,
-        )
-        with patch("src.metadata_worker.build_profile_attempt_order") as mock_order:
-            mock_order.return_value = [
-                ("chrome", "Default", "Chrome (Default)"),
-                ("firefox", "default", "Firefox (default)"),
-            ]
-            call_count = 0
-
-            def mock_create_ytdl_side_effect(opts):
-                nonlocal call_count
-                call_count += 1
-                mock_downloader = MagicMock()
-                if call_count == 1:
-                    # Chrome fails with cookie lock error
-                    mock_downloader.extract_info.side_effect = ExtractorError(
-                        "Could not copy Chrome cookie database. Database is locked."
-                    )
-                else:
-                    # Firefox succeeds
-                    mock_downloader.extract_info.return_value = {
+                # Ilk deneme oturumsuz (hata doner), ikinci deneme session_center (basarili)
+                mock_downloader.extract_info.side_effect = [
+                    Exception("Sign in required"),
+                    {
                         "id": "123",
-                        "title": "Success on Firefox",
-                        "formats": [
-                            {"url": "https://video.fbcdn.net/v/1.mp4", "format_id": "0"}
-                        ],
+                        "title": "Success on Session Center",
+                        "formats": [{"url": "https://video.fbcdn.net/v/1.mp4", "format_id": "0"}],
                     }
-                ctx = MagicMock()
-                ctx.__enter__.return_value = mock_downloader
-                return ctx
+                ]
+                mock_create_ytdl.return_value.__enter__.return_value = mock_downloader
 
-            with patch(
-                "src.metadata_worker.create_ytdl",
-                side_effect=mock_create_ytdl_side_effect,
-            ):
                 received_meta = []
                 worker.metadata_ready.connect(lambda m: received_meta.append(m))
                 worker.run()
 
-                self.assertEqual(call_count, 2)
                 self.assertEqual(len(received_meta), 1)
-                self.assertEqual(received_meta[0].title, "Success on Firefox")
+                self.assertEqual(received_meta[0].title, "Success on Session Center")
 
-    def test_all_browser_attempts_fail_emits_error(self):
+    def test_session_center_failure_emits_error(self):
+        from unittest.mock import MagicMock, patch
+
         from src.metadata_worker import MetadataWorker
 
         worker = MetadataWorker(
             url="https://www.threads.net/@user/post/123",
-            force_session=True,
         )
-        with patch("src.metadata_worker.build_profile_attempt_order") as mock_order:
-            mock_order.return_value = [
-                ("firefox", "default", "Firefox (default)"),
-            ]
+
+        with patch("src.metadata_worker.SessionManager") as mock_sm:
+            mock_sm.return_value.create_temp_cookiefile.return_value.__enter__.return_value = "temp_cookie.txt"
+
             with patch("src.metadata_worker.create_ytdl") as mock_create_ytdl:
                 mock_downloader = MagicMock()
-                mock_downloader.extract_info.side_effect = ExtractorError(
-                    "Bu Threads gönderisini görüntülemek için tarayıcı oturumu gerekebilir."
-                )
+                # Hem oturumsuz hem de session_center hata doner
+                mock_downloader.extract_info.side_effect = [
+                    Exception("Sign in required"),
+                    Exception("Sign in required"),
+                ]
                 mock_create_ytdl.return_value.__enter__.return_value = mock_downloader
 
                 received_errors = []
@@ -648,7 +576,7 @@ class TestThreadsSessionAndMetadataFlow(unittest.TestCase):
                 worker.run()
 
                 self.assertEqual(len(received_errors), 1)
-                self.assertIn("tarayıcı oturumu gerekebilir", received_errors[0])
+                self.assertIn("Oturumun yenilenmesi gerekiyor", received_errors[0])
 
     def test_other_platforms_detection_unaffected(self):
         self.assertEqual(

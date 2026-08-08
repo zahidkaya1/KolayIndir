@@ -1,4 +1,4 @@
-﻿"""Ä°ndirme geÃ§miÅŸini saklar ve doÄŸrulama iÅŸlemlerini yÃ¶netir."""
+"""Ä°ndirme geÃ§miÅŸini saklar ve doÄŸrulama iÅŸlemlerini yÃ¶netir."""
 
 from __future__ import annotations
 
@@ -517,7 +517,9 @@ def reserve_unique_media_path(
             base_exists = False
             for ext in supported_extensions:
                 check_path = output_dir / f"{potential_base}{ext}"
-                if (check_path.exists() and not _is_temp_or_fragment_file(check_path)) or check_path in _reserved_paths:
+                if (
+                    check_path.exists() and not _is_temp_or_fragment_file(check_path)
+                ) or check_path in _reserved_paths:
                     base_exists = True
                     break
 
@@ -544,7 +546,9 @@ def reserve_unique_media_path(
                 if name_no_ext.lower() == base_stem.lower():
                     has_base_file = True
                 else:
-                    pat = re.compile(r"^" + re.escape(base_stem) + r"\s*\((\d+)\)$", re.IGNORECASE)
+                    pat = re.compile(
+                        r"^" + re.escape(base_stem) + r"\s*\((\d+)\)$", re.IGNORECASE
+                    )
                     m = pat.match(name_no_ext)
                     if m:
                         has_base_file = True
@@ -552,12 +556,17 @@ def reserve_unique_media_path(
                         max_counter = max(max_counter, num)
 
         for res_path in _reserved_paths:
-            if res_path.parent == output_dir and res_path.suffix.lower() in supported_extensions:
+            if (
+                res_path.parent == output_dir
+                and res_path.suffix.lower() in supported_extensions
+            ):
                 name_no_ext = res_path.stem
                 if name_no_ext.lower() == base_stem.lower():
                     has_base_file = True
                 else:
-                    pat = re.compile(r"^" + re.escape(base_stem) + r"\s*\((\d+)\)$", re.IGNORECASE)
+                    pat = re.compile(
+                        r"^" + re.escape(base_stem) + r"\s*\((\d+)\)$", re.IGNORECASE
+                    )
                     m = pat.match(name_no_ext)
                     if m:
                         has_base_file = True

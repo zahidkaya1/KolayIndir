@@ -220,31 +220,61 @@ def is_h264_codec(codec_name: str) -> bool:
     return any(h in c for h in H264_CODECS)
 
 
-def hidden_subprocess_kwargs(**kwargs) -> dict:
+def hidden_subprocess_args_kwargs(args, kwargs) -> tuple:
     """
     Windows'ta subprocess çağrılarında (Popen, run vb.) konsol penceresinin
     görünmesini engellemek için gerekli startupinfo ve creationflags ayarlarını
-    döndürür. Mevcut kwargs içine bu ayarları güvenle ekler/birleştirir.
+    döndürür. Positional ve keyword argümanları güvenle yönetir.
     """
     import os
     import subprocess
 
     if os.name != "nt":
-        return kwargs
+        return args, kwargs
 
-    startupinfo = kwargs.get("startupinfo")
+    args_list = list(args)
+
+    # Popen signature args (excluding self):
+    # 0:args, 1:bufsize, 2:executable, 3:stdin, 4:stdout, 5:stderr, 6:preexec_fn,
+    # 7:close_fds, 8:shell, 9:cwd, 10:env, 11:universal_newlines, 12:startupinfo, 13:creationflags
+    if len(args_list) > 12:
+        startupinfo = args_list[12]
+    else:
+        startupinfo = kwargs.get("startupinfo")
+
     if startupinfo is None:
         startupinfo = subprocess.STARTUPINFO()
 
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     startupinfo.wShowWindow = subprocess.SW_HIDE
 
-    creationflags = kwargs.get("creationflags", 0)
+    if len(args_list) > 12:
+        args_list[12] = startupinfo
+    else:
+        kwargs["startupinfo"] = startupinfo
+
+    if len(args_list) > 13:
+        creationflags = args_list[13]
+    else:
+        creationflags = kwargs.get("creationflags", 0)
+
     creationflags |= subprocess.CREATE_NO_WINDOW
 
-    kwargs["startupinfo"] = startupinfo
-    kwargs["creationflags"] = creationflags
-    return kwargs
+    if len(args_list) > 13:
+        args_list[13] = creationflags
+    else:
+        kwargs["creationflags"] = creationflags
+
+    return tuple(args_list), kwargs
+
+
+def hidden_subprocess_kwargs(**kwargs) -> dict:
+    """
+    Mevcut kwargs içine görünmez konsol ayarlarını ekler.
+    (Geriye dönük uyumluluk için)
+    """
+    _, new_kwargs = hidden_subprocess_args_kwargs((), kwargs)
+    return new_kwargs
 
 
 import contextlib
@@ -283,12 +313,12 @@ def patch_subprocess_for_hidden_console():
 
             class HiddenSubprocessPopen(_ORIGINAL_SUBPROCESS_POPEN):
                 def __init__(self, *args, **kwargs):
-                    kwargs = hidden_subprocess_kwargs(**kwargs)
+                    args, kwargs = hidden_subprocess_args_kwargs(args, kwargs)
                     super().__init__(*args, **kwargs)
 
             class HiddenYtDlpPopen(_ORIGINAL_YTDLP_POPEN):
                 def __init__(self, *args, **kwargs):
-                    kwargs = hidden_subprocess_kwargs(**kwargs)
+                    args, kwargs = hidden_subprocess_args_kwargs(args, kwargs)
                     super().__init__(*args, **kwargs)
 
             subprocess.Popen = HiddenSubprocessPopen

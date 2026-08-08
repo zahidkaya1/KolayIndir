@@ -13,7 +13,6 @@ from src.browser_sessions import (
     analyze_instagram_story_url,
     analyze_kick_url,
     analyze_tiktok_url,
-    build_profile_attempt_order,
     classify_session_error,
     is_authentication_error,
     is_browser_cookie_lock_error,
@@ -30,6 +29,7 @@ from src.models import (
     is_rehydration_error,
     translate_social_error,
 )
+from src.session_manager import SessionManager
 from src.utils import (
     clean_log_message,
     clean_tiktok_url,
@@ -498,6 +498,19 @@ class MetadataWorker(QObject):
             self.finished.emit()
 
     def _do_run(self) -> None:
+        import urllib.parse
+
+        from src.threads_share_resolver import resolve_threads_share_url
+
+        if "threads" in self.url.lower() and "/share/" in self.url.lower():
+            self.log.emit("Threads paylaşım bağlantısı algılandı")
+            self.status.emit("Threads canonical URL aranıyor…")
+            resolved = resolve_threads_share_url(self.url, session_mgr=SessionManager())
+            if resolved and resolved != self.url:
+                p = urllib.parse.urlparse(resolved)
+                self.log.emit(f"Canonical bağlantı bulundu: {p.netloc}{p.path}")
+                self.url = resolved
+
         story_notice, story_err = analyze_instagram_story_url(self.url)
         if story_err:
             self.failed.emit(story_err)
@@ -712,7 +725,7 @@ class MetadataWorker(QObject):
             return
 
         if self.cookie_file_path:
-            attempt_order = [(None, None, "Çerez Dosyası")]
+            attempt_order = [(None, None, "Çerez Dosyası", self.cookie_file_path)]
             self.log.emit("Çerez dosyası ile inceleme başlatıldı.")
         else:
             method_str = (
@@ -720,59 +733,31 @@ class MetadataWorker(QObject):
                 if hasattr(self.session_method, "value")
                 else str(self.session_method or "auto")
             )
-            browser_choice = method_str if method_str != "auto" else self.browser
-            attempt_order = build_profile_attempt_order(platform, browser_choice)
 
-            if self.preferred_profile:
-                match_idx = next(
-                    (
-                        i
-                        for i, (b, p, _) in enumerate(attempt_order)
-                        if (b, p) == self.preferred_profile
-                    ),
-                    None,
-                )
-                if match_idx is not None:
-                    item = attempt_order.pop(match_idx)
-                    if attempt_order and attempt_order[0][0] is None:
-                        attempt_order.insert(1, item)
-                    else:
-                        attempt_order.insert(0, item)
-            elif self.preferred_browser and self.preferred_browser != "auto":
-                match_idx = next(
-                    (
-                        i
-                        for i, (b, _, _) in enumerate(attempt_order)
-                        if b == self.preferred_browser
-                    ),
-                    None,
-                )
-                if match_idx is not None:
-                    item = attempt_order.pop(match_idx)
-                    if attempt_order and attempt_order[0][0] is None:
-                        attempt_order.insert(1, item)
-                    else:
-                        attempt_order.insert(0, item)
-
-            if self.force_session:
-                attempt_order = [item for item in attempt_order if item[0] is not None]
-                self.log.emit("Tarayıcı oturumu ile inceleme başlatıldı.")
+            # Eger kullanici arayuzden browser secmisse onu hala oncelikli kullan
+            # Ama 'auto' ise sadece oturumsuz ve merkezi oturumu dene.
+            if method_str in ("none", "disabled", "off"):
+                attempt_order = [(None, None, "Oturumsuz", None)]
+            elif method_str == "auto":
+                attempt_order = [
+                    (None, None, "Oturumsuz", None),
+                    ("session_center", None, "Kayıtlı Oturum", None),
+                ]
+            else:
+                attempt_order = [
+                    (method_str, None, f"{method_str.capitalize()} Tarayıcısı", None)
+                ]
 
         last_error = None
         succeeded = False
 
-        for b_name, p_name, display_name in attempt_order:
+        session_mgr = SessionManager()
+
+        for b_name, p_name, display_name, static_cookie_path in attempt_order:
             if self._cancel_requested:
                 return
 
-            if self.cookie_file_path:
-                self.status.emit("Çerez dosyası ile oturum deneniyor…")
-            elif b_name is None:
-                self.status.emit(
-                    "Oturumsuz deneme: Oturum gerekli mi kontrol ediliyor…"
-                )
-            else:
-                self.status.emit(f"{display_name} oturumu deneniyor…")
+            self.status.emit(f"{display_name} deneniyor…")
 
             opts = {
                 "extract_flat": "in_playlist",
@@ -781,10 +766,21 @@ class MetadataWorker(QObject):
                 "no_warnings": False,
             }
 
-            if self.cookie_file_path:
-                opts["cookiefile"] = str(self.cookie_file_path)
-            elif b_name and p_name:
-                opts["cookiesfrombrowser"] = (b_name, p_name)
+            temp_cookie_ctx = None
+
+            if static_cookie_path:
+                opts["cookiefile"] = str(static_cookie_path)
+            elif b_name == "session_center":
+                temp_cookie_ctx = session_mgr.create_temp_cookiefile()
+                cookie_path = temp_cookie_ctx.__enter__()
+                if not cookie_path:
+                    temp_cookie_ctx.__exit__(None, None, None)
+                    # Oturum yok, uyari ver ve cik
+                    self.log.emit("Kayıtlı oturum bulunamadı. Oturum Merkezi'ni açın.")
+                    self.failed.emit("Oturumun yenilenmesi gerekiyor.")
+                    self.finished.emit()
+                    return
+                opts["cookiefile"] = cookie_path
             elif b_name:
                 opts["cookiesfrombrowser"] = (b_name,)
 
@@ -796,6 +792,8 @@ class MetadataWorker(QObject):
                     info = downloader.extract_info(self.url, download=False)
 
                 if self._cancel_requested:
+                    if temp_cookie_ctx:
+                        temp_cookie_ctx.__exit__(None, None, None)
                     return
 
                 if not isinstance(info, dict):
@@ -835,6 +833,8 @@ class MetadataWorker(QObject):
 
             except Exception as exc:  # noqa: BLE001
                 if self._cancel_requested:
+                    if temp_cookie_ctx:
+                        temp_cookie_ctx.__exit__(None, None, None)
                     return
                 last_error = exc
                 err_clean = re.sub(r"(?:\x1b|\033)\[[0-?]*[ -/]*[@-~]", "", str(exc))
@@ -842,12 +842,25 @@ class MetadataWorker(QObject):
                 prefix = display_name if b_name else "Oturumsuz deneme"
                 self.status.emit(f"{prefix}: {reason}")
 
+                if temp_cookie_ctx:
+                    temp_cookie_ctx.__exit__(None, None, None)
+
                 if self.browser and self.browser != "auto" and not self.force_session:
                     break
 
+                if is_authentication_error(err_clean):
+                    if b_name == "session_center":
+                        # Eger session_center bile auth error veriyorsa, oturum suresi dolmus demektir.
+                        self.failed.emit("Oturumun yenilenmesi gerekiyor.")
+                        self.log.emit(
+                            "Oturum süresi dolmuş veya geçersiz. Lütfen Oturum Merkezi'nden yenileyin."
+                        )
+                        self.finished.emit()
+                        return
+                    continue
+
                 if (
-                    is_authentication_error(err_clean)
-                    or is_browser_cookie_lock_error(err_clean)
+                    is_browser_cookie_lock_error(err_clean)
                     or is_chromium_encryption_error(err_clean)
                     or "could not find firefox cookies database" in err_clean.lower()
                     or "could not find" in err_clean.lower()

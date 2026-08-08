@@ -17,7 +17,7 @@ def test_iss_script_exists_and_valid():
     assert '#define MyAppName "Loadvia"' in content
     assert f'#define MyAppVersion "{APP_VERSION}"' in content
     assert "AppId={{6411DE40-247B-45E7-9345-73DCCAF9DA69}" in content
-    assert "OutputBaseFilename=Loadvia-Setup-1.1.1" in content
+    assert "OutputBaseFilename=Loadvia-Setup-1.2.0" in content
     assert r"SetupIconFile=..\assets\Loadvia-Brand-Assets\loadvia.ico" in content
     assert r"UninstallDisplayIcon={app}\{#MyAppExeName}" in content
     assert "ArchitecturesAllowed=x64compatible" in content
@@ -48,7 +48,7 @@ def test_installer_scripts_exist():
     assert "ISCC" in build_content
 
     verify_content = verify_script.read_text(encoding="utf-8")
-    assert "Loadvia-Setup-1.1.1.exe" in verify_content
+    assert "Loadvia-Setup-1.2.0.exe" in verify_content
     assert "6411DE40-247B-45E7-9345-73DCCAF9DA69" in verify_content
 
 

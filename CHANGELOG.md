@@ -1,5 +1,16 @@
-﻿# Changelog
+# Changelog
 Tüm önemli değişiklikler bu dosyada belgelenmektedir.
+
+## [1.2.0]
+### Eklendi & İyileştirildi
+- Oturum Merkezi eklendi
+- Windows DPAPI ile güvenli yerel oturum saklama
+- Firefox'tan oturum alma
+- Netscape cookie dosyası içe aktarma
+- Threads ve Instagram için merkezi oturum altyapısı
+- Threads /share/ bağlantılarının canonical gönderi adresine çözülmesi
+- tarayıcı profil fallback döngülerinin sadeleştirilmesi
+- geçici cookie dosyalarının güvenli yaşam döngüsü
 
 ## [1.1.1] - 2026-08-06
 ### Eklenenler & Düzeltilenler

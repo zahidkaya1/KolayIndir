@@ -19,18 +19,24 @@ from src.models import (
 # URL Algılama Testleri
 # ---------------------------------------------------------------------------
 
+
 class TestKickURLDetection:
     def test_valid_kick_vod_url_detected(self):
         url = "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189"
         assert detect_platform_type(url) == PlatformType.KICK_VIDEO
-        assert get_platform_badge_text(PlatformType.KICK_VIDEO) == "Kick — Geçici olarak kullanılamıyor"
+        assert (
+            get_platform_badge_text(PlatformType.KICK_VIDEO)
+            == "Kick — Geçici olarak kullanılamıyor"
+        )
 
     def test_www_kick_vod_url_detected(self):
         url = "https://www.kick.com/channelname/videos/12345678-abcd-ef12-3456-567890abcdef"
         assert detect_platform_type(url) == PlatformType.KICK_VIDEO
 
     def test_kick_url_with_query_params_detected(self):
-        url = "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189?t=120"
+        url = (
+            "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189?t=120"
+        )
         assert detect_platform_type(url) == PlatformType.KICK_VIDEO
 
     def test_kick_live_stream_not_detected_as_vod(self):
@@ -72,6 +78,7 @@ class TestKickURLDetection:
 # Playback Endpoint Testleri (_fetch_kick_playback_m3u8)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.kick_experimental
 class TestFetchKickPlaybackM3u8:
     """Playback POST endpoint doğru biçimde çağrılıyor mu?"""
@@ -79,8 +86,10 @@ class TestFetchKickPlaybackM3u8:
     def test_post_request_correct_url(self):
         from src.metadata_worker import _fetch_kick_playback_m3u8
 
-        with patch("curl_cffi.requests.post") as mock_post, \
-             patch("curl_cffi.requests.get") as mock_get:
+        with (
+            patch("curl_cffi.requests.post") as mock_post,
+            patch("curl_cffi.requests.get") as mock_get,
+        ):
             mock_resp = MagicMock()
             mock_resp.status_code = 200
             mock_resp.json.return_value = {
@@ -110,7 +119,10 @@ class TestFetchKickPlaybackM3u8:
 
         # Doğru URL kontrolü
         call_args = mock_post.call_args
-        assert "web.kick.com/api/v1/stream/019fa488-5d20-71c0-a869-8716cf8e8189/playback" in call_args[0][0]
+        assert (
+            "web.kick.com/api/v1/stream/019fa488-5d20-71c0-a869-8716cf8e8189/playback"
+            in call_args[0][0]
+        )
 
     def test_post_request_correct_json_body(self):
         from src.metadata_worker import _fetch_kick_playback_m3u8
@@ -203,6 +215,7 @@ class TestFetchKickPlaybackM3u8:
 # _extract_kick_vod Fallback Akış Testleri
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.kick_experimental
 class TestExtractKickVodFallback:
     """Standart extractor başarısız olunca playback endpoint devreye giriyor mu?"""
@@ -217,7 +230,9 @@ class TestExtractKickVodFallback:
         from src.metadata_worker import _extract_kick_vod
 
         # yt-dlp standart extractor başarısız
-        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("404 Not Found")
+        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = (
+            Exception("404 Not Found")
+        )
 
         # Playback endpoint çalışıyor
         mock_playback.return_value = ("https://example.m3u8", 200, "Test Başlık")
@@ -252,8 +267,14 @@ class TestExtractKickVodFallback:
     ):
         from src.metadata_worker import _extract_kick_vod
 
-        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("404")
-        mock_playback.return_value = ("https://example.m3u8", 200, "Gerçek Video Başlığı")
+        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = (
+            Exception("404")
+        )
+        mock_playback.return_value = (
+            "https://example.m3u8",
+            200,
+            "Gerçek Video Başlığı",
+        )
         mock_extract_m3u8.return_value = {
             "title": "manifest",
             "formats": [{"height": 720, "vcodec": "h264", "acodec": "aac"}],
@@ -273,10 +294,14 @@ class TestExtractKickVodFallback:
     def test_raises_proper_error_on_404_from_playback(self, mock_ydl, mock_playback):
         from src.metadata_worker import _extract_kick_vod
 
-        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("404")
+        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = (
+            Exception("404")
+        )
         mock_playback.return_value = (None, 404, None)
 
-        with pytest.raises(ValueError, match="Video kaldırılmış veya bağlantı yapısı değişmiş"):
+        with pytest.raises(
+            ValueError, match="Video kaldırılmış veya bağlantı yapısı değişmiş"
+        ):
             _extract_kick_vod(
                 "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189",
                 "En iyi kullanılabilir kalite",
@@ -288,7 +313,9 @@ class TestExtractKickVodFallback:
     def test_raises_proper_error_on_403_from_playback(self, mock_ydl, mock_playback):
         from src.metadata_worker import _extract_kick_vod
 
-        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("500")
+        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = (
+            Exception("500")
+        )
         mock_playback.return_value = (None, 403, None)
 
         with pytest.raises(ValueError, match="erişim reddedildi"):
@@ -303,7 +330,9 @@ class TestExtractKickVodFallback:
     def test_raises_proper_error_on_timeout(self, mock_ydl, mock_playback):
         from src.metadata_worker import _extract_kick_vod
 
-        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("network")
+        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = (
+            Exception("network")
+        )
         mock_playback.return_value = (None, "timeout", None)
 
         with pytest.raises(ValueError, match="zamanında yanıt vermedi"):
@@ -322,7 +351,9 @@ class TestExtractKickVodFallback:
     ):
         from src.metadata_worker import _extract_kick_vod
 
-        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("404")
+        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = (
+            Exception("404")
+        )
         mock_playback.return_value = ("https://example.m3u8", 200, "Başlık")
         mock_extract_m3u8.return_value = {"formats": []}  # boş formatlar
         mock_meta.return_value = {}
@@ -344,15 +375,25 @@ class TestExtractKickVodFallback:
         """Signed m3u8 successful_request_url'e kaydedilmemeli."""
         from src.metadata_worker import _extract_kick_vod
 
-        kick_url = "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189"
-        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("404")
-        mock_playback.return_value = ("https://signed.m3u8?token=secret123", 200, "Başlık")
+        kick_url = (
+            "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189"
+        )
+        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = (
+            Exception("404")
+        )
+        mock_playback.return_value = (
+            "https://signed.m3u8?token=secret123",
+            200,
+            "Başlık",
+        )
         mock_extract_m3u8.return_value = {
             "formats": [{"height": 720, "vcodec": "h264", "acodec": "aac"}],
         }
         mock_meta.return_value = {}
 
-        meta = _extract_kick_vod(kick_url, "En iyi kullanılabilir kalite", "Video (MP4)")
+        meta = _extract_kick_vod(
+            kick_url, "En iyi kullanılabilir kalite", "Video (MP4)"
+        )
 
         # Signed m3u8 kaydedilmemeli
         assert meta.successful_request_url == kick_url
@@ -368,7 +409,9 @@ class TestExtractKickVodFallback:
         """Başlık/kanal yoksa metadata endpoint devreye giriyor mu?"""
         from src.metadata_worker import _extract_kick_vod
 
-        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("404")
+        mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = (
+            Exception("404")
+        )
         mock_playback.return_value = ("https://example.m3u8", 200, None)  # başlık yok
         mock_extract_m3u8.return_value = {
             "formats": [{"height": 720, "vcodec": "h264", "acodec": "aac"}],
@@ -392,6 +435,7 @@ class TestExtractKickVodFallback:
 # Format Tekilleştirme Testleri
 # ---------------------------------------------------------------------------
 
+
 class TestKickFormatDeduplication:
     def test_duplicate_heights_deduplicated(self):
         """Aynı yükseklikte birden fazla format olduğunda tekilleştiriliyor mu?"""
@@ -400,7 +444,12 @@ class TestKickFormatDeduplication:
         info_dict = {
             "formats": [
                 {"height": 1080, "vcodec": "h264", "acodec": "aac", "ext": "mp4"},
-                {"height": 1080, "vcodec": "h264", "acodec": "aac", "ext": "ts"},  # duplicate
+                {
+                    "height": 1080,
+                    "vcodec": "h264",
+                    "acodec": "aac",
+                    "ext": "ts",
+                },  # duplicate
                 {"height": 720, "vcodec": "h264", "acodec": "aac", "ext": "mp4"},
                 {"height": 360, "vcodec": "h264", "acodec": "aac", "ext": "mp4"},
             ],
@@ -451,6 +500,7 @@ class TestKickFormatDeduplication:
 # İndirme Seçenekleri Testleri
 # ---------------------------------------------------------------------------
 
+
 class TestKickDownloadOptionsAndHeaders:
     def test_build_ydl_options_contains_kick_headers(self, tmp_path):
         req = DownloadRequest(
@@ -487,12 +537,17 @@ class TestKickFilenameSanitization:
     def test_kick_title_with_newlines_and_backslash_sanitized(self):
         from src.history import sanitize_filename
 
-        raw_title = "Bu sefer gerçekten döndüm-Çok haber var _ Gündem-Haberler\n\n\\wraith"
+        raw_title = (
+            "Bu sefer gerçekten döndüm-Çok haber var _ Gündem-Haberler\n\n\\wraith"
+        )
         cleaned = sanitize_filename(raw_title)
         assert "\n" not in cleaned
         assert "\r" not in cleaned
         assert "\\" not in cleaned
-        assert cleaned == "Bu sefer gerçekten döndüm-Çok haber var _ Gündem-Haberler wraith"
+        assert (
+            cleaned
+            == "Bu sefer gerçekten döndüm-Çok haber var _ Gündem-Haberler wraith"
+        )
 
     def test_kick_target_final_path_sanitized(self, tmp_path):
         from src.history import (
@@ -500,10 +555,14 @@ class TestKickFilenameSanitization:
             sanitize_filename,
         )
 
-        raw_title = "Bu sefer gerçekten döndüm-Çok haber var _ Gündem-Haberler\n\n\\wraith"
+        raw_title = (
+            "Bu sefer gerçekten döndüm-Çok haber var _ Gündem-Haberler\n\n\\wraith"
+        )
         clean = sanitize_filename(raw_title)
         initial_path = tmp_path / f"{clean}.mp4"
-        target_path = reserve_unique_media_path((initial_path).parent, (initial_path).stem, (initial_path).suffix)
+        target_path = reserve_unique_media_path(
+            (initial_path).parent, (initial_path).stem, (initial_path).suffix
+        )
 
         assert "\n" not in str(target_path)
         assert "\\" not in target_path.name
@@ -517,10 +576,13 @@ class TestKickFilenameSanitization:
             sanitize_filename,
         )
 
-
         raw_title = "Bu sefer gerçekten döndüm\n\n\\wraith"
         clean = sanitize_filename(raw_title)
-        target_path = reserve_unique_media_path((tmp_path / f"{clean}.mp4").parent, (tmp_path / f"{clean}.mp4").stem, (tmp_path / f"{clean}.mp4").suffix)
+        target_path = reserve_unique_media_path(
+            (tmp_path / f"{clean}.mp4").parent,
+            (tmp_path / f"{clean}.mp4").stem,
+            (tmp_path / f"{clean}.mp4").suffix,
+        )
         ytdl_path = target_path.with_suffix(".mp4.ytdl")
 
         assert "\n" not in str(ytdl_path)
@@ -540,12 +602,16 @@ class TestKickDownloadWorkerPlaybackRefresh:
         from src.download_worker import DownloadWorker
         from src.models import DownloadRequest
 
-        with patch("src.download_worker.DownloadWorker._save_completed_record"), \
-             patch("src.download_worker.DownloadWorker._cleanup_job_files"):
+        with (
+            patch("src.download_worker.DownloadWorker._save_completed_record"),
+            patch("src.download_worker.DownloadWorker._cleanup_job_files"),
+        ):
             pass  # sınıfı import etmek yeterli
 
-        with patch("curl_cffi.requests.post") as mock_post, \
-             patch("curl_cffi.requests.get") as mock_get:
+        with (
+            patch("curl_cffi.requests.post") as mock_post,
+            patch("curl_cffi.requests.get") as mock_get,
+        ):
             mock_resp = MagicMock()
             mock_resp.status_code = 200
             mock_resp.json.return_value = {
@@ -558,13 +624,12 @@ class TestKickDownloadWorkerPlaybackRefresh:
 
             mock_vs_resp = MagicMock()
             mock_vs_resp.status_code = 200
-            mock_vs_resp.json.return_value = {
-                "manifestUrl": "https://fresh.m3u8"
-            }
+            mock_vs_resp.json.return_value = {"manifestUrl": "https://fresh.m3u8"}
             mock_get.return_value = mock_vs_resp
 
             import tempfile
             from pathlib import Path
+
             with tempfile.TemporaryDirectory() as tmpdir:
                 req = DownloadRequest(
                     url="https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189",
@@ -612,6 +677,7 @@ class TestKickDownloadWorkerPlaybackRefresh:
 # Hata Mesajı Sınıflandırma Testleri
 # ---------------------------------------------------------------------------
 
+
 class TestKickErrorTranslations:
     def test_403_error_translation(self):
         url = "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189"
@@ -645,6 +711,7 @@ class TestKickErrorTranslations:
 # MediaMetadata Yapı Testleri
 # ---------------------------------------------------------------------------
 
+
 class TestKickMetadataStructure:
     def test_kick_metadata_structure(self):
         meta = MediaMetadata(
@@ -671,13 +738,18 @@ class TestKickMetadataStructure:
             platform_type=PlatformType.KICK_VIDEO,
         )
         from src.models import get_platform_badge_text
-        assert get_platform_badge_text(meta.platform_type) == "Kick — Geçici olarak kullanılamıyor"
+
+        assert (
+            get_platform_badge_text(meta.platform_type)
+            == "Kick — Geçici olarak kullanılamıyor"
+        )
         assert meta.source_name == "Kick"
 
 
 # ---------------------------------------------------------------------------
 # Kick İndirme İptali ve Otomatik Temizlik Testleri
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.kick_experimental
 class TestKickDownloadCancellationAndCleanup:
@@ -710,10 +782,17 @@ class TestKickDownloadCancellationAndCleanup:
 
         worker.cancel()
 
-        with patch.object(
-            worker, "_resolve_kick_playback_url", return_value="https://example.com/stream.m3u8"
-        ), patch("yt_dlp.YoutubeDL") as mock_ydl:
-            mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("Cancelled")
+        with (
+            patch.object(
+                worker,
+                "_resolve_kick_playback_url",
+                return_value="https://example.com/stream.m3u8",
+            ),
+            patch("yt_dlp.YoutubeDL") as mock_ydl,
+        ):
+            mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = (
+                Exception("Cancelled")
+            )
             worker.run()
 
         assert cancelled_emitted is True
@@ -759,10 +838,17 @@ class TestKickDownloadCancellationAndCleanup:
         worker.failed.connect(on_failed)
 
         worker.cancel()
-        with patch.object(
-            worker, "_resolve_kick_playback_url", return_value="https://example.com/stream.m3u8"
-        ), patch("yt_dlp.YoutubeDL") as mock_ydl:
-            mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = Exception("Cancelled")
+        with (
+            patch.object(
+                worker,
+                "_resolve_kick_playback_url",
+                return_value="https://example.com/stream.m3u8",
+            ),
+            patch("yt_dlp.YoutubeDL") as mock_ydl,
+        ):
+            mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = (
+                Exception("Cancelled")
+            )
             worker.run()
 
         assert cancelled_count == 1
@@ -824,18 +910,29 @@ class TestKickDownloadCancellationAndCleanup:
             m.stdout = None
             return m
 
-        with patch.object(
-            worker, "_resolve_kick_playback_url", return_value="https://example.com/stream.m3u8"
-        ), patch("yt_dlp.YoutubeDL") as mock_ydl, patch(
-            "subprocess.Popen", side_effect=mock_ffmpeg
-        ), patch(
-            "src.utils.probe_media_codecs", return_value={"video_codec": "h264", "audio_codec": "aac", "duration": 100.0, "height": 720}
-        ), patch.object(
-            worker, "_save_completed_record"
-        ), patch.object(
-            worker, "_handle_post_download_transcode"
+        with (
+            patch.object(
+                worker,
+                "_resolve_kick_playback_url",
+                return_value="https://example.com/stream.m3u8",
+            ),
+            patch("yt_dlp.YoutubeDL") as mock_ydl,
+            patch("subprocess.Popen", side_effect=mock_ffmpeg),
+            patch(
+                "src.utils.probe_media_codecs",
+                return_value={
+                    "video_codec": "h264",
+                    "audio_codec": "aac",
+                    "duration": 100.0,
+                    "height": 720,
+                },
+            ),
+            patch.object(worker, "_save_completed_record"),
+            patch.object(worker, "_handle_post_download_transcode"),
         ):
-            mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = mock_extract
+            mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = (
+                mock_extract
+            )
             worker.run()
 
         assert succeeded_count == 1
@@ -890,7 +987,9 @@ class TestKickDownloadCancellationAndCleanup:
         assert cancelled_count == 0
         assert succeeded_count == 0
 
-    def test_cleanup_deletes_job_temp_files_and_preserves_existing_user_files(self, tmp_path):
+    def test_cleanup_deletes_job_temp_files_and_preserves_existing_user_files(
+        self, tmp_path
+    ):
         from src.download_worker import DownloadWorker
         from src.models import DownloadRequest
 
@@ -948,7 +1047,9 @@ class TestKickDownloadCancellationAndCleanup:
         worker = DownloadWorker(req)
         worker._last_filename = str(final_mp4)
 
-        with patch("src.download_worker.probe_media_codecs", return_value={"duration": 120.0}):
+        with patch(
+            "src.download_worker.probe_media_codecs", return_value={"duration": 120.0}
+        ):
             clean_ok = worker._cleanup_job_files(is_cancel=False)
 
         assert clean_ok is True
@@ -959,12 +1060,15 @@ class TestKickDownloadCancellationAndCleanup:
 # Playback Hata Ayrıştırma Testleri
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.kick_experimental
 class TestPlaybackErrorReasonPreservation:
     def test_timeout_reason_preserved(self):
         from src.metadata_worker import _fetch_kick_playback_m3u8
 
-        with patch("curl_cffi.requests.post", side_effect=Exception("Connection timed out")):
+        with patch(
+            "curl_cffi.requests.post", side_effect=Exception("Connection timed out")
+        ):
             m3u8, reason, _title = _fetch_kick_playback_m3u8("test-uuid", {})
 
         assert m3u8 is None
@@ -973,7 +1077,9 @@ class TestPlaybackErrorReasonPreservation:
     def test_connection_error_reason_preserved(self):
         from src.metadata_worker import _fetch_kick_playback_m3u8
 
-        with patch("curl_cffi.requests.post", side_effect=Exception("Failed to resolve host")):
+        with patch(
+            "curl_cffi.requests.post", side_effect=Exception("Failed to resolve host")
+        ):
             m3u8, reason, _title = _fetch_kick_playback_m3u8("test-uuid", {})
 
         assert m3u8 is None
@@ -997,6 +1103,7 @@ class TestPlaybackErrorReasonPreservation:
 # ---------------------------------------------------------------------------
 # Manifest Önleme ve Sıkı Doğrulama Testleri
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.kick_experimental
 class TestKickManifestPreventionAndValidation:
@@ -1026,7 +1133,10 @@ class TestKickManifestPreventionAndValidation:
         mp4_file = tmp_path / "test.mp4"
         mp4_file.write_text("x" * 2000, encoding="utf-8")
 
-        with patch("src.utils.probe_media_codecs", return_value={"video_codec": "h264", "audio_codec": "aac", "duration": 0.0}):
+        with patch(
+            "src.utils.probe_media_codecs",
+            return_value={"video_codec": "h264", "audio_codec": "aac", "duration": 0.0},
+        ):
             valid, reason = validate_final_download(mp4_file, is_audio_mode=False)
 
         assert valid is False
@@ -1038,7 +1148,14 @@ class TestKickManifestPreventionAndValidation:
         mp4_file = tmp_path / "test.mp4"
         mp4_file.write_text("x" * 2000, encoding="utf-8")
 
-        with patch("src.utils.probe_media_codecs", return_value={"video_codec": "none", "audio_codec": "aac", "duration": 10.0}):
+        with patch(
+            "src.utils.probe_media_codecs",
+            return_value={
+                "video_codec": "none",
+                "audio_codec": "aac",
+                "duration": 10.0,
+            },
+        ):
             valid, reason = validate_final_download(mp4_file, is_audio_mode=False)
 
         assert valid is False
@@ -1050,7 +1167,14 @@ class TestKickManifestPreventionAndValidation:
         mp4_file = tmp_path / "test.mp4"
         mp4_file.write_text("x" * 2000, encoding="utf-8")
 
-        with patch("src.utils.probe_media_codecs", return_value={"video_codec": "h264", "audio_codec": "none", "duration": 10.0}):
+        with patch(
+            "src.utils.probe_media_codecs",
+            return_value={
+                "video_codec": "h264",
+                "audio_codec": "none",
+                "duration": 10.0,
+            },
+        ):
             valid, reason = validate_final_download(mp4_file, is_audio_mode=False)
 
         assert valid is False
@@ -1062,13 +1186,22 @@ class TestKickManifestPreventionAndValidation:
         mp4_file = tmp_path / "valid_video.mp4"
         mp4_file.write_text("x" * 2000, encoding="utf-8")
 
-        with patch("src.utils.probe_media_codecs", return_value={"video_codec": "h264", "audio_codec": "aac", "duration": 120.5}):
+        with patch(
+            "src.utils.probe_media_codecs",
+            return_value={
+                "video_codec": "h264",
+                "audio_codec": "aac",
+                "duration": 120.5,
+            },
+        ):
             valid, reason = validate_final_download(mp4_file, is_audio_mode=False)
 
         assert valid is True
         assert reason == "Doğrulama başarılı."
 
-    def test_succeeded_signal_emits_real_mp4_path_even_if_extractor_title_is_manifest(self, tmp_path):
+    def test_succeeded_signal_emits_real_mp4_path_even_if_extractor_title_is_manifest(
+        self, tmp_path
+    ):
         from pathlib import Path
 
         from src.download_worker import DownloadWorker
@@ -1106,12 +1239,24 @@ class TestKickManifestPreventionAndValidation:
             mock_proc.wait.return_value = 0
             return mock_proc
 
-        with patch("yt_dlp.YoutubeDL") as mock_ydl, \
-             patch("subprocess.Popen", side_effect=mock_ffmpeg_run), \
-             patch("src.utils.probe_media_codecs", return_value={"video_codec": "h264", "audio_codec": "aac", "duration": 300.0, "height": 720}), \
-             patch.object(worker, "_save_completed_record") as mock_save_rec:
-
-            mock_ydl.return_value.__enter__.return_value.extract_info.return_value = {"title": "manifest", "id": "manifest"}
+        with (
+            patch("yt_dlp.YoutubeDL") as mock_ydl,
+            patch("subprocess.Popen", side_effect=mock_ffmpeg_run),
+            patch(
+                "src.utils.probe_media_codecs",
+                return_value={
+                    "video_codec": "h264",
+                    "audio_codec": "aac",
+                    "duration": 300.0,
+                    "height": 720,
+                },
+            ),
+            patch.object(worker, "_save_completed_record") as mock_save_rec,
+        ):
+            mock_ydl.return_value.__enter__.return_value.extract_info.return_value = {
+                "title": "manifest",
+                "id": "manifest",
+            }
             worker._run_kick_download(req.url)
 
         assert emitted_path == str(target_file.resolve())
@@ -1135,9 +1280,22 @@ class TestKickManifestPreventionAndValidation:
         )
         worker = DownloadWorker(req)
 
-        with patch("src.download_worker.save_record") as mock_save, \
-             patch("src.utils.probe_media_codecs", return_value={"video_codec": "h264", "audio_codec": "aac", "height": 720}):
-            worker._save_completed_record(PlatformType.KICK_VIDEO, {"id": "manifest"}, override_target_file=target_file)
+        with (
+            patch("src.download_worker.save_record") as mock_save,
+            patch(
+                "src.utils.probe_media_codecs",
+                return_value={
+                    "video_codec": "h264",
+                    "audio_codec": "aac",
+                    "height": 720,
+                },
+            ),
+        ):
+            worker._save_completed_record(
+                PlatformType.KICK_VIDEO,
+                {"id": "manifest"},
+                override_target_file=target_file,
+            )
 
         assert mock_save.called
         saved_rec = mock_save.call_args[0][0]
@@ -1165,6 +1323,7 @@ class TestKickManifestPreventionAndValidation:
 # Progress Hook, Safe UI Text ve Stall Watchdog Testleri
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.kick_experimental
 class TestKickProgressAndStallWatchdog:
     def test_progress_percent_priority(self, tmp_path):
@@ -1187,39 +1346,45 @@ class TestKickProgressAndStallWatchdog:
         worker.progress_details.connect(lambda d: emitted_details.append(d))
 
         # 1. total_bytes ile yüzde
-        worker._progress_hook({
-            "status": "downloading",
-            "downloaded_bytes": 50,
-            "total_bytes": 100,
-            "speed": 1000,
-            "eta": 5,
-        })
+        worker._progress_hook(
+            {
+                "status": "downloading",
+                "downloaded_bytes": 50,
+                "total_bytes": 100,
+                "speed": 1000,
+                "eta": 5,
+            }
+        )
         assert emitted_pcts[-1] == 50
 
         # 2. total_bytes_estimate ile yüzde
-        worker._progress_hook({
-            "status": "downloading",
-            "downloaded_bytes": 30,
-            "total_bytes": 0,
-            "total_bytes_estimate": 100,
-            "speed": None,
-            "eta": None,
-        })
+        worker._progress_hook(
+            {
+                "status": "downloading",
+                "downloaded_bytes": 30,
+                "total_bytes": 0,
+                "total_bytes_estimate": 100,
+                "speed": None,
+                "eta": None,
+            }
+        )
         assert emitted_pcts[-1] == 30
         assert emitted_details[-1]["speed"] == "Hız hesaplanıyor…"
         assert emitted_details[-1]["eta"] == "Kalan süre hesaplanıyor…"
 
         # 3. fragment_index/fragment_count ile yüzde
-        worker._progress_hook({
-            "status": "downloading",
-            "downloaded_bytes": 1000,
-            "total_bytes": 0,
-            "total_bytes_estimate": 0,
-            "fragment_index": 25,
-            "fragment_count": 100,
-            "speed": None,
-            "eta": None,
-        })
+        worker._progress_hook(
+            {
+                "status": "downloading",
+                "downloaded_bytes": 1000,
+                "total_bytes": 0,
+                "total_bytes_estimate": 0,
+                "fragment_index": 25,
+                "fragment_count": 100,
+                "speed": None,
+                "eta": None,
+            }
+        )
         assert emitted_pcts[-1] == 25
 
     def test_watchdog_resets_on_activity(self, tmp_path):
@@ -1239,12 +1404,14 @@ class TestKickProgressAndStallWatchdog:
         worker._last_activity_time = time.time() - 25.0  # 25 saniye geçmiş
 
         # Aktivite gerçekleşti: downloaded_bytes arttı
-        worker._progress_hook({
-            "status": "downloading",
-            "downloaded_bytes": 500,
-            "fragment_index": 1,
-            "fragment_count": 10,
-        })
+        worker._progress_hook(
+            {
+                "status": "downloading",
+                "downloaded_bytes": 500,
+                "fragment_index": 1,
+                "fragment_count": 10,
+            }
+        )
 
         # last_activity_time sıfırlanmış olmalı (güncel zaman)
         assert time.time() - worker._last_activity_time < 2.0
@@ -1271,12 +1438,14 @@ class TestKickProgressAndStallWatchdog:
 
         # Aktivite yok (aynı downloaded_bytes ve fragment_index)
         with pytest.raises(yt_dlp.utils.DownloadError) as exc_info:
-            worker._progress_hook({
-                "status": "downloading",
-                "downloaded_bytes": 500,
-                "fragment_index": 5,
-                "fragment_count": 10,
-            })
+            worker._progress_hook(
+                {
+                    "status": "downloading",
+                    "downloaded_bytes": 500,
+                    "fragment_index": 5,
+                    "fragment_count": 10,
+                }
+            )
 
         assert "STALL_TIMEOUT" in str(exc_info.value)
 
@@ -1308,11 +1477,21 @@ class TestKickProgressAndStallWatchdog:
         def mock_extract(url, download=True):
             nonlocal extract_calls
             extract_calls += 1
-            raise yt_dlp.utils.DownloadError("STALL_TIMEOUT: Kick indirmesi sırasında veri akışı durdu.")
+            raise yt_dlp.utils.DownloadError(
+                "STALL_TIMEOUT: Kick indirmesi sırasında veri akışı durdu."
+            )
 
-        with patch("yt_dlp.YoutubeDL") as mock_ydl, \
-             patch.object(worker, "_resolve_kick_playback_url", return_value="https://example.com/fresh.m3u8") as mock_resolve:
-            mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = mock_extract
+        with (
+            patch("yt_dlp.YoutubeDL") as mock_ydl,
+            patch.object(
+                worker,
+                "_resolve_kick_playback_url",
+                return_value="https://example.com/fresh.m3u8",
+            ) as mock_resolve,
+        ):
+            mock_ydl.return_value.__enter__.return_value.extract_info.side_effect = (
+                mock_extract
+            )
             worker._run_kick_download(req.url)
 
         # 1 baslangic cozümleme + 1 stall retry = 2 resolve cagirisi
@@ -1344,11 +1523,18 @@ class TestKickProgressAndStallWatchdog:
                 return mock_vs_resp
             return MagicMock(status_code=404)
 
-        with patch("curl_cffi.requests.post", return_value=mock_pb_resp), \
-             patch("curl_cffi.requests.get", side_effect=mock_cffi_get):
-            m3u8_url, status, title = _fetch_kick_playback_m3u8("019faef9-eeb8-755e-a9b3-fb974cc7769e", {})
+        with (
+            patch("curl_cffi.requests.post", return_value=mock_pb_resp),
+            patch("curl_cffi.requests.get", side_effect=mock_cffi_get),
+        ):
+            m3u8_url, status, title = _fetch_kick_playback_m3u8(
+                "019faef9-eeb8-755e-a9b3-fb974cc7769e", {}
+            )
 
-        assert m3u8_url == "https://d26yk4zpyhjeeq.cloudfront.net/v1/master/real_ivs_master.m3u8"
+        assert (
+            m3u8_url
+            == "https://d26yk4zpyhjeeq.cloudfront.net/v1/master/real_ivs_master.m3u8"
+        )
         assert status == 200
         assert title == "Test Kick Stream"
 
@@ -1383,10 +1569,15 @@ class TestKickProgressAndStallWatchdog:
         fake_ts = tmp_path / f".kolayindir_{worker.job_id}_kick.ts"
         fake_ts.write_bytes(b"dummy ts data")
 
-        with patch("yt_dlp.YoutubeDL"), \
-             patch("subprocess.Popen") as mock_popen, \
-             patch("src.download_worker.validate_final_download", return_value=(False, "Geçersiz içerik veya reklam akışı")), \
-             patch.object(worker, "_save_completed_record") as mock_save_history:
+        with (
+            patch("yt_dlp.YoutubeDL"),
+            patch("subprocess.Popen") as mock_popen,
+            patch(
+                "src.download_worker.validate_final_download",
+                return_value=(False, "Geçersiz içerik veya reklam akışı"),
+            ),
+            patch.object(worker, "_save_completed_record") as mock_save_history,
+        ):
             mock_proc = MagicMock()
             mock_proc.returncode = 0
             mock_proc.stdout.readline.side_effect = ["", ""]
@@ -1396,13 +1587,20 @@ class TestKickProgressAndStallWatchdog:
 
         assert not succeeded_emitted
         assert mock_save_history.call_count == 0
-        assert "Kick tarafından döndürülen akışın orijinal VOD olduğu doğrulanamadı." in failed_msg
+        assert (
+            "Kick tarafından döndürülen akışın orijinal VOD olduğu doğrulanamadı."
+            in failed_msg
+        )
 
     def test_is_valid_kick_manifest_url_rejects_ssai_and_invalid_urls(self):
         from src.utils import is_valid_kick_manifest_url
 
-        assert is_valid_kick_manifest_url("https://d26yk4zpyhjeeq.cloudfront.net/v1/master/stream.m3u8")
-        assert not is_valid_kick_manifest_url("https://web.kick.com/api/v1/stream/manifest.m3u8")
+        assert is_valid_kick_manifest_url(
+            "https://d26yk4zpyhjeeq.cloudfront.net/v1/master/stream.m3u8"
+        )
+        assert not is_valid_kick_manifest_url(
+            "https://web.kick.com/api/v1/stream/manifest.m3u8"
+        )
         assert not is_valid_kick_manifest_url("https://example.com/stream.mp4")
         assert not is_valid_kick_manifest_url("not_a_url")
         assert not is_valid_kick_manifest_url("")
@@ -1421,7 +1619,9 @@ class TestKickProgressAndStallWatchdog:
         }
 
         with patch("curl_cffi.requests.post", return_value=mock_pb_resp):
-            m3u8_url, status, title = _fetch_kick_playback_m3u8("019faef9-eeb8-755e-a9b3-fb974cc7769e", {})
+            m3u8_url, status, title = _fetch_kick_playback_m3u8(
+                "019faef9-eeb8-755e-a9b3-fb974cc7769e", {}
+            )
 
         assert m3u8_url is None
         assert status == "unverified_vod_stream"
@@ -1441,14 +1641,20 @@ class TestKickProgressAndStallWatchdog:
 
         mock_vs_resp = MagicMock(status_code=403)
 
-        with patch("curl_cffi.requests.post", return_value=mock_pb_resp), \
-             patch("curl_cffi.requests.get", return_value=mock_vs_resp):
-            m3u8_url, status, _title = _fetch_kick_playback_m3u8("019faef9-eeb8-755e-a9b3-fb974cc7769e", {})
+        with (
+            patch("curl_cffi.requests.post", return_value=mock_pb_resp),
+            patch("curl_cffi.requests.get", return_value=mock_vs_resp),
+        ):
+            m3u8_url, status, _title = _fetch_kick_playback_m3u8(
+                "019faef9-eeb8-755e-a9b3-fb974cc7769e", {}
+            )
 
         assert m3u8_url is None
         assert status == "unverified_vod_stream"
 
-    def test_download_worker_start_gets_fresh_manifest_and_fails_if_unverified(self, tmp_path):
+    def test_download_worker_start_gets_fresh_manifest_and_fails_if_unverified(
+        self, tmp_path
+    ):
         from src.download_worker import DownloadWorker
         from src.models import DownloadRequest
 
@@ -1479,34 +1685,72 @@ class TestKickProgressAndStallWatchdog:
 # Kick Geçici Devre Dışı Bırakma Testleri
 # ---------------------------------------------------------------------------
 
+
 class TestKickDisabledUnitTests:
     """QApplication veya MainWindow oluşturmadan Kick'in geçici devre dışı durumunu doğrulayan saf birim testler."""
 
     def test_kick_platform_is_temporarily_disabled(self):
         from src.models import PlatformType, is_platform_temporarily_disabled
-        assert is_platform_temporarily_disabled(PlatformType.KICK_VIDEO, "https://kick.com/user/videos/12345678-abcd-ef12-3456-567890abcdef") is True
+
+        assert (
+            is_platform_temporarily_disabled(
+                PlatformType.KICK_VIDEO,
+                "https://kick.com/user/videos/12345678-abcd-ef12-3456-567890abcdef",
+            )
+            is True
+        )
         assert is_platform_temporarily_disabled(PlatformType.KICK_VIDEO) is True
 
     def test_kick_disabled_title_and_message(self):
         from src.models import KICK_DISABLED_MESSAGE, KICK_DISABLED_TITLE
+
         assert KICK_DISABLED_TITLE == "Kick Desteği Geçici Olarak Kullanılamıyor"
-        assert "Kick’in orijinal yayın akışı güvenilir biçimde doğrulanamadığı için Kick VOD indirme özelliği geçici olarak devre dışı bırakıldı." in KICK_DISABLED_MESSAGE
+        assert (
+            "Kick’in orijinal yayın akışı güvenilir biçimde doğrulanamadığı için Kick VOD indirme özelliği geçici olarak devre dışı bırakıldı."
+            in KICK_DISABLED_MESSAGE
+        )
 
     def test_other_platforms_not_disabled(self):
         from src.models import PlatformType, is_platform_temporarily_disabled
-        assert is_platform_temporarily_disabled(PlatformType.YOUTUBE_VIDEO, "https://www.youtube.com/watch?v=123") is False
-        assert is_platform_temporarily_disabled(PlatformType.INSTAGRAM_REEL, "https://instagram.com/reel/123") is False
-        assert is_platform_temporarily_disabled(PlatformType.TWITTER_POST, "https://twitter.com/user/status/123") is False
-        assert is_platform_temporarily_disabled(PlatformType.TIKTOK_VIDEO, "https://tiktok.com/@user/video/123") is False
+
+        assert (
+            is_platform_temporarily_disabled(
+                PlatformType.YOUTUBE_VIDEO, "https://www.youtube.com/watch?v=123"
+            )
+            is False
+        )
+        assert (
+            is_platform_temporarily_disabled(
+                PlatformType.INSTAGRAM_REEL, "https://instagram.com/reel/123"
+            )
+            is False
+        )
+        assert (
+            is_platform_temporarily_disabled(
+                PlatformType.TWITTER_POST, "https://twitter.com/user/status/123"
+            )
+            is False
+        )
+        assert (
+            is_platform_temporarily_disabled(
+                PlatformType.TIKTOK_VIDEO, "https://tiktok.com/@user/video/123"
+            )
+            is False
+        )
 
     def test_kick_badge_text_indicates_disabled(self):
         from src.models import PlatformType, get_platform_badge_text
-        assert get_platform_badge_text(PlatformType.KICK_VIDEO) == "Kick — Geçici olarak kullanılamıyor"
+
+        assert (
+            get_platform_badge_text(PlatformType.KICK_VIDEO)
+            == "Kick — Geçici olarak kullanılamıyor"
+        )
 
     def test_youtube_single_video_kick_watchdog_bypassed(self, tmp_path):
         """YouTube tek video indirmesinde Kick watchdog çalıştırılmaz ve stall hatası üretilmez."""
         from src.download_worker import DownloadWorker
         from src.models import DownloadRequest
+
         req = DownloadRequest(
             url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
             output_dir=tmp_path,
@@ -1518,12 +1762,15 @@ class TestKickDisabledUnitTests:
         worker._last_activity_time = 100.0  # 30 saniyeden uzun süre önce
         with patch("time.time", return_value=200.0):
             # _progress_hook çağrısı STALL_TIMEOUT fırlatmamalı
-            worker._progress_hook({"status": "downloading", "downloaded_bytes": 500, "total_bytes": 1000})
+            worker._progress_hook(
+                {"status": "downloading", "downloaded_bytes": 500, "total_bytes": 1000}
+            )
 
     def test_youtube_playlist_kick_watchdog_bypassed(self, tmp_path):
         """YouTube playlist indirmesinde Kick watchdog çalıştırılmaz."""
         from src.download_worker import DownloadWorker
         from src.models import DownloadRequest
+
         req = DownloadRequest(
             url="https://www.youtube.com/playlist?list=PL6F_cmvZa0pF4IOzeMekeUNp_QAxKOqcX",
             output_dir=tmp_path,
@@ -1534,12 +1781,15 @@ class TestKickDisabledUnitTests:
         worker = DownloadWorker(req)
         worker._last_activity_time = 100.0
         with patch("time.time", return_value=200.0):
-            worker._progress_hook({"status": "downloading", "downloaded_bytes": 100, "total_bytes": 1000})
+            worker._progress_hook(
+                {"status": "downloading", "downloaded_bytes": 100, "total_bytes": 1000}
+            )
 
     def test_youtube_playlist_item_pause_over_30s_no_kick_timeout(self, tmp_path):
         """Playlist öğeleri arasındaki 30 saniyeyi aşan beklemede Kick STALL_TIMEOUT üretilmez."""
         from src.download_worker import DownloadWorker
         from src.models import DownloadRequest
+
         req = DownloadRequest(
             url="https://www.youtube.com/playlist?list=PL6F_cmvZa0pF4IOzeMekeUNp_QAxKOqcX",
             output_dir=tmp_path,
@@ -1549,16 +1799,22 @@ class TestKickDisabledUnitTests:
         )
         worker = DownloadWorker(req)
         # Önce 1. video sonlandırıldı
-        worker._progress_hook({"status": "downloading", "downloaded_bytes": 1000, "total_bytes": 1000})
+        worker._progress_hook(
+            {"status": "downloading", "downloaded_bytes": 1000, "total_bytes": 1000}
+        )
         import time as _time
+
         # 40 saniye sonra 2. video indirmesi başladı
         with patch("time.time", return_value=_time.time() + 40.0):
-            worker._progress_hook({"status": "downloading", "downloaded_bytes": 50, "total_bytes": 500})
+            worker._progress_hook(
+                {"status": "downloading", "downloaded_bytes": 50, "total_bytes": 500}
+            )
 
     def test_ffmpeg_postprocessing_no_kick_timeout(self, tmp_path):
         """FFmpeg işleme sırasında ilerleme sabit kalsa bile Kick timeout üretilmez."""
         from src.download_worker import DownloadWorker
         from src.models import DownloadRequest
+
         req = DownloadRequest(
             url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
             output_dir=tmp_path,
@@ -1569,47 +1825,72 @@ class TestKickDisabledUnitTests:
         worker = DownloadWorker(req)
         worker._last_activity_time = 100.0
         with patch("time.time", return_value=200.0):
-            worker._postprocessor_hook({"postprocessor": "FFmpegMerger", "status": "started"})
+            worker._postprocessor_hook(
+                {"postprocessor": "FFmpegMerger", "status": "started"}
+            )
 
     def test_instagram_download_no_kick_error(self):
         """Instagram indirme hatalarında Kick hata mesajı gösterilmez."""
         from src.models import translate_social_error
+
         err = "STALL_TIMEOUT: Kick indirmesi sırasında veri akışı durdu."
-        translated = translate_social_error(err, "https://www.instagram.com/reel/C123456789/")
+        translated = translate_social_error(
+            err, "https://www.instagram.com/reel/C123456789/"
+        )
         assert "Kick" not in translated
         assert "İndirme sırasında uzun süre veri alınamadı" in translated
 
     def test_twitter_download_no_kick_error(self):
         """X/Twitter indirme hatalarında Kick hata mesajı gösterilmez."""
         from src.models import translate_social_error
+
         err = "STALL_TIMEOUT: Kick indirmesi sırasında veri akışı durdu."
-        translated = translate_social_error(err, "https://twitter.com/user/status/1234567890")
+        translated = translate_social_error(
+            err, "https://twitter.com/user/status/1234567890"
+        )
         assert "Kick" not in translated
         assert "İndirme sırasında uzun süre veri alınamadı" in translated
 
     def test_tiktok_download_no_kick_error(self):
         """TikTok indirme hatalarında Kick hata mesajı gösterilmez."""
         from src.models import translate_social_error
+
         err = "STALL_TIMEOUT: Kick indirmesi sırasında veri akışı durdu."
-        translated = translate_social_error(err, "https://www.tiktok.com/@user/video/1234567890")
+        translated = translate_social_error(
+            err, "https://www.tiktok.com/@user/video/1234567890"
+        )
         assert "Kick" not in translated
         assert "İndirme sırasında uzun süre veri alınamadı" in translated
 
     def test_kick_vod_disabled_on_main(self):
         """Kick VOD main dalında geçici olarak devre dışıdır."""
         from src.models import PlatformType, is_platform_temporarily_disabled
-        assert is_platform_temporarily_disabled(PlatformType.KICK_VIDEO, "https://kick.com/user/videos/12345678-abcd-ef12-3456-567890abcdef") is True
+
+        assert (
+            is_platform_temporarily_disabled(
+                PlatformType.KICK_VIDEO,
+                "https://kick.com/user/videos/12345678-abcd-ef12-3456-567890abcdef",
+            )
+            is True
+        )
 
     def test_kick_stall_message_isolation(self):
         """Kullanıcıya gösterilen Kick stall mesajı yalnız Kick platformunda üretilir veya genel mesaja dönüştürülür."""
         from src.models import translate_social_error
-        yt_err = translate_social_error("STALL_TIMEOUT", "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-        assert yt_err == "İndirme sırasında uzun süre veri alınamadı. İnternet bağlantınızı kontrol edip yeniden deneyin."
+
+        yt_err = translate_social_error(
+            "STALL_TIMEOUT", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        )
+        assert (
+            yt_err
+            == "İndirme sırasında uzun süre veri alınamadı. İnternet bağlantınızı kontrol edip yeniden deneyin."
+        )
 
     def test_playlist_worker_cancel_clean_shutdown(self, tmp_path):
         """Playlist worker iptal edildiğinde temiz kapama bayrağı ve durum güncellenir."""
         from src.download_worker import DownloadWorker
         from src.models import DownloadRequest
+
         req = DownloadRequest(
             url="https://www.youtube.com/playlist?list=PL6F_cmvZa0pF4IOzeMekeUNp_QAxKOqcX",
             output_dir=tmp_path,
@@ -1618,7 +1899,9 @@ class TestKickDisabledUnitTests:
             playlist=True,
         )
         worker = DownloadWorker(req)
-        worker.cancelled.connect(lambda: setattr(worker, "_cancelled_signal_seen", True))
+        worker.cancelled.connect(
+            lambda: setattr(worker, "_cancelled_signal_seen", True)
+        )
         worker.cancel()
         assert worker._cancel_requested is True
 
@@ -1628,7 +1911,9 @@ class TestKickDisabledBehavior:
     """Kick VOD özelliğinin geçici olarak devre dışı bırakılmasını ve diğer platformların etkilenmediğini doğrular."""
 
     def test_kick_url_metadata_worker_not_started(self, main_window):
-        main_window.url_input.setText("https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189")
+        main_window.url_input.setText(
+            "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189"
+        )
         with patch("src.main_window.AppMessageDialog") as mock_dialog:
             mock_dialog.return_value.exec.return_value = None
             main_window.analyze_url()
@@ -1636,7 +1921,9 @@ class TestKickDisabledBehavior:
         assert main_window._metadata_worker is None
 
     def test_kick_url_download_worker_not_started(self, main_window):
-        main_window.url_input.setText("https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189")
+        main_window.url_input.setText(
+            "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189"
+        )
         with patch("src.main_window.AppMessageDialog") as mock_dialog:
             mock_dialog.return_value.exec.return_value = None
             main_window.start_download()
@@ -1644,17 +1931,23 @@ class TestKickDisabledBehavior:
         assert main_window._download_worker is None
 
     def test_kick_url_download_button_remains_disabled(self, main_window):
-        main_window.url_input.setText("https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189")
+        main_window.url_input.setText(
+            "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189"
+        )
         with patch("src.main_window.AppMessageDialog") as mock_dialog:
             mock_dialog.return_value.exec.return_value = None
             main_window.analyze_url()
         assert not main_window.download_button.isEnabled()
 
     def test_kick_url_shows_correct_disabled_message(self, main_window):
-        main_window.url_input.setText("https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189")
+        main_window.url_input.setText(
+            "https://kick.com/jahrein/videos/019fa488-5d20-71c0-a869-8716cf8e8189"
+        )
         captured = {}
 
-        def mock_dialog_constructor(title, message, icon_type="info", parent=None, buttons=None):
+        def mock_dialog_constructor(
+            title, message, icon_type="info", parent=None, buttons=None
+        ):
             captured["title"] = title
             captured["message"] = message
             captured["icon_type"] = icon_type
@@ -1662,11 +1955,16 @@ class TestKickDisabledBehavior:
             mock_inst.exec.return_value = None
             return mock_inst
 
-        with patch("src.main_window.AppMessageDialog", side_effect=mock_dialog_constructor):
+        with patch(
+            "src.main_window.AppMessageDialog", side_effect=mock_dialog_constructor
+        ):
             main_window.analyze_url()
 
         assert captured["title"] == "Kick Desteği Geçici Olarak Kullanılamıyor"
-        assert "Kick’in orijinal yayın akışı güvenilir biçimde doğrulanamadığı için Kick VOD indirme özelliği geçici olarak devre dışı bırakıldı." in captured["message"]
+        assert (
+            "Kick’in orijinal yayın akışı güvenilir biçimde doğrulanamadığı için Kick VOD indirme özelliği geçici olarak devre dışı bırakıldı."
+            in captured["message"]
+        )
         assert captured["title"] != "İnceleme Başarısız"
 
     def test_youtube_inspection_unaffected(self, main_window):
@@ -1688,7 +1986,9 @@ class TestKickDisabledBehavior:
         assert main_window.analyze_button.text() == "İnceleniyor…"
 
     def test_twitter_inspection_unaffected(self, main_window):
-        main_window.url_input.setText("https://twitter.com/user/status/1234567890123456789")
+        main_window.url_input.setText(
+            "https://twitter.com/user/status/1234567890123456789"
+        )
         with patch("src.main_window.MetadataWorker") as mock_worker_cls:
             mock_worker = MagicMock()
             mock_worker_cls.return_value = mock_worker
@@ -1697,7 +1997,9 @@ class TestKickDisabledBehavior:
         assert main_window.analyze_button.text() == "İnceleniyor…"
 
     def test_tiktok_inspection_unaffected(self, main_window):
-        main_window.url_input.setText("https://www.tiktok.com/@user/video/1234567890123456789")
+        main_window.url_input.setText(
+            "https://www.tiktok.com/@user/video/1234567890123456789"
+        )
         with patch("src.main_window.MetadataWorker") as mock_worker_cls:
             mock_worker = MagicMock()
             mock_worker_cls.return_value = mock_worker

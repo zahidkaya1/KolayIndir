@@ -24,7 +24,7 @@ def test_spec_and_version_info_exist():
 
     version_content = version_info_path.read_text(encoding="utf-8")
     assert APP_VERSION in version_content
-    assert "1.1.1.1" in version_content
+    assert "1.2.0.0" in version_content
 
 
 def test_build_scripts_exist():

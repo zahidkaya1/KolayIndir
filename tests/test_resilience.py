@@ -255,7 +255,7 @@ def test_http_user_agent_ascii_only():
     from src.config import APP_NAME, HTTP_USER_AGENT
 
     assert APP_NAME == "Loadvia"
-    assert HTTP_USER_AGENT == "Loadvia/1.1.1"
+    assert HTTP_USER_AGENT == "Loadvia/1.2.0"
     assert "İ" not in HTTP_USER_AGENT
     assert HTTP_USER_AGENT.isascii() is True
 
@@ -375,7 +375,7 @@ def test_fixed_window_structure_and_dimensions(tmp_path, monkeypatch):
 def test_dialogs_max_width_constraints():
     _app = QApplication.instance() or QApplication([])
     dlg1 = DownloadCompletedDialog("Summary")
-    dlg2 = UpdateAvailableDialog("v1.1.1", "Notes")
+    dlg2 = UpdateAvailableDialog("v1.2.0", "Notes")
     dlg3 = AppMessageDialog("Title", "Message")
 
     assert dlg1.maximumWidth() <= 600

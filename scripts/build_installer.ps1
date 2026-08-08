@@ -11,7 +11,7 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $ProjectRoot
 
-Write-Host "=== Loadvia 1.1.1 Installer Build Process ===" -ForegroundColor Cyan
+Write-Host "=== Loadvia 1.2.0 Installer Build Process ===" -ForegroundColor Cyan
 
 # 1. Rebuild Portable App if requested
 if ($RebuildApp) {
@@ -33,8 +33,8 @@ if (-not (Test-Path $ExePath)) {
 }
 
 $VerInfo = (Get-Item $ExePath).VersionInfo
-if ($VerInfo.ProductName -ne "Loadvia" -or $VerInfo.FileVersion -ne "1.1.1.1") {
-    Write-Error "Portable EXE version mismatch! Expected Loadvia 1.1.1.1"
+if ($VerInfo.ProductName -ne "Loadvia" -or $VerInfo.FileVersion -ne "1.2.0.0") {
+    Write-Error "Portable EXE version mismatch! Expected Loadvia 1.2.0.0"
     exit 1
 }
 Write-Host "[OK] Verified portable build ($ExePath)." -ForegroundColor Green
@@ -89,7 +89,7 @@ $ReleaseDir = Join-Path $ProjectRoot "release"
 if (-not (Test-Path $ReleaseDir)) {
     New-Item -ItemType Directory -Path $ReleaseDir | Out-Null
 }
-$SetupExe = Join-Path $ReleaseDir "Loadvia-Setup-1.1.1.exe"
+$SetupExe = Join-Path $ReleaseDir "Loadvia-Setup-1.2.0.exe"
 if ($Clean -and (Test-Path $SetupExe)) {
     Remove-Item -Force $SetupExe
     Write-Host "Cleaned old installer: $SetupExe" -ForegroundColor Yellow
